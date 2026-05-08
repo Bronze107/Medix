@@ -1,3 +1,7 @@
+mod media;
+
+pub use media::*;
+
 use tauri::command;
 
 #[command]

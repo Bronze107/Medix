@@ -1,0 +1,24 @@
+pub mod import;
+pub mod thumbnail;
+
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Media {
+    pub id: String,
+    pub source_path: Option<String>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    pub file_size: Option<i64>,
+    pub created_at: Option<String>,
+    pub modified_at: Option<String>,
+    pub imported_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MediaImportResult {
+    pub id: String,
+    pub path: String,
+    pub success: bool,
+    pub error: Option<String>,
+}

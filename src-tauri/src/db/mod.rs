@@ -1,7 +1,9 @@
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
+
+use crate::media::Media;
 
 pub fn db_path(app: &AppHandle) -> PathBuf {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
@@ -25,7 +27,6 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Phase 1: Initial schema
         INSERT OR IGNORE INTO _migrations (name) VALUES ('0001_initial');
 
         CREATE TABLE IF NOT EXISTS media (
@@ -45,4 +46,68 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         ",
     )?;
     Ok(())
+}
+
+pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "INSERT INTO media (id, source_path, width, height, file_size, created_at, modified_at, imported_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            &media.id,
+            media.source_path.as_ref(),
+            media.width,
+            media.height,
+            media.file_size,
+            media.created_at.as_ref(),
+            media.modified_at.as_ref(),
+            &media.imported_at,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn list_media(
+    app: &AppHandle,
+    sort_by: &str,
+    descending: bool,
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+
+    let order = if descending { "DESC" } else { "ASC" };
+    let sort_column = match sort_by {
+        "created_at" => "created_at",
+        "modified_at" => "modified_at",
+        _ => "imported_at",
+    };
+
+    let sql = format!(
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at
+         FROM media
+         ORDER BY {} {}",
+        sort_column, order
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let media_iter = stmt.query_map([], |row| {
+        Ok(Media {
+            id: row.get(0)?,
+            source_path: row.get(1)?,
+            width: row.get(2)?,
+            height: row.get(3)?,
+            file_size: row.get(4)?,
+            created_at: row.get(5)?,
+            modified_at: row.get(6)?,
+            imported_at: row.get(7)?,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for media in media_iter {
+        results.push(media?);
+    }
+
+    Ok(results)
 }
