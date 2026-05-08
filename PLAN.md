@@ -30,10 +30,10 @@
 5. 配置 SQLite 数据库连接和迁移系统
 
 ### 验证标准
-- [ ] `cargo tauri dev` 能正常启动，显示主窗口
-- [ ] 侧边栏可在"全部媒体"/"标签"/"设置"间切换
-- [ ] 数据库文件在 `AppData/Roaming/Medix/medix.db` 成功创建
-- [ ] 前端可调用 Tauri command `greet(name)` 并返回 `"Hello, {name}!"`
+- [x] `cargo tauri dev` 能正常启动，显示主窗口
+- [x] 侧边栏可在"全部媒体"/"标签"/"设置"间切换
+- [x] 数据库文件在 `AppData/Roaming/com.bronze107.medix/medix.db` 成功创建
+- [x] 前端可调用 Tauri command `greet(name)` 并返回 `"Hello, {name}!"`
 
 ---
 
