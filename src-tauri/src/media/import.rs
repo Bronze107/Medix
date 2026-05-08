@@ -103,6 +103,8 @@ fn import_single_file(
         created_at,
         modified_at,
         imported_at: chrono::Utc::now().to_rfc3339(),
+        thumb_256: None,
+        thumb_512: None,
     };
 
     if let Err(e) = db::insert_media(app, &media) {

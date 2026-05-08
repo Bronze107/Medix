@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Media } from "@/types/media";
 
 interface GalleryProps {
@@ -30,7 +31,7 @@ function Gallery({
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 180,
+    estimateSize: () => 220,
     overscan: 3,
   });
 
@@ -68,6 +69,10 @@ function Gallery({
             >
               {rowMedia.map((item) => {
                 const isSelected = item.id === selectedId;
+                const thumbUrl = item.thumb_256
+                  ? convertFileSrc(item.thumb_256)
+                  : null;
+
                 return (
                   <button
                     key={item.id}
@@ -78,10 +83,35 @@ function Gallery({
                         : "border-neutral-700 bg-neutral-800/50 hover:border-neutral-500"
                     }`}
                   >
-                    <div className="flex flex-1 items-center justify-center bg-neutral-900/50 p-2">
-                      <div className="text-xs text-neutral-500">
-                        {item.width ?? "?"} × {item.height ?? "?"}
-                      </div>
+                    <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-neutral-900/50">
+                      {thumbUrl ? (
+                        <img
+                          src={thumbUrl}
+                          alt=""
+                          loading="lazy"
+                          className="h-full w-full object-cover"
+                          draggable={false}
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center gap-1 p-2 text-neutral-500">
+                          <svg
+                            className="h-8 w-8"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={1}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 0 0 2.25-2.25V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
+                            />
+                          </svg>
+                          <span className="text-[10px]">
+                            {item.width ?? "?"} × {item.height ?? "?"}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <div className="border-t border-neutral-700 p-2 text-left">
                       <p className="truncate text-xs font-medium text-neutral-300">

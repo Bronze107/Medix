@@ -68,6 +68,22 @@ pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+fn resolve_thumb_paths(app: &AppHandle, media_list: &mut [Media]) {
+    let Ok(app_dir) = app.path().app_data_dir() else { return };
+    let thumbs_dir = app_dir.join("thumbnails");
+
+    for media in media_list {
+        let thumb_256 = thumbs_dir.join(format!("{}_256.jpg", media.id));
+        if thumb_256.exists() {
+            media.thumb_256 = Some(thumb_256.to_string_lossy().to_string());
+        }
+        let thumb_512 = thumbs_dir.join(format!("{}_512.jpg", media.id));
+        if thumb_512.exists() {
+            media.thumb_512 = Some(thumb_512.to_string_lossy().to_string());
+        }
+    }
+}
+
 pub fn list_media(
     app: &AppHandle,
     sort_by: &str,
@@ -101,6 +117,8 @@ pub fn list_media(
             created_at: row.get(5)?,
             modified_at: row.get(6)?,
             imported_at: row.get(7)?,
+            thumb_256: None,
+            thumb_512: None,
         })
     })?;
 
@@ -108,6 +126,8 @@ pub fn list_media(
     for media in media_iter {
         results.push(media?);
     }
+
+    resolve_thumb_paths(app, &mut results);
 
     Ok(results)
 }

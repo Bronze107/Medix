@@ -7,6 +7,8 @@ export interface Media {
   created_at: string | null;
   modified_at: string | null;
   imported_at: string;
+  thumb_256: string | null;
+  thumb_512: string | null;
 }
 
 export interface MediaImportResult {
