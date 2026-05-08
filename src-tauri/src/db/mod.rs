@@ -75,11 +75,11 @@ fn resolve_thumb_paths(app: &AppHandle, media_list: &mut [Media]) {
     for media in media_list {
         let thumb_256 = thumbs_dir.join(format!("{}_256.jpg", media.id));
         if thumb_256.exists() {
-            media.thumb_256 = Some(thumb_256.to_string_lossy().to_string());
+            media.thumb_256 = Some(thumb_256.to_string_lossy().replace('\\', "/"));
         }
         let thumb_512 = thumbs_dir.join(format!("{}_512.jpg", media.id));
         if thumb_512.exists() {
-            media.thumb_512 = Some(thumb_512.to_string_lossy().to_string());
+            media.thumb_512 = Some(thumb_512.to_string_lossy().replace('\\', "/"));
         }
     }
 }

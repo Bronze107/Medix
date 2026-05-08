@@ -72,6 +72,7 @@ function Gallery({
                 const thumbUrl = item.thumb_256
                   ? convertFileSrc(item.thumb_256)
                   : null;
+                if (thumbUrl) console.log("[thumb]", item.id.slice(0, 8), thumbUrl);
 
                 return (
                   <button
