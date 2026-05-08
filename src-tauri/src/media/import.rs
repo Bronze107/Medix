@@ -122,7 +122,11 @@ fn import_single_file(
     let media_id = id.clone();
     let dest_path_clone = dest_path.clone();
     tokio::task::spawn_blocking(move || {
-        let _ = super::thumbnail::generate_thumbnails(&app_clone, &media_id, &dest_path_clone);
+        if let Err(e) = super::thumbnail::generate_thumbnails(&app_clone, &media_id, &dest_path_clone) {
+            eprintln!("[thumbnail] failed to generate thumbnails for {}: {}", media_id, e);
+        } else {
+            println!("[thumbnail] generated for {}", media_id);
+        }
     });
 
     MediaImportResult {
