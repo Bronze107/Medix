@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import type { Media } from "@/types/media";
 import { mediaImport, mediaList } from "@/lib/tauri";
 import DropZone from "@/components/DropZone/DropZone";
@@ -7,6 +8,11 @@ import DetailPanel from "@/components/DetailPanel/DetailPanel";
 
 type SortField = "imported_at" | "created_at" | "modified_at";
 
+interface DragDropPayload {
+  paths: string[];
+  position: { x: number; y: number };
+}
+
 function AllMedia() {
   const [media, setMedia] = useState<Media[]>([]);
   const [selected, setSelected] = useState<Media | null>(null);
@@ -14,6 +20,7 @@ function AllMedia() {
   const [descending, setDescending] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const [dropHover, setDropHover] = useState(false);
 
   const loadMedia = useCallback(async () => {
     try {
@@ -28,21 +35,9 @@ function AllMedia() {
     loadMedia();
   }, [loadMedia]);
 
-  const handleDropFiles = useCallback(
-    async (files: File[]) => {
-      const paths: string[] = [];
-      for (const file of files) {
-        const path = (file as unknown as { path?: string }).path;
-        if (path) {
-          paths.push(path);
-        }
-      }
-
-      if (paths.length === 0) {
-        setImportMessage("无法获取文件路径，请重试");
-        setTimeout(() => setImportMessage(""), 3000);
-        return;
-      }
+  const doImport = useCallback(
+    async (paths: string[]) => {
+      if (paths.length === 0) return;
 
       setIsImporting(true);
       setImportMessage(`正在导入 ${paths.length} 个文件...`);
@@ -59,11 +54,30 @@ function AllMedia() {
         setImportMessage(`导入失败: ${e}`);
       } finally {
         setIsImporting(false);
+        setDropHover(false);
         setTimeout(() => setImportMessage(""), 5000);
       }
     },
     [loadMedia]
   );
+
+  useEffect(() => {
+    const unlistenEnter = listen("tauri://drag-enter", () => {
+      setDropHover(true);
+    });
+    const unlistenLeave = listen("tauri://drag-leave", () => {
+      setDropHover(false);
+    });
+    const unlistenDrop = listen<DragDropPayload>("tauri://drag-drop", (event) => {
+      setDropHover(false);
+      doImport(event.payload.paths);
+    });
+    return () => {
+      unlistenEnter.then((f) => f());
+      unlistenLeave.then((f) => f());
+      unlistenDrop.then((f) => f());
+    };
+  }, [doImport]);
 
   return (
     <div className="flex h-full flex-col">
@@ -109,7 +123,7 @@ function AllMedia() {
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col p-4">
           {media.length === 0 ? (
-            <DropZone onDropFiles={handleDropFiles} />
+            <DropZone dropHover={dropHover} />
           ) : (
             <Gallery
               media={media}
