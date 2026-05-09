@@ -44,6 +44,7 @@
 ### 任务
 1. 实现拖放导入 (DropZone 组件)
    - 支持多文件拖拽
+   - 支持文件夹拖拽导入（递归遍历子目录）
    - 文件类型验证 (jpg/png/webp/gif/bmp)
 2. Rust 后端：文件处理管道
    - 复制/移动文件到应用数据目录 (`%APPDATA%/Medix/library/`)
@@ -64,6 +65,7 @@
 - [x] `library/` 和 `thumbnails/` 目录结构正确
 - [x] 导入 1000 张图片，滚动流畅无卡顿 (虚拟滚动生效)
 - [x] 支持按 `created_at` / `modified_at` / `imported_at` 排序
+- [x] 拖入文件夹，递归导入其中所有支持的图片
 
 ---
 

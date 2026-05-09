@@ -26,15 +26,43 @@ pub fn import_files(
     let library_dir = app_dir.join("library");
     fs::create_dir_all(&library_dir)?;
 
+    let mut file_paths = Vec::new();
+
+    // Collect all supported image files from files and directories
+    for path_str in &paths {
+        let path = Path::new(path_str);
+        if path.is_file() {
+            file_paths.push(path_str.clone());
+        } else if path.is_dir() {
+            collect_image_files(path, &mut file_paths)?;
+        }
+    }
+
     let mut results = Vec::new();
 
-    for path_str in paths {
+    for path_str in file_paths {
         let path = Path::new(&path_str);
         let result = import_single_file(app, path, &library_dir);
         results.push(result);
     }
 
     Ok(results)
+}
+
+fn collect_image_files(
+    dir: &Path,
+    out: &mut Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() && is_supported(&path) {
+            out.push(path.to_string_lossy().to_string());
+        } else if path.is_dir() {
+            collect_image_files(&path, out)?;
+        }
+    }
+    Ok(())
 }
 
 fn import_single_file(
