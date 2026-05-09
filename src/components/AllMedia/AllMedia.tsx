@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { Media } from "@/types/media";
-import { mediaImport, mediaList } from "@/lib/tauri";
+import { mediaImport, mediaList, mediaSearch } from "@/lib/tauri";
 import DropZone from "@/components/DropZone/DropZone";
 import Gallery from "@/components/Gallery/Gallery";
 import DetailPanel from "@/components/DetailPanel/DetailPanel";
@@ -21,15 +21,31 @@ function AllMedia() {
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [dropHover, setDropHover] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const loadMedia = useCallback(async () => {
     try {
-      const list = await mediaList(sortBy, descending);
+      const query = debouncedSearch.trim();
+      let list: Media[];
+      if (query) {
+        list = await mediaSearch(query, sortBy, descending);
+      } else {
+        list = await mediaList(sortBy, descending);
+      }
       setMedia(list);
     } catch (e) {
       console.error("Failed to load media:", e);
     }
-  }, [sortBy, descending]);
+  }, [sortBy, descending, debouncedSearch]);
 
   useEffect(() => {
     loadMedia();
@@ -85,6 +101,25 @@ function AllMedia() {
       <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-3">
         <h1 className="text-xl font-bold">全部媒体</h1>
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜索 tag:cat dog..."
+              className="w-48 rounded border border-neutral-700 bg-neutral-800 py-1 pl-2 pr-6 text-xs text-neutral-300 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortField)}

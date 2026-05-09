@@ -2,8 +2,10 @@ use rusqlite::{params, Connection};
 use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
+use ulid::Ulid;
 
 use crate::media::Media;
+use crate::tag::Tag;
 
 pub fn db_path(app: &AppHandle) -> PathBuf {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
@@ -43,6 +45,28 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
 
         CREATE INDEX IF NOT EXISTS idx_media_imported_at ON media(imported_at);
         CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at);
+
+        INSERT OR IGNORE INTO _migrations (name) VALUES ('0002_tags');
+
+        CREATE TABLE IF NOT EXISTS tags (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS media_tags (
+            media_id TEXT NOT NULL,
+            tag_id TEXT NOT NULL,
+            confidence REAL,
+            source TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (media_id, tag_id),
+            FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_media_tags_media ON media_tags(media_id);
+        CREATE INDEX IF NOT EXISTS idx_media_tags_tag ON media_tags(tag_id);
         ",
     )?;
     Ok(())
@@ -129,5 +153,176 @@ pub fn list_media(
 
     resolve_thumb_paths(app, &mut results);
 
+    Ok(results)
+}
+
+// --- Tag operations ---
+
+pub fn tag_list(app: &AppHandle) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY name")?;
+    let tag_iter = stmt.query_map([], |row| {
+        Ok(Tag {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    })?;
+    let mut results = Vec::new();
+    for tag in tag_iter {
+        results.push(tag?);
+    }
+    Ok(results)
+}
+
+pub fn tag_create(
+    app: &AppHandle,
+    name: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let id = Ulid::new().to_string();
+    let name_lower = name.to_lowercase();
+    conn.execute(
+        "INSERT INTO tags (id, name) VALUES (?1, ?2)",
+        params![&id, &name_lower],
+    )?;
+    Ok(id)
+}
+
+pub fn tag_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute("DELETE FROM tags WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn tag_rename(
+    app: &AppHandle,
+    id: &str,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let name_lower = name.to_lowercase();
+    conn.execute(
+        "UPDATE tags SET name = ?1 WHERE id = ?2",
+        params![&name_lower, id],
+    )?;
+    Ok(())
+}
+
+pub fn media_tags_get(
+    app: &AppHandle,
+    media_id: &str,
+) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.name FROM tags t
+         JOIN media_tags mt ON t.id = mt.tag_id
+         WHERE mt.media_id = ?1
+         ORDER BY t.name",
+    )?;
+    let tag_iter = stmt.query_map(params![media_id], |row| {
+        Ok(Tag {
+            id: row.get(0)?,
+            name: row.get(1)?,
+        })
+    })?;
+    let mut results = Vec::new();
+    for tag in tag_iter {
+        results.push(tag?);
+    }
+    Ok(results)
+}
+
+pub fn media_tag_add(
+    app: &AppHandle,
+    media_id: &str,
+    tag_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?1, ?2)",
+        params![media_id, tag_id],
+    )?;
+    Ok(())
+}
+
+pub fn media_tag_remove(
+    app: &AppHandle,
+    media_id: &str,
+    tag_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "DELETE FROM media_tags WHERE media_id = ?1 AND tag_id = ?2",
+        params![media_id, tag_id],
+    )?;
+    Ok(())
+}
+
+pub fn media_search_by_tags(
+    app: &AppHandle,
+    tag_names: &[String],
+    sort_by: &str,
+    descending: bool,
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    if tag_names.is_empty() {
+        return list_media(app, sort_by, descending);
+    }
+
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+
+    let order = if descending { "DESC" } else { "ASC" };
+    let sort_column = match sort_by {
+        "created_at" => "created_at",
+        "modified_at" => "modified_at",
+        _ => "imported_at",
+    };
+
+    let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at
+         FROM media m
+         JOIN media_tags mt ON m.id = mt.media_id
+         JOIN tags t ON mt.tag_id = t.id
+         WHERE t.name IN ({})
+         GROUP BY m.id
+         HAVING COUNT(DISTINCT t.id) = {}
+         ORDER BY m.{} {}",
+        placeholders, tag_names.len(), sort_column, order
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let params_vec: Vec<&dyn rusqlite::ToSql> = tag_names
+        .iter()
+        .map(|n| n as &dyn rusqlite::ToSql)
+        .collect();
+    let media_iter = stmt.query_map(params_vec.as_slice(), |row| {
+        Ok(Media {
+            id: row.get(0)?,
+            source_path: row.get(1)?,
+            width: row.get(2)?,
+            height: row.get(3)?,
+            file_size: row.get(4)?,
+            created_at: row.get(5)?,
+            modified_at: row.get(6)?,
+            imported_at: row.get(7)?,
+            thumb_256: None,
+            thumb_512: None,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for media in media_iter {
+        results.push(media?);
+    }
+
+    resolve_thumb_paths(app, &mut results);
     Ok(results)
 }
