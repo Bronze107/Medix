@@ -2,7 +2,7 @@ mod commands;
 mod db;
 mod media;
 
-use commands::{greet, media_import, media_list};
+use commands::{greet, media_import, media_list, media_thumbnail};
 
 fn main() {
     tauri::Builder::default()
@@ -11,7 +11,7 @@ fn main() {
             db::init(app.handle())?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, media_import, media_list])
+        .invoke_handler(tauri::generate_handler![greet, media_import, media_list, media_thumbnail])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -15,3 +15,7 @@ export function mediaList(
 ): Promise<Media[]> {
   return invoke("media_list", { sortBy, descending });
 }
+
+export function mediaThumbnail(id: string): Promise<string> {
+  return invoke("media_thumbnail", { id });
+}

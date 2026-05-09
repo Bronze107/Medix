@@ -1,6 +1,8 @@
 mod media;
+mod thumbnail;
 
 pub use media::*;
+pub use thumbnail::*;
 
 use tauri::command;
 

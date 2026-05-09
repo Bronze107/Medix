@@ -1,7 +1,7 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Media } from "@/types/media";
+import { mediaThumbnail } from "@/lib/tauri";
 
 interface GalleryProps {
   media: Media[];
@@ -16,6 +16,36 @@ function formatFileSize(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const thumbCache = new Map<string, string>();
+
+function useThumbnail(id: string | null) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    if (thumbCache.has(id)) {
+      setUrl(thumbCache.get(id)!);
+      return;
+    }
+    let cancelled = false;
+    mediaThumbnail(id)
+      .then((b64) => {
+        if (!cancelled) {
+          thumbCache.set(id, b64);
+          setUrl(b64);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  return url;
 }
 
 function Gallery({
@@ -67,72 +97,84 @@ function Gallery({
                 padding: `0 ${gap / 2}px`,
               }}
             >
-              {rowMedia.map((item) => {
-                const isSelected = item.id === selectedId;
-                const thumbUrl = item.thumb_256
-                  ? convertFileSrc(item.thumb_256)
-                  : null;
-                if (thumbUrl) console.log("[thumb]", item.id.slice(0, 8), thumbUrl);
-
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => onSelect(item)}
-                    className={`group relative flex flex-col overflow-hidden rounded-lg border transition-all ${
-                      isSelected
-                        ? "border-blue-500 bg-neutral-800"
-                        : "border-neutral-700 bg-neutral-800/50 hover:border-neutral-500"
-                    }`}
-                  >
-                    <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-neutral-900/50">
-                      {thumbUrl ? (
-                        <img
-                          src={thumbUrl}
-                          alt=""
-                          loading="lazy"
-                          className="h-full w-full object-cover"
-                          draggable={false}
-                        />
-                      ) : (
-                        <div className="flex flex-col items-center gap-1 p-2 text-neutral-500">
-                          <svg
-                            className="h-8 w-8"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={1}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 0 0 2.25-2.25V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
-                            />
-                          </svg>
-                          <span className="text-[10px]">
-                            {item.width ?? "?"} × {item.height ?? "?"}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="border-t border-neutral-700 p-2 text-left">
-                      <p className="truncate text-xs font-medium text-neutral-300">
-                        {item.id.slice(0, 8)}…
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-neutral-500">
-                        {formatFileSize(item.file_size)}
-                      </p>
-                    </div>
-                    {isSelected && (
-                      <div className="absolute inset-y-0 left-0 w-0.5 bg-blue-500" />
-                    )}
-                  </button>
-                );
-              })}
+              {rowMedia.map((item) => (
+                <ThumbnailCard
+                  key={item.id}
+                  item={item}
+                  isSelected={item.id === selectedId}
+                  onClick={() => onSelect(item)}
+                />
+              ))}
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+function ThumbnailCard({
+  item,
+  isSelected,
+  onClick,
+}: {
+  item: Media;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const thumbUrl = useThumbnail(item.thumb_256 ? item.id : null);
+
+  return (
+    <button
+      onClick={onClick}
+      className={`group relative flex flex-col overflow-hidden rounded-lg border transition-all ${
+        isSelected
+          ? "border-blue-500 bg-neutral-800"
+          : "border-neutral-700 bg-neutral-800/50 hover:border-neutral-500"
+      }`}
+    >
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-neutral-900/50">
+        {thumbUrl ? (
+          <img
+            src={thumbUrl}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover"
+            draggable={false}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-1 p-2 text-neutral-500">
+            <svg
+              className="h-8 w-8"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 0 0 2.25-2.25V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
+              />
+            </svg>
+            <span className="text-[10px]">
+              {item.width ?? "?"} × {item.height ?? "?"}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="border-t border-neutral-700 p-2 text-left">
+        <p className="truncate text-xs font-medium text-neutral-300">
+          {item.id.slice(0, 8)}…
+        </p>
+        <p className="mt-0.5 text-[10px] text-neutral-500">
+          {formatFileSize(item.file_size)}
+        </p>
+      </div>
+      {isSelected && (
+        <div className="absolute inset-y-0 left-0 w-0.5 bg-blue-500" />
+      )}
+    </button>
   );
 }
 
