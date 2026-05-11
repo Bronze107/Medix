@@ -7,6 +7,9 @@ interface GalleryProps {
   media: Media[];
   selectedId: string | null;
   onSelect: (media: Media) => void;
+  selectedIds: string[];
+  selectionMode: boolean;
+  onToggleSelect: (media: Media) => void;
   columnCount?: number;
   gap?: number;
 }
@@ -69,6 +72,9 @@ function Gallery({
   media,
   selectedId,
   onSelect,
+  selectedIds,
+  selectionMode,
+  onToggleSelect,
   columnCount = 4,
   gap = 12,
 }: GalleryProps) {
@@ -119,7 +125,10 @@ function Gallery({
                   key={item.id}
                   item={item}
                   isSelected={item.id === selectedId}
+                  isMultiSelected={selectedIds.includes(item.id)}
+                  selectionMode={selectionMode}
                   onClick={() => onSelect(item)}
+                  onToggleSelect={() => onToggleSelect(item)}
                 />
               ))}
             </div>
@@ -133,23 +142,56 @@ function Gallery({
 function ThumbnailCard({
   item,
   isSelected,
+  isMultiSelected,
+  selectionMode,
   onClick,
+  onToggleSelect,
 }: {
   item: Media;
   isSelected: boolean;
+  isMultiSelected: boolean;
+  selectionMode: boolean;
   onClick: () => void;
+  onToggleSelect: () => void;
 }) {
   const thumbUrl = useThumbnail(item.id);
 
+  const handleCardClick = () => {
+    if (selectionMode) {
+      onToggleSelect();
+    } else {
+      onClick();
+    }
+  };
+
   return (
-    <button
-      onClick={onClick}
-      className={`group relative flex flex-col overflow-hidden rounded-lg border transition-all ${
+    <div
+      onClick={handleCardClick}
+      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border transition-all ${
         isSelected
           ? "border-blue-500 bg-neutral-800"
+          : isMultiSelected
+          ? "border-green-500 bg-neutral-800/70"
           : "border-neutral-700 bg-neutral-800/50 hover:border-neutral-500"
       }`}
     >
+      {/* Checkbox overlay */}
+      <div
+        className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded border transition-all ${
+          isMultiSelected
+            ? "border-green-500 bg-green-500 text-white"
+            : "border-neutral-600 bg-neutral-900/80 text-transparent group-hover:border-neutral-400"
+        } ${selectionMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleSelect();
+        }}
+      >
+        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+        </svg>
+      </div>
+
       <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-neutral-900/50">
         {thumbUrl ? (
           <img
@@ -188,10 +230,10 @@ function ThumbnailCard({
           {formatFileSize(item.file_size)}
         </p>
       </div>
-      {isSelected && (
+      {isSelected && !selectionMode && (
         <div className="absolute inset-y-0 left-0 w-0.5 bg-blue-500" />
       )}
-    </button>
+    </div>
   );
 }
 

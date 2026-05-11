@@ -47,6 +47,10 @@ export function mediaTagAdd(mediaId: string, tagId: string): Promise<void> {
   return invoke("media_tag_add", { mediaId, tagId });
 }
 
+export function mediaTagAddBatch(mediaIds: string[], tagId: string): Promise<void> {
+  return invoke("media_tag_add_batch", { mediaIds, tagId });
+}
+
 export function mediaTagRemove(mediaId: string, tagId: string): Promise<void> {
   return invoke("media_tag_remove", { mediaId, tagId });
 }

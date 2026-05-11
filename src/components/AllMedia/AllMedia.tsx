@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { Media } from "@/types/media";
-import { mediaImport, mediaList, mediaSearch } from "@/lib/tauri";
+import type { Tag } from "@/types/tag";
+import {
+  mediaImport,
+  mediaList,
+  mediaSearch,
+  mediaTagAddBatch,
+  tagCreate,
+  tagList,
+} from "@/lib/tauri";
 import DropZone from "@/components/DropZone/DropZone";
 import Gallery from "@/components/Gallery/Gallery";
 import DetailPanel from "@/components/DetailPanel/DetailPanel";
@@ -23,6 +31,15 @@ function AllMedia() {
   const [dropHover, setDropHover] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Batch selection
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Batch tag dialog
+  const [showBatchTagDialog, setShowBatchTagDialog] = useState(false);
+  const [batchTagSearch, setBatchTagSearch] = useState("");
+  const [allTags, setAllTags] = useState<Tag[]>([]);
 
   // Debounce search input
   useEffect(() => {
@@ -50,6 +67,21 @@ function AllMedia() {
   useEffect(() => {
     loadMedia();
   }, [loadMedia]);
+
+  const loadAllTags = useCallback(async () => {
+    try {
+      const list = await tagList();
+      setAllTags(list);
+    } catch (e) {
+      console.error("Failed to load tags:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showBatchTagDialog) {
+      loadAllTags();
+    }
+  }, [showBatchTagDialog, loadAllTags]);
 
   const doImport = useCallback(
     async (paths: string[]) => {
@@ -95,6 +127,61 @@ function AllMedia() {
     };
   }, [doImport]);
 
+  const handleToggleSelect = (item: Media) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(item.id)) {
+        next.delete(item.id);
+      } else {
+        next.add(item.id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    setSelectedIds(new Set(media.map((m) => m.id)));
+  };
+
+  const handleBatchTagAdd = async (tagId: string) => {
+    if (selectedIds.size === 0) return;
+    try {
+      await mediaTagAddBatch(Array.from(selectedIds), tagId);
+      setShowBatchTagDialog(false);
+      setBatchTagSearch("");
+      setSelectionMode(false);
+      setSelectedIds(new Set());
+      setSelected(null);
+    } catch (e) {
+      console.error("Failed to batch add tag:", e);
+    }
+  };
+
+  const handleCreateAndBatchAdd = async () => {
+    const name = batchTagSearch.trim().toLowerCase();
+    if (!name) return;
+    try {
+      const existing = allTags.find((t) => t.name.toLowerCase() === name);
+      let tagId: string;
+      if (existing) {
+        tagId = existing.id;
+      } else {
+        tagId = await tagCreate(name);
+      }
+      await handleBatchTagAdd(tagId);
+    } catch (e) {
+      console.error("Failed to create and batch add tag:", e);
+    }
+  };
+
+  const filteredBatchTags = allTags.filter((t) =>
+    t.name.toLowerCase().includes(batchTagSearch.trim().toLowerCase())
+  );
+
+  const hasExactMatch = allTags.some(
+    (t) => t.name.toLowerCase() === batchTagSearch.trim().toLowerCase()
+  );
+
   return (
     <div className="flex h-full flex-col">
       {/* Toolbar */}
@@ -135,6 +222,20 @@ function AllMedia() {
           >
             {descending ? "降序" : "升序"}
           </button>
+          <button
+            onClick={() => {
+              setSelectionMode((m) => !m);
+              setSelectedIds(new Set());
+              if (selectionMode) setSelected(null);
+            }}
+            className={`rounded border px-2 py-1 text-xs transition-colors ${
+              selectionMode
+                ? "border-green-600 bg-green-900/30 text-green-400 hover:bg-green-900/50"
+                : "border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+            }`}
+          >
+            {selectionMode ? "退出选择" : "批量选择"}
+          </button>
           <span className="text-xs text-neutral-500">{media.length} 项</span>
         </div>
       </div>
@@ -154,6 +255,35 @@ function AllMedia() {
         </div>
       )}
 
+      {/* Batch action bar */}
+      {selectionMode && selectedIds.size > 0 && (
+        <div className="flex items-center justify-between border-b border-neutral-800 bg-neutral-800/80 px-6 py-2">
+          <span className="text-sm text-neutral-300">
+            已选择 <span className="font-bold text-green-400">{selectedIds.size}</span> 项
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSelectAll}
+              className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+            >
+              全选
+            </button>
+            <button
+              onClick={() => setShowBatchTagDialog(true)}
+              className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500"
+            >
+              添加标签
+            </button>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+            >
+              取消全选
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col p-4">
@@ -164,11 +294,77 @@ function AllMedia() {
               media={media}
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
+              selectedIds={Array.from(selectedIds)}
+              selectionMode={selectionMode}
+              onToggleSelect={handleToggleSelect}
             />
           )}
         </div>
         <DetailPanel media={selected} />
       </div>
+
+      {/* Batch tag dialog */}
+      {showBatchTagDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShowBatchTagDialog(false)}
+        >
+          <div
+            className="w-80 rounded-lg border border-neutral-700 bg-neutral-800 p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-sm font-bold text-neutral-200">
+              添加标签到 {selectedIds.size} 张图片
+            </h3>
+            <input
+              type="text"
+              value={batchTagSearch}
+              onChange={(e) => setBatchTagSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !hasExactMatch && batchTagSearch.trim()) {
+                  handleCreateAndBatchAdd();
+                }
+              }}
+              placeholder="搜索或新建标签..."
+              autoFocus
+              className="mb-3 w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+            />
+            <div className="max-h-48 overflow-auto space-y-1">
+              {filteredBatchTags.length === 0 && !batchTagSearch.trim() && (
+                <p className="py-2 text-center text-xs text-neutral-500">暂无标签</p>
+              )}
+              {filteredBatchTags.map((tag) => (
+                <button
+                  key={tag.id}
+                  onClick={() => handleBatchTagAdd(tag.id)}
+                  className="block w-full rounded px-2 py-1.5 text-left text-xs text-neutral-300 hover:bg-neutral-700"
+                >
+                  {tag.name}
+                </button>
+              ))}
+              {batchTagSearch.trim() && !hasExactMatch && (
+                <button
+                  onClick={handleCreateAndBatchAdd}
+                  className="block w-full rounded bg-blue-600/20 px-2 py-1.5 text-left text-xs text-blue-400 hover:bg-blue-600/30"
+                >
+                  创建标签 "{batchTagSearch.trim()}" 并添加
+                </button>
+              )}
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={() => {
+                  setShowBatchTagDialog(false);
+                  setBatchTagSearch("");
+                }}
+                className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

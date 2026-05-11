@@ -38,6 +38,15 @@ pub fn media_tag_add(
 }
 
 #[command]
+pub fn media_tag_add_batch(
+    app: AppHandle,
+    media_ids: Vec<String>,
+    tag_id: String,
+) -> Result<(), String> {
+    db::media_tag_add_batch(&app, &media_ids, &tag_id).map_err(|e| e.to_string())
+}
+
+#[command]
 pub fn media_tag_remove(
     app: AppHandle,
     media_id: String,

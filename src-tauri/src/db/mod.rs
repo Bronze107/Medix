@@ -251,6 +251,22 @@ pub fn media_tag_add(
     Ok(())
 }
 
+pub fn media_tag_add_batch(
+    app: &AppHandle,
+    media_ids: &[String],
+    tag_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    for media_id in media_ids {
+        conn.execute(
+            "INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?1, ?2)",
+            params![media_id, tag_id],
+        )?;
+    }
+    Ok(())
+}
+
 pub fn media_tag_remove(
     app: &AppHandle,
     media_id: &str,
