@@ -194,6 +194,104 @@ use base64::Engine;
 
 ---
 
+## 11. 虚拟滚动组件复用 DOM 导致异步数据不刷新
+
+**现象**：新导入的图片缩略图显示占位图标，需要切换页面或滚动到其他位置再回来才会显示实际缩略图。
+
+**原因**：`@tanstack/react-virtual` 会复用 DOM 元素，`useEffect` 只在组件首次挂载时执行。缩略图是后台异步生成的，生成完成后前端没有收到通知，且虚拟滚动不会重新挂载已存在的组件实例。
+
+**解决**：
+
+1. 让缩略图加载 hook 不依赖 `thumb_256` 字段（该字段由文件系统判断，有延迟），而是始终尝试调用 `mediaThumbnail(id)`
+2. 在 `useThumbnail` 中添加自动重试机制：若缩略图尚未生成，每隔 2 秒重试一次，直到成功或达到最大重试次数
+
+```typescript
+function useThumbnail(id: string | null) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    if (thumbCache.has(id)) {
+      setUrl(thumbCache.get(id)!);
+      return;
+    }
+
+    let cancelled = false;
+    let retryCount = 0;
+    const maxRetries = 15;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const load = () => {
+      mediaThumbnail(id)
+        .then((b64) => {
+          if (!cancelled) {
+            thumbCache.set(id, b64);
+            setUrl(b64);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setUrl(null);
+            retryCount++;
+            if (retryCount <= maxRetries) {
+              retryTimer = setTimeout(load, 2000);
+            }
+          }
+        });
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [id]);
+
+  return url;
+}
+```
+
+---
+
+## 12. Tauri command 忘记在 main.rs 注册
+
+**现象**：前端调用新加的 Tauri command 时报错 `command not found`。
+
+**原因**：Rust 侧虽然写了 `#[command]` 并在 `commands/mod.rs` 中导出，但漏了在 `main.rs` 的 `generate_handler![...]` 中注册。
+
+**解决**：新增 command 必须三步走：
+
+1. `commands/xxx.rs` 中定义 `#[command] pub fn xxx(...)`
+2. `commands/mod.rs` 中 `pub use xxx::*;`
+3. `main.rs` 中同时导入并注册：
+
+```rust
+use commands::{..., xxx}; // 导入
+
+.invoke_handler(tauri::generate_handler![..., xxx]) // 注册
+```
+
+---
+
+## 13. 弹窗点击遮罩关闭时的事件冒泡
+
+**现象**：Modal/Dialog 弹窗设置了点击遮罩层关闭，但点击弹窗内容区域也会意外关闭。
+
+**原因**：点击事件从弹窗内容冒泡到遮罩层，触发了遮罩的 `onClick` 关闭逻辑。
+
+**解决**：在弹窗内容容器上阻止事件冒泡：
+
+```tsx
+<div className="modal-overlay" onClick={() => setOpen(false)}>
+  <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    {/* 弹窗内容 */}
+  </div>
+</div>
+```
+
+---
+
 ## 快速参考
 
 | 问题 | 关键词 | 解决 |
@@ -207,3 +305,6 @@ use base64::Engine;
 | WebP 编码 | `webp-encoder` 不存在 | 先用 JPEG |
 | 结构体字段 | missing fields | 同步更新所有初始化处 |
 | base64 | `encode` 找不到 | `use base64::Engine;` |
+| 虚拟滚动刷新 | 缩略图不自动显示 | `useThumbnail` 加重试机制 |
+| Tauri command | `command not found` | 检查 `generate_handler!` 注册 |
+| 弹窗关闭 | 点击内容也关闭 | 弹窗内容 `stopPropagation` |
