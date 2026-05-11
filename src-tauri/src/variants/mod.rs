@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
+use image::ImageEncoder;
 use tauri::{AppHandle, Manager};
 use ulid::Ulid;
 
@@ -29,35 +30,37 @@ pub struct VariantPreset {
     pub quality: u8,
 }
 
-pub const BUILT_IN_PRESETS: &[VariantPreset] = &[
-    VariantPreset {
-        name: "web_share".to_string(),
-        label: "Web分享".to_string(),
-        format: "jpeg".to_string(),
-        max_width: Some(1080),
-        max_height: None,
-        quality: 75,
-    },
-    VariantPreset {
-        name: "print".to_string(),
-        label: "打印".to_string(),
-        format: "png".to_string(),
-        max_width: Some(2048),
-        max_height: None,
-        quality: 95,
-    },
-    VariantPreset {
-        name: "dataset".to_string(),
-        label: "训练数据集".to_string(),
-        format: "jpeg".to_string(),
-        max_width: Some(512),
-        max_height: None,
-        quality: 85,
-    },
-];
+pub fn built_in_presets() -> Vec<VariantPreset> {
+    vec![
+        VariantPreset {
+            name: "web_share".to_string(),
+            label: "Web分享".to_string(),
+            format: "jpeg".to_string(),
+            max_width: Some(1080),
+            max_height: None,
+            quality: 75,
+        },
+        VariantPreset {
+            name: "print".to_string(),
+            label: "打印".to_string(),
+            format: "png".to_string(),
+            max_width: Some(2048),
+            max_height: None,
+            quality: 95,
+        },
+        VariantPreset {
+            name: "dataset".to_string(),
+            label: "训练数据集".to_string(),
+            format: "jpeg".to_string(),
+            max_width: Some(512),
+            max_height: None,
+            quality: 85,
+        },
+    ]
+}
 
 pub fn list_presets() -> Vec<VariantPreset> {
-    BUILT_IN_PRESETS.to_vec()
+    built_in_presets()
 }
 
 pub fn generate_variant(
@@ -66,8 +69,8 @@ pub fn generate_variant(
     source_path: &Path,
     preset_name: &str,
 ) -> Result<Variant, Box<dyn std::error::Error>> {
-    let preset = BUILT_IN_PRESETS
-        .iter()
+    let preset = built_in_presets()
+        .into_iter()
         .find(|p| p.name == preset_name)
         .ok_or_else(|| format!("Unknown preset: {}", preset_name))?;
 
