@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Media, MediaImportResult } from "@/types/media";
 import type { Tag } from "@/types/tag";
+import type { Variant, VariantPreset } from "@/types/variant";
 
 export function greet(name: string): Promise<string> {
   return invoke("greet", { name });
@@ -63,4 +64,25 @@ export function mediaSearch(
   descending: boolean = true
 ): Promise<Media[]> {
   return invoke("media_search", { query, sortBy, descending });
+}
+
+// --- Variants ---
+
+export function variantList(mediaId: string): Promise<Variant[]> {
+  return invoke("variant_list", { mediaId });
+}
+
+export function variantGenerate(
+  mediaId: string,
+  presetName: string
+): Promise<Variant> {
+  return invoke("variant_generate", { mediaId, presetName });
+}
+
+export function variantDelete(id: string): Promise<void> {
+  return invoke("variant_delete", { id });
+}
+
+export function variantPresets(): Promise<VariantPreset[]> {
+  return invoke("variant_presets");
 }

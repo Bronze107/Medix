@@ -1,10 +1,12 @@
 mod media;
 mod tag;
 mod thumbnail;
+mod variant;
 
 pub use media::*;
 pub use tag::*;
 pub use thumbnail::*;
+pub use variant::*;
 
 use tauri::command;
 

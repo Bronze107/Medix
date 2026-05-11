@@ -6,6 +6,7 @@ use ulid::Ulid;
 
 use crate::media::Media;
 use crate::tag::Tag;
+use crate::variants::Variant;
 
 pub fn db_path(app: &AppHandle) -> PathBuf {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
@@ -67,6 +68,24 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
 
         CREATE INDEX IF NOT EXISTS idx_media_tags_media ON media_tags(media_id);
         CREATE INDEX IF NOT EXISTS idx_media_tags_tag ON media_tags(tag_id);
+
+        INSERT OR IGNORE INTO _migrations (name) VALUES ('0003_variants');
+
+        CREATE TABLE IF NOT EXISTS variants (
+            id TEXT PRIMARY KEY,
+            media_id TEXT NOT NULL,
+            preset_name TEXT NOT NULL,
+            format TEXT NOT NULL,
+            width INTEGER,
+            height INTEGER,
+            quality INTEGER,
+            file_size INTEGER,
+            file_path TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_variants_media ON variants(media_id);
         ",
     )?;
     Ok(())
@@ -359,4 +378,126 @@ pub fn media_search_by_tags(
 
     resolve_thumb_paths(app, &mut results);
     Ok(results)
+}
+
+// --- Variant operations ---
+
+pub fn variant_list(
+    app: &AppHandle,
+    media_id: &str,
+) -> Result<Vec<Variant>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path
+         FROM variants WHERE media_id = ?1 ORDER BY created_at",
+    )?;
+    let variant_iter = stmt.query_map(params![media_id], |row| {
+        Ok(Variant {
+            id: row.get(0)?,
+            media_id: row.get(1)?,
+            preset_name: row.get(2)?,
+            format: row.get(3)?,
+            width: row.get(4)?,
+            height: row.get(5)?,
+            quality: row.get(6)?,
+            file_size: row.get(7)?,
+            file_path: row.get(8)?,
+        })
+    })?;
+    let mut results = Vec::new();
+    for v in variant_iter {
+        results.push(v?);
+    }
+    Ok(results)
+}
+
+pub fn variant_insert(
+    app: &AppHandle,
+    variant: &Variant,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO variants (id, media_id, preset_name, format, width, height, quality, file_size, file_path)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            &variant.id,
+            &variant.media_id,
+            &variant.preset_name,
+            &variant.format,
+            variant.width,
+            variant.height,
+            variant.quality,
+            variant.file_size,
+            &variant.file_path,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn variant_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute("DELETE FROM variants WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn variant_get_by_id(
+    app: &AppHandle,
+    id: &str,
+) -> Result<Option<Variant>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path
+         FROM variants WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![id], |row| {
+        Ok(Variant {
+            id: row.get(0)?,
+            media_id: row.get(1)?,
+            preset_name: row.get(2)?,
+            format: row.get(3)?,
+            width: row.get(4)?,
+            height: row.get(5)?,
+            quality: row.get(6)?,
+            file_size: row.get(7)?,
+            file_path: row.get(8)?,
+        })
+    })?;
+    if let Some(row) = rows.next() {
+        return Ok(Some(row?));
+    }
+    Ok(None)
+}
+
+pub fn variant_get_by_media_and_preset(
+    app: &AppHandle,
+    media_id: &str,
+    preset_name: &str,
+) -> Result<Option<Variant>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path
+         FROM variants WHERE media_id = ?1 AND preset_name = ?2",
+    )?;
+    let mut rows = stmt.query_map(params![media_id, preset_name], |row| {
+        Ok(Variant {
+            id: row.get(0)?,
+            media_id: row.get(1)?,
+            preset_name: row.get(2)?,
+            format: row.get(3)?,
+            width: row.get(4)?,
+            height: row.get(5)?,
+            quality: row.get(6)?,
+            file_size: row.get(7)?,
+            file_path: row.get(8)?,
+        })
+    })?;
+    if let Some(row) = rows.next() {
+        return Ok(Some(row?));
+    }
+    Ok(None)
 }
