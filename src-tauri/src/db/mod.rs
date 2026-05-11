@@ -265,11 +265,18 @@ pub fn media_tag_remove(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum TagSearchMode {
+    Intersection,
+    Union,
+}
+
 pub fn media_search_by_tags(
     app: &AppHandle,
     tag_names: &[String],
     sort_by: &str,
     descending: bool,
+    mode: TagSearchMode,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     if tag_names.is_empty() {
         return list_media(app, sort_by, descending);
@@ -286,17 +293,28 @@ pub fn media_search_by_tags(
     };
 
     let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-    let sql = format!(
-        "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at
-         FROM media m
-         JOIN media_tags mt ON m.id = mt.media_id
-         JOIN tags t ON mt.tag_id = t.id
-         WHERE t.name IN ({})
-         GROUP BY m.id
-         HAVING COUNT(DISTINCT t.id) = {}
-         ORDER BY m.{} {}",
-        placeholders, tag_names.len(), sort_column, order
-    );
+    let sql = match mode {
+        TagSearchMode::Intersection => format!(
+            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at
+             FROM media m
+             JOIN media_tags mt ON m.id = mt.media_id
+             JOIN tags t ON mt.tag_id = t.id
+             WHERE t.name IN ({})
+             GROUP BY m.id
+             HAVING COUNT(DISTINCT t.id) = {}
+             ORDER BY m.{} {}",
+            placeholders, tag_names.len(), sort_column, order
+        ),
+        TagSearchMode::Union => format!(
+            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at
+             FROM media m
+             JOIN media_tags mt ON m.id = mt.media_id
+             JOIN tags t ON mt.tag_id = t.id
+             WHERE t.name IN ({})
+             ORDER BY m.{} {}",
+            placeholders, sort_column, order
+        ),
+    };
 
     let mut stmt = conn.prepare(&sql)?;
     let params_vec: Vec<&dyn rusqlite::ToSql> = tag_names

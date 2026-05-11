@@ -106,7 +106,7 @@ function AllMedia() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索 tag:cat dog..."
+              placeholder="tag:cat dog (交集) / tag:cat OR dog (并集)..."
               className="w-48 rounded border border-neutral-700 bg-neutral-800 py-1 pl-2 pr-6 text-xs text-neutral-300 outline-none placeholder:text-neutral-500 focus:border-blue-500"
             />
             {searchQuery && (
