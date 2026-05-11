@@ -29,19 +29,36 @@ function useThumbnail(id: string | null) {
       setUrl(thumbCache.get(id)!);
       return;
     }
+
     let cancelled = false;
-    mediaThumbnail(id)
-      .then((b64) => {
-        if (!cancelled) {
-          thumbCache.set(id, b64);
-          setUrl(b64);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setUrl(null);
-      });
+    let retryCount = 0;
+    const maxRetries = 15;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const load = () => {
+      mediaThumbnail(id)
+        .then((b64) => {
+          if (!cancelled) {
+            thumbCache.set(id, b64);
+            setUrl(b64);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setUrl(null);
+            retryCount++;
+            if (retryCount <= maxRetries) {
+              retryTimer = setTimeout(load, 2000);
+            }
+          }
+        });
+    };
+
+    load();
+
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [id]);
 
@@ -122,7 +139,7 @@ function ThumbnailCard({
   isSelected: boolean;
   onClick: () => void;
 }) {
-  const thumbUrl = useThumbnail(item.thumb_256 ? item.id : null);
+  const thumbUrl = useThumbnail(item.id);
 
   return (
     <button
