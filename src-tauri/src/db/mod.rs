@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 use ulid::Ulid;
 
+use crate::captions::Caption;
 use crate::media::Media;
 use crate::tag::Tag;
 use crate::variants::Variant;
@@ -86,6 +87,19 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         );
 
         CREATE INDEX IF NOT EXISTS idx_variants_media ON variants(media_id);
+
+        INSERT OR IGNORE INTO _migrations (name) VALUES ('0004_captions');
+
+        CREATE TABLE IF NOT EXISTS captions (
+            id TEXT PRIMARY KEY,
+            media_id TEXT NOT NULL,
+            text TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_captions_media ON captions(media_id);
         ",
     )?;
     Ok(())
@@ -500,4 +514,74 @@ pub fn variant_get_by_media_and_preset(
         return Ok(Some(row?));
     }
     Ok(None)
+}
+
+// --- Caption operations ---
+
+pub fn caption_list(
+    app: &AppHandle,
+    media_id: &str,
+) -> Result<Vec<Caption>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, media_id, text, created_at, updated_at
+         FROM captions WHERE media_id = ?1 ORDER BY created_at",
+    )?;
+    let caption_iter = stmt.query_map(params![media_id], |row| {
+        Ok(Caption {
+            id: row.get(0)?,
+            media_id: row.get(1)?,
+            text: row.get(2)?,
+            created_at: row.get(3)?,
+            updated_at: row.get(4)?,
+        })
+    })?;
+    let mut results = Vec::new();
+    for c in caption_iter {
+        results.push(c?);
+    }
+    Ok(results)
+}
+
+pub fn caption_create(
+    app: &AppHandle,
+    media_id: &str,
+    text: &str,
+) -> Result<Caption, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let id = Ulid::new().to_string();
+    conn.execute(
+        "INSERT INTO captions (id, media_id, text) VALUES (?1, ?2, ?3)",
+        params![&id, media_id, text],
+    )?;
+    Ok(Caption {
+        id,
+        media_id: media_id.to_string(),
+        text: text.to_string(),
+        created_at: None,
+        updated_at: None,
+    })
+}
+
+pub fn caption_update(
+    app: &AppHandle,
+    id: &str,
+    text: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "UPDATE captions SET text = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+        params![text, id],
+    )?;
+    Ok(())
+}
+
+pub fn caption_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute("DELETE FROM captions WHERE id = ?1", params![id])?;
+    Ok(())
 }

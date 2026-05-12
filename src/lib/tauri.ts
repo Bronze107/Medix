@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Media, MediaImportResult } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
+import type { Caption } from "@/types/caption";
 
 export function greet(name: string): Promise<string> {
   return invoke("greet", { name });
@@ -85,4 +86,22 @@ export function variantDelete(id: string): Promise<void> {
 
 export function variantPresets(): Promise<VariantPreset[]> {
   return invoke("variant_presets");
+}
+
+// --- Captions ---
+
+export function captionList(mediaId: string): Promise<Caption[]> {
+  return invoke("caption_list", { mediaId });
+}
+
+export function captionCreate(mediaId: string, text: string): Promise<Caption> {
+  return invoke("caption_create", { mediaId, text });
+}
+
+export function captionUpdate(id: string, text: string): Promise<void> {
+  return invoke("caption_update", { id, text });
+}
+
+export function captionDelete(id: string): Promise<void> {
+  return invoke("caption_delete", { id });
 }

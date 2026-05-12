@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
+import type { Caption } from "@/types/caption";
 import {
   mediaTagsGet,
   mediaTagAdd,
@@ -12,6 +13,10 @@ import {
   variantGenerate,
   variantDelete,
   variantPresets,
+  captionList,
+  captionCreate,
+  captionUpdate,
+  captionDelete,
 } from "@/lib/tauri";
 
 interface DetailPanelProps {
@@ -35,7 +40,7 @@ function formatDate(dateStr: string | null): string {
 }
 
 function DetailPanel({ media }: DetailPanelProps) {
-  const [activeTab, setActiveTab] = useState<"details" | "variants">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "captions" | "variants">("details");
 
   // Tags state
   const [tags, setTags] = useState<Tag[]>([]);
@@ -49,6 +54,12 @@ function DetailPanel({ media }: DetailPanelProps) {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [presets, setPresets] = useState<VariantPreset[]>([]);
   const [generatingPreset, setGeneratingPreset] = useState<string | null>(null);
+
+  // Captions state
+  const [captions, setCaptions] = useState<Caption[]>([]);
+  const [newCaptionText, setNewCaptionText] = useState("");
+  const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
 
   const loadAllTags = useCallback(async () => {
     try {
@@ -77,6 +88,15 @@ function DetailPanel({ media }: DetailPanelProps) {
     }
   }, []);
 
+  const loadCaptions = useCallback(async (mediaId: string) => {
+    try {
+      const list = await captionList(mediaId);
+      setCaptions(list);
+    } catch (e) {
+      console.error("Failed to load captions:", e);
+    }
+  }, []);
+
   useEffect(() => {
     loadAllTags();
     variantPresets().then(setPresets);
@@ -86,12 +106,17 @@ function DetailPanel({ media }: DetailPanelProps) {
     if (media) {
       loadMediaTags(media.id);
       loadVariants(media.id);
+      loadCaptions(media.id);
       setActiveTab("details");
     } else {
       setTags([]);
       setVariants([]);
+      setCaptions([]);
+      setNewCaptionText("");
+      setEditingCaptionId(null);
+      setEditingText("");
     }
-  }, [media?.id, loadMediaTags, loadVariants]);
+  }, [media?.id, loadMediaTags, loadVariants, loadCaptions]);
 
   useEffect(() => {
     const input = newTagInput.trim().toLowerCase();
@@ -176,6 +201,56 @@ function DetailPanel({ media }: DetailPanelProps) {
     }
   };
 
+  const handleAddCaption = async () => {
+    if (!media) return;
+    const text = newCaptionText.trim();
+    if (!text) return;
+    try {
+      await captionCreate(media.id, text);
+      await loadCaptions(media.id);
+      setNewCaptionText("");
+    } catch (e) {
+      console.error("Failed to add caption:", e);
+    }
+  };
+
+  const handleStartEdit = (caption: Caption) => {
+    setEditingCaptionId(caption.id);
+    setEditingText(caption.text);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingCaptionId) return;
+    const text = editingText.trim();
+    if (!text) return;
+    try {
+      await captionUpdate(editingCaptionId, text);
+      if (media) {
+        await loadCaptions(media.id);
+      }
+      setEditingCaptionId(null);
+      setEditingText("");
+    } catch (e) {
+      console.error("Failed to update caption:", e);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCaptionId(null);
+    setEditingText("");
+  };
+
+  const handleDeleteCaption = async (id: string) => {
+    try {
+      await captionDelete(id);
+      if (media) {
+        await loadCaptions(media.id);
+      }
+    } catch (e) {
+      console.error("Failed to delete caption:", e);
+    }
+  };
+
   if (!media) {
     return (
       <div className="flex h-full w-72 flex-col border-l border-neutral-800 bg-neutral-900 p-4">
@@ -197,6 +272,16 @@ function DetailPanel({ media }: DetailPanelProps) {
           }`}
         >
           详情
+        </button>
+        <button
+          onClick={() => setActiveTab("captions")}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === "captions"
+              ? "border-b-2 border-blue-500 text-blue-400"
+              : "text-neutral-500 hover:text-neutral-300"
+          }`}
+        >
+          描述 {captions.length > 0 && `(${captions.length})`}
         </button>
         <button
           onClick={() => setActiveTab("variants")}
@@ -338,6 +423,94 @@ function DetailPanel({ media }: DetailPanelProps) {
             </div>
           </div>
         </>
+      )}
+
+      {activeTab === "captions" && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-auto">
+            {captions.length === 0 && (
+              <p className="py-4 text-center text-xs text-neutral-600">暂无描述</p>
+            )}
+            <div className="space-y-2">
+              {captions.map((c) => (
+                <div
+                  key={c.id}
+                  className="rounded border border-neutral-800 bg-neutral-800/50 p-2.5"
+                >
+                  {editingCaptionId === c.id ? (
+                    <div className="space-y-2">
+                      <textarea
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        rows={3}
+                        className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleSaveEdit}
+                          className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
+                        >
+                          保存
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-700"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-300">
+                        {c.text}
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={() => handleStartEdit(c)}
+                          className="text-[10px] text-neutral-500 hover:text-blue-400"
+                        >
+                          编辑
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCaption(c.id)}
+                          className="text-[10px] text-neutral-500 hover:text-red-400"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 border-t border-neutral-800 pt-3">
+            <p className="mb-2 text-xs text-neutral-500">添加描述</p>
+            <textarea
+              value={newCaptionText}
+              onChange={(e) => setNewCaptionText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  handleAddCaption();
+                }
+              }}
+              rows={3}
+              placeholder="输入描述文本... (Ctrl+Enter 保存)"
+              className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+            />
+            <button
+              onClick={handleAddCaption}
+              disabled={!newCaptionText.trim()}
+              className="mt-2 w-full rounded bg-blue-600 px-2 py-1.5 text-xs text-white transition-colors hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600"
+            >
+              添加
+            </button>
+          </div>
+        </div>
       )}
 
       {activeTab === "variants" && (
