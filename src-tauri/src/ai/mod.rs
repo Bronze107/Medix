@@ -1,9 +1,11 @@
-mod ollama;
+pub mod llamacpp;
+pub mod server;
 
-pub use ollama::{generate_caption, embed_text, AiResult};
+pub use llamacpp::{embed_text, generate_caption, AiResult};
+pub use server::LlamaServer;
 
 use std::path::PathBuf;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::sync::mpsc;
 
 pub enum AiTask {
@@ -19,7 +21,8 @@ pub struct AiQueue {
 }
 
 impl AiQueue {
-    pub async fn send(&self,
+    pub async fn send(
+        &self,
         task: AiTask,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<AiTask>> {
         self.sender.send(task).await
@@ -56,40 +59,38 @@ async fn process_generate_caption(
 ) -> Result<(), String> {
     let ai_mode = crate::settings::get_ai_mode(&app);
 
-    // If explicitly cloud, skip for now (cloud not implemented yet)
     if ai_mode == "cloud" {
         eprintln!("[ai] cloud mode not yet implemented, skipping {}", media_id);
         return Ok(());
     }
 
-    // Check Ollama availability for local/auto mode
-    let ollama = crate::models::check_ollama().await;
-    if !ollama.running {
+    // Check llama-server is running
+    let server = app.state::<LlamaServer>();
+    if !server.health_check().await {
         if ai_mode == "local" {
-            eprintln!("[ai] Ollama not running and mode is local, skipping {}", media_id);
+            eprintln!(
+                "[ai] llama-server not running and mode is local, skipping {}",
+                media_id
+            );
+        } else {
+            eprintln!(
+                "[ai] llama-server not running (auto mode), skipping {}",
+                media_id
+            );
         }
         return Ok(());
     }
 
-    // Use minicpm-v for VLM caption
-    let vlm_model = "minicpm-v";
-    let embed_model = "nomic-embed-text";
-
-    // Check if models are available
-    let has_vlm = ollama.models.iter().any(|m| m.name.starts_with(vlm_model));
-    let has_embed = ollama.models.iter().any(|m| m.name.starts_with(embed_model));
-
-    if !has_vlm {
-        eprintln!(
-            "[ai] VLM model {} not found in Ollama, skipping {}",
-            vlm_model, media_id
-        );
+    let port = crate::settings::get_llama_port(&app);
+    let model = crate::settings::get_llama_model(&app);
+    if model.is_empty() {
+        eprintln!("[ai] no GGUF model configured, skipping {}", media_id);
         return Ok(());
     }
 
     println!("[ai] generating caption for {}...", media_id);
 
-    let result = generate_caption(&image_path, vlm_model).await.map_err(|e| {
+    let result = generate_caption(&image_path, &model, port).await.map_err(|e| {
         eprintln!("[ai] caption generation failed for {}: {}", media_id, e);
         e.to_string()
     })?;
@@ -102,12 +103,8 @@ async fn process_generate_caption(
     );
 
     // Store caption with source='ai'
-    crate::db::caption_create_with_source(
-        &app,
-        &media_id,
-        &result.caption,
-        Some("ai"),
-    ).map_err(|e| e.to_string())?;
+    crate::db::caption_create_with_source(&app, &media_id, &result.caption, Some("ai"))
+        .map_err(|e| e.to_string())?;
 
     // Store AI tags with source='ai' and confidence=0.9
     for tag_name in &result.tags {
@@ -125,44 +122,32 @@ async fn process_generate_caption(
         }
     }
 
-    // Generate embeddings if embed model is available
-    if has_embed {
-        // Embed the caption
-        match embed_text(&result.caption, embed_model).await {
+    // Generate embedding for caption
+    match embed_text(&result.caption, &model, port).await {
+        Ok(vector) => {
+            if let Err(e) = crate::db::embedding_insert(&app, &media_id, &model, "caption", &vector)
+            {
+                eprintln!("[ai] failed to store caption embedding: {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("[ai] caption embedding failed: {}", e);
+        }
+    }
+
+    // Generate embedding for tags
+    if !result.tags.is_empty() {
+        let tags_text = result.tags.join(", ");
+        match embed_text(&tags_text, &model, port).await {
             Ok(vector) => {
-                if let Err(e) = crate::db::embedding_insert(
-                    &app,
-                    &media_id,
-                    embed_model,
-                    "caption",
-                    &vector,
-                ) {
-                    eprintln!("[ai] failed to store caption embedding: {}", e);
+                if let Err(e) =
+                    crate::db::embedding_insert(&app, &media_id, &model, "tags", &vector)
+                {
+                    eprintln!("[ai] failed to store tags embedding: {}", e);
                 }
             }
             Err(e) => {
-                eprintln!("[ai] caption embedding failed: {}", e);
-            }
-        }
-
-        // Embed the tags (joined as comma-separated)
-        if !result.tags.is_empty() {
-            let tags_text = result.tags.join(", ");
-            match embed_text(&tags_text, embed_model).await {
-                Ok(vector) => {
-                    if let Err(e) = crate::db::embedding_insert(
-                        &app,
-                        &media_id,
-                        embed_model,
-                        "tags",
-                        &vector,
-                    ) {
-                        eprintln!("[ai] failed to store tags embedding: {}", e);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[ai] tags embedding failed: {}", e);
-                }
+                eprintln!("[ai] tags embedding failed: {}", e);
             }
         }
     }
@@ -171,10 +156,7 @@ async fn process_generate_caption(
     Ok(())
 }
 
-fn ensure_tag(
-    app: &AppHandle,
-    name: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
+fn ensure_tag(app: &AppHandle, name: &str) -> Result<String, Box<dyn std::error::Error>> {
     let existing = crate::db::tag_list(app)?;
     let name_lower = name.to_lowercase();
     if let Some(tag) = existing.iter().find(|t| t.name == name_lower) {

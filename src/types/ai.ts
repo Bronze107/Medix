@@ -1,17 +1,18 @@
-export interface OllamaModel {
-  name: string;
-  size: number;
-  digest: string;
-}
-
-export interface OllamaStatus {
+export interface LlamaServerStatus {
   running: boolean;
-  version: string | null;
-  models: OllamaModel[];
+  port: number;
+  pid: number | null;
 }
 
-export interface ModelStatus {
+export interface GgufModel {
   name: string;
-  installed: boolean;
+  filename: string;
+  path: string;
   size_mb: number;
+  is_vlm: boolean;
+}
+
+export interface GgufModelList {
+  models: GgufModel[];
+  models_dir: string;
 }

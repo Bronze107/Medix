@@ -1,13 +1,30 @@
-use tauri::command;
+use tauri::{command, AppHandle, Manager};
 
+use crate::ai::server::LlamaServerStatus;
 use crate::models;
 
 #[command]
-pub async fn ollama_status() -> Result<models::OllamaStatus, String> {
-    Ok(models::check_ollama().await)
+pub async fn llama_server_status(
+    app: AppHandle,
+) -> LlamaServerStatus {
+    let server = app.state::<crate::ai::LlamaServer>();
+    server.status()
 }
 
 #[command]
-pub fn model_list() -> Vec<models::ModelStatus> {
-    models::model_status_list()
+pub async fn llama_server_start(app: AppHandle) -> Result<(), String> {
+    let server = app.state::<crate::ai::LlamaServer>();
+    server.start()?;
+    server.wait_until_ready().await
+}
+
+#[command]
+pub async fn llama_server_stop(app: AppHandle) -> Result<(), String> {
+    let server = app.state::<crate::ai::LlamaServer>();
+    server.stop()
+}
+
+#[command]
+pub fn model_list(app: AppHandle) -> models::GgufModelList {
+    models::get_gguf_models(&app)
 }

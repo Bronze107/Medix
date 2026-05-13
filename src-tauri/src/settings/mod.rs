@@ -1,8 +1,17 @@
 use tauri::AppHandle;
 
+// --- AI mode ---
 pub const KEY_AI_MODE: &str = "ai_mode";
 pub const KEY_CLOUD_PROVIDER: &str = "cloud_provider";
 pub const KEY_CLOUD_API_KEY: &str = "cloud_api_key";
+
+// --- llama.cpp ---
+pub const KEY_LLAMA_BIN_PATH: &str = "llama_bin_path";
+pub const KEY_LLAMA_PORT: &str = "llama_port";
+pub const KEY_LLAMA_MODEL: &str = "llama_model";
+pub const KEY_LLAMA_THREADS: &str = "llama_threads";
+pub const KEY_LLAMA_GPU_LAYERS: &str = "llama_gpu_layers";
+pub const KEY_LLAMA_CTX_SIZE: &str = "llama_ctx_size";
 
 pub fn get(app: &AppHandle, key: &str) -> Option<String> {
     crate::db::setting_get(app, key).ok().flatten()
@@ -22,4 +31,38 @@ pub fn get_cloud_provider(app: &AppHandle) -> String {
 
 pub fn get_cloud_api_key(app: &AppHandle) -> Option<String> {
     get(app, KEY_CLOUD_API_KEY)
+}
+
+// --- llama.cpp getters with defaults ---
+
+pub fn get_llama_bin_path(app: &AppHandle) -> String {
+    get(app, KEY_LLAMA_BIN_PATH).unwrap_or_else(|| "llama-server".to_string())
+}
+
+pub fn get_llama_port(app: &AppHandle) -> u16 {
+    get(app, KEY_LLAMA_PORT)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8080)
+}
+
+pub fn get_llama_model(app: &AppHandle) -> String {
+    get(app, KEY_LLAMA_MODEL).unwrap_or_default()
+}
+
+pub fn get_llama_threads(app: &AppHandle) -> u32 {
+    get(app, KEY_LLAMA_THREADS)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4)
+}
+
+pub fn get_llama_gpu_layers(app: &AppHandle) -> i32 {
+    get(app, KEY_LLAMA_GPU_LAYERS)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
+pub fn get_llama_ctx_size(app: &AppHandle) -> u32 {
+    get(app, KEY_LLAMA_CTX_SIZE)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4096)
 }

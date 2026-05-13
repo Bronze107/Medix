@@ -3,7 +3,7 @@ import type { Media, MediaImportResult } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
 import type { Caption } from "@/types/caption";
-import type { OllamaStatus, ModelStatus } from "@/types/ai";
+import type { LlamaServerStatus, GgufModelList } from "@/types/ai";
 
 export function greet(name: string): Promise<string> {
   return invoke("greet", { name });
@@ -109,11 +109,19 @@ export function captionDelete(id: string): Promise<void> {
 
 // --- AI / Models ---
 
-export function ollamaStatus(): Promise<OllamaStatus> {
-  return invoke("ollama_status");
+export function llamaServerStatus(): Promise<LlamaServerStatus> {
+  return invoke("llama_server_status");
 }
 
-export function modelList(): Promise<ModelStatus[]> {
+export function llamaServerStart(): Promise<void> {
+  return invoke("llama_server_start");
+}
+
+export function llamaServerStop(): Promise<void> {
+  return invoke("llama_server_stop");
+}
+
+export function modelList(): Promise<GgufModelList> {
   return invoke("model_list");
 }
 

@@ -20,6 +20,12 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_AI_MODE,
         settings::KEY_CLOUD_PROVIDER,
         settings::KEY_CLOUD_API_KEY,
+        settings::KEY_LLAMA_BIN_PATH,
+        settings::KEY_LLAMA_PORT,
+        settings::KEY_LLAMA_MODEL,
+        settings::KEY_LLAMA_THREADS,
+        settings::KEY_LLAMA_GPU_LAYERS,
+        settings::KEY_LLAMA_CTX_SIZE,
     ];
     for key in keys {
         if let Some(val) = settings::get(&app, key) {

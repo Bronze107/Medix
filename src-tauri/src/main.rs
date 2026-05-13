@@ -11,11 +11,11 @@ mod variants;
 use tauri::Manager;
 
 use commands::{
-    caption_create, caption_delete, caption_list, caption_update, greet, media_import,
-    media_list, media_search, media_tag_add, media_tag_add_batch, media_tag_remove,
-    media_tags_get, media_thumbnail, model_list, ollama_status, settings_get,
-    settings_get_all, settings_set, tag_create, tag_delete, tag_list, tag_rename,
-    variant_delete, variant_generate, variant_list, variant_presets,
+    caption_create, caption_delete, caption_list, caption_update, greet, llama_server_start,
+    llama_server_status, llama_server_stop, media_import, media_list, media_search,
+    media_tag_add, media_tag_add_batch, media_tag_remove, media_tags_get, media_thumbnail,
+    model_list, settings_get, settings_get_all, settings_set, tag_create, tag_delete, tag_list,
+    tag_rename, variant_delete, variant_generate, variant_list, variant_presets,
 };
 
 fn main() {
@@ -23,8 +23,22 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             db::init(app.handle())?;
+
+            let port = settings::get_llama_port(app.handle());
+            let bin_path = settings::get_llama_bin_path(app.handle());
+            let model_path = settings::get_llama_model(app.handle());
+            let ctx_size = settings::get_llama_ctx_size(app.handle());
+            let threads = settings::get_llama_threads(app.handle());
+            let gpu_layers = settings::get_llama_gpu_layers(app.handle());
+
+            let llama_server = ai::LlamaServer::new(
+                port, &bin_path, &model_path, ctx_size, threads, gpu_layers,
+            );
+            app.manage(llama_server);
+
             let ai_queue = ai::init_ai_queue(app.handle().clone());
             app.manage(ai_queue);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -49,12 +63,21 @@ fn main() {
             caption_create,
             caption_update,
             caption_delete,
-            ollama_status,
+            llama_server_status,
+            llama_server_start,
+            llama_server_stop,
             model_list,
             settings_get,
             settings_set,
             settings_get_all,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(server) = app_handle.try_state::<ai::LlamaServer>() {
+                    let _ = server.stop();
+                }
+            }
+        });
 }
