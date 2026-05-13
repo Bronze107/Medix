@@ -251,6 +251,16 @@ function DetailPanel({ media }: DetailPanelProps) {
     }
   };
 
+  const handleAdoptAiCaption = async (text: string) => {
+    if (!media) return;
+    try {
+      await captionCreate(media.id, text);
+      await loadCaptions(media.id);
+    } catch (e) {
+      console.error("Failed to adopt AI caption:", e);
+    }
+  };
+
   if (!media) {
     return (
       <div className="flex h-full w-72 flex-col border-l border-neutral-800 bg-neutral-900 p-4">
@@ -356,33 +366,45 @@ function DetailPanel({ media }: DetailPanelProps) {
               {tags.length === 0 && (
                 <span className="text-xs text-neutral-600">暂无标签</span>
               )}
-              {tags.map((tag) => (
-                <span
-                  key={tag.id}
-                  className="group inline-flex items-center gap-1 rounded-full bg-neutral-800 px-2.5 py-0.5 text-xs text-neutral-300"
-                >
-                  {tag.name}
-                  <button
-                    onClick={() => handleRemoveTag(tag.id)}
-                    className="opacity-0 transition-opacity group-hover:opacity-100"
-                    title="移除标签"
+              {tags.map((tag) => {
+                const isAi = tag.source === "ai";
+                return (
+                  <span
+                    key={tag.id}
+                    className={`group inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs ${
+                      isAi
+                        ? "bg-blue-900/30 text-blue-300"
+                        : "bg-neutral-800 text-neutral-300"
+                    }`}
                   >
-                    <svg
-                      className="h-3 w-3 text-neutral-500 hover:text-red-400"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
+                    {tag.name}
+                    {isAi && (
+                      <span className="rounded bg-blue-800/50 px-1 text-[9px] text-blue-400">
+                        AI
+                      </span>
+                    )}
+                    <button
+                      onClick={() => handleRemoveTag(tag.id)}
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                      title="移除标签"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M6 18 18 6M6 6l12 12"
-                      />
-                    </svg>
-                  </button>
-                </span>
-              ))}
+                      <svg
+                        className="h-3 w-3 text-neutral-500 hover:text-red-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18 18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </span>
+                );
+              })}
             </div>
 
             <div className="relative">
@@ -428,63 +450,99 @@ function DetailPanel({ media }: DetailPanelProps) {
       {activeTab === "captions" && (
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
-            {captions.length === 0 && (
-              <p className="py-4 text-center text-xs text-neutral-600">暂无描述</p>
-            )}
-            <div className="space-y-2">
-              {captions.map((c) => (
-                <div
-                  key={c.id}
-                  className="rounded border border-neutral-800 bg-neutral-800/50 p-2.5"
-                >
-                  {editingCaptionId === c.id ? (
-                    <div className="space-y-2">
-                      <textarea
-                        value={editingText}
-                        onChange={(e) => setEditingText(e.target.value)}
-                        rows={3}
-                        className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
-                        autoFocus
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleSaveEdit}
-                          className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
-                        >
-                          保存
-                        </button>
-                        <button
-                          onClick={handleCancelEdit}
-                          className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-700"
-                        >
-                          取消
-                        </button>
-                      </div>
+            {/* AI Caption Section */}
+            {(() => {
+              const aiCaption = captions.find((c) => c.source === "ai");
+              if (aiCaption) {
+                return (
+                  <div className="mb-4 rounded border border-blue-900/30 bg-blue-900/10 p-2.5">
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <span className="rounded bg-blue-900/40 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                        AI 描述
+                      </span>
                     </div>
-                  ) : (
-                    <div>
-                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-300">
-                        {c.text}
-                      </p>
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          onClick={() => handleStartEdit(c)}
-                          className="text-[10px] text-neutral-500 hover:text-blue-400"
-                        >
-                          编辑
-                        </button>
-                        <button
-                          onClick={() => handleDeleteCaption(c.id)}
-                          className="text-[10px] text-neutral-500 hover:text-red-400"
-                        >
-                          删除
-                        </button>
-                      </div>
+                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-blue-100/80">
+                      {aiCaption.text}
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        onClick={() => handleAdoptAiCaption(aiCaption.text)}
+                        className="text-[10px] text-blue-400 hover:text-blue-300"
+                      >
+                        采纳为手动描述
+                      </button>
                     </div>
-                  )}
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            {/* User Captions */}
+            {(() => {
+              const userCaptions = captions.filter((c) => c.source !== "ai");
+              if (userCaptions.length === 0 && !captions.some((c) => c.source === "ai")) {
+                return (
+                  <p className="py-4 text-center text-xs text-neutral-600">暂无描述</p>
+                );
+              }
+              return (
+                <div className="space-y-2">
+                  {userCaptions.map((c) => (
+                    <div
+                      key={c.id}
+                      className="rounded border border-neutral-800 bg-neutral-800/50 p-2.5"
+                    >
+                      {editingCaptionId === c.id ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                            rows={3}
+                            className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+                            autoFocus
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleSaveEdit}
+                              className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
+                            >
+                              保存
+                            </button>
+                            <button
+                              onClick={handleCancelEdit}
+                              className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-700"
+                            >
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-300">
+                            {c.text}
+                          </p>
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              onClick={() => handleStartEdit(c)}
+                              className="text-[10px] text-neutral-500 hover:text-blue-400"
+                            >
+                              编辑
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCaption(c.id)}
+                              className="text-[10px] text-neutral-500 hover:text-red-400"
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
           </div>
 
           <div className="mt-4 border-t border-neutral-800 pt-3">

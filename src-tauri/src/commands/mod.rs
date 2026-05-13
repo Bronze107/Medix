@@ -1,11 +1,15 @@
 mod caption;
 mod media;
+mod model;
+mod settings;
 mod tag;
 mod thumbnail;
 mod variant;
 
 pub use caption::*;
 pub use media::*;
+pub use model::*;
+pub use settings::*;
 pub use tag::*;
 pub use thumbnail::*;
 pub use variant::*;

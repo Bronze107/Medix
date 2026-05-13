@@ -4,4 +4,6 @@ use serde::Serialize;
 pub struct Tag {
     pub id: String,
     pub name: String,
+    pub source: Option<String>,
+    pub confidence: Option<f64>,
 }

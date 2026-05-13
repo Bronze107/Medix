@@ -100,6 +100,32 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         );
 
         CREATE INDEX IF NOT EXISTS idx_captions_media ON captions(media_id);
+
+        INSERT OR IGNORE INTO _migrations (name) VALUES ('0005_embeddings');
+
+        CREATE TABLE IF NOT EXISTS embeddings (
+            media_id TEXT NOT NULL,
+            model TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            vector BLOB NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (media_id, model, content_type),
+            FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_embeddings_media ON embeddings(media_id);
+
+        INSERT OR IGNORE INTO _migrations (name) VALUES ('0006_settings');
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO _migrations (name) VALUES ('0007_ai_fields');
+
+        ALTER TABLE captions ADD COLUMN source TEXT;
         ",
     )?;
     Ok(())
@@ -199,6 +225,8 @@ pub fn tag_list(app: &AppHandle) -> Result<Vec<Tag>, Box<dyn std::error::Error>>
         Ok(Tag {
             id: row.get(0)?,
             name: row.get(1)?,
+            source: None,
+            confidence: None,
         })
     })?;
     let mut results = Vec::new();
@@ -252,7 +280,7 @@ pub fn media_tags_get(
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
-        "SELECT t.id, t.name FROM tags t
+        "SELECT t.id, t.name, mt.source, mt.confidence FROM tags t
          JOIN media_tags mt ON t.id = mt.tag_id
          WHERE mt.media_id = ?1
          ORDER BY t.name",
@@ -261,6 +289,8 @@ pub fn media_tags_get(
         Ok(Tag {
             id: row.get(0)?,
             name: row.get(1)?,
+            source: row.get(2)?,
+            confidence: row.get(3)?,
         })
     })?;
     let mut results = Vec::new();
@@ -275,11 +305,21 @@ pub fn media_tag_add(
     media_id: &str,
     tag_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    media_tag_add_with_source(app, media_id, tag_id, None, None)
+}
+
+pub fn media_tag_add_with_source(
+    app: &AppHandle,
+    media_id: &str,
+    tag_id: &str,
+    confidence: Option<f64>,
+    source: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     conn.execute(
-        "INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?1, ?2)",
-        params![media_id, tag_id],
+        "INSERT OR REPLACE INTO media_tags (media_id, tag_id, confidence, source) VALUES (?1, ?2, ?3, ?4)",
+        params![media_id, tag_id, confidence, source],
     )?;
     Ok(())
 }
@@ -293,7 +333,7 @@ pub fn media_tag_add_batch(
     let conn = Connection::open(&path)?;
     for media_id in media_ids {
         conn.execute(
-            "INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?1, ?2)",
+            "INSERT OR IGNORE INTO media_tags (media_id, tag_id, confidence, source) VALUES (?1, ?2, NULL, NULL)",
             params![media_id, tag_id],
         )?;
     }
@@ -525,7 +565,7 @@ pub fn caption_list(
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_id, text, created_at, updated_at
+        "SELECT id, media_id, text, source, created_at, updated_at
          FROM captions WHERE media_id = ?1 ORDER BY created_at",
     )?;
     let caption_iter = stmt.query_map(params![media_id], |row| {
@@ -533,8 +573,9 @@ pub fn caption_list(
             id: row.get(0)?,
             media_id: row.get(1)?,
             text: row.get(2)?,
-            created_at: row.get(3)?,
-            updated_at: row.get(4)?,
+            source: row.get(3)?,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
         })
     })?;
     let mut results = Vec::new();
@@ -549,17 +590,27 @@ pub fn caption_create(
     media_id: &str,
     text: &str,
 ) -> Result<Caption, Box<dyn std::error::Error>> {
+    caption_create_with_source(app, media_id, text, None)
+}
+
+pub fn caption_create_with_source(
+    app: &AppHandle,
+    media_id: &str,
+    text: &str,
+    source: Option<&str>,
+) -> Result<Caption, Box<dyn std::error::Error>> {
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let id = Ulid::new().to_string();
     conn.execute(
-        "INSERT INTO captions (id, media_id, text) VALUES (?1, ?2, ?3)",
-        params![&id, media_id, text],
+        "INSERT INTO captions (id, media_id, text, source) VALUES (?1, ?2, ?3, ?4)",
+        params![&id, media_id, text, source],
     )?;
     Ok(Caption {
         id,
         media_id: media_id.to_string(),
         text: text.to_string(),
+        source: source.map(|s| s.to_string()),
         created_at: None,
         updated_at: None,
     })
@@ -583,5 +634,92 @@ pub fn caption_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::erro
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     conn.execute("DELETE FROM captions WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+// --- Embedding operations ---
+
+pub fn embedding_insert(
+    app: &AppHandle,
+    media_id: &str,
+    model: &str,
+    content_type: &str,
+    vector: &[f32],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let bytes: Vec<u8> = vector.iter().flat_map(|v| v.to_le_bytes()).collect();
+    conn.execute(
+        "INSERT OR REPLACE INTO embeddings (media_id, model, content_type, vector)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![media_id, model, content_type, bytes],
+    )?;
+    Ok(())
+}
+
+pub fn embedding_get(
+    app: &AppHandle,
+    media_id: &str,
+    model: &str,
+    content_type: &str,
+) -> Result<Option<Vec<f32>>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT vector FROM embeddings WHERE media_id = ?1 AND model = ?2 AND content_type = ?3",
+    )?;
+    let mut rows = stmt.query_map(params![media_id, model, content_type], |row| {
+        let bytes: Vec<u8> = row.get(0)?;
+        let mut vec = Vec::with_capacity(bytes.len() / 4);
+        for chunk in bytes.chunks_exact(4) {
+            let mut arr = [0u8; 4];
+            arr.copy_from_slice(chunk);
+            vec.push(f32::from_le_bytes(arr));
+        }
+        Ok(vec)
+    })?;
+    if let Some(row) = rows.next() {
+        return Ok(Some(row?));
+    }
+    Ok(None)
+}
+
+pub fn embedding_delete_for_media(
+    app: &AppHandle,
+    media_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "DELETE FROM embeddings WHERE media_id = ?1",
+        params![media_id],
+    )?;
+    Ok(())
+}
+
+// --- Settings operations ---
+
+pub fn setting_get(app: &AppHandle, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+    let mut rows = stmt.query_map(params![key], |row| Ok(row.get::<_, String>(0)?))?;
+    if let Some(row) = rows.next() {
+        return Ok(Some(row?));
+    }
+    Ok(None)
+}
+
+pub fn setting_set(
+    app: &AppHandle,
+    key: &str,
+    value: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![key, value],
+    )?;
     Ok(())
 }
