@@ -71,17 +71,23 @@
 
 ## Phase 3: 标签系统与AI自动标注
 
-**目标**: 图片自动打标签，支持人工增删改，可按标签过滤
+**目标**: 本地优先 + 云端后备的 AI 自动 caption/tag/embedding
 
 ### 任务
 1. [x] 数据库：标签相关表
    - [x] `tags`、`media_tags` 表（预留 `confidence`/`source` 字段供 AI 阶段使用）
    - [ ] FTS5 虚拟表（推迟到 Phase 6）
-2. [ ] AI 标签推理引擎（推迟到后续阶段）
-   - [ ] 集成 `wd14-tagger` ONNX 模型
-   - [ ] 首次启动时自动下载模型 (~200MB) 到 `models/`
-   - [ ] 异步推理队列，导入时自动触发
-   - [ ] 置信度阈值过滤 (默认 0.35)
+2. [ ] AI 推理引擎（本地优先，云端后备）
+   - [ ] 本地 VLM：`llama-cpp-rs` + `MiniCPM-V 4.6` (~1GB Q4 GGUF)
+     - [ ] 生成 dense caption + 结构化 tags
+     - [ ] 异步推理队列，导入时自动触发
+   - [ ] 本地 Embedding：`nomic-embed-text-v1.5` (~270MB Q4 GGUF)
+     - [ ] caption 和 tags 分别向量化
+     - [ ] `embeddings` 表 (media_id, model, content_type, vector)
+   - [ ] 云端后备：Claude / OpenAI / Qwen3.5 API（用户配置 API key）
+     - [ ] 本地模型加载失败时自动降级
+     - [ ] 用户可手动选择"云端模式"获取更高质量结果
+   - [ ] 模型下载管理：首次使用时自动下载到 `models/`，支持手动删除/更新
 3. [x] 标签管理UI
    - [x] Tags 页面：创建 / 删除 / 重命名标签
    - [x] 图片详情面板显示标签列表 + 添加 / 移除标签
@@ -92,11 +98,12 @@
    - [ ] 标签云侧边栏（推迟）
 
 ### 验证标准
-- [ ] 导入一张动漫图片，自动出现 `1girl`, `solo`, `long_hair` 等标签（AI 阶段）
-- [x] 删除一个标签后，该图片不再显示此标签
+- [ ] 导入一张图片，5 秒内自动生成 caption 和 tags
+- [ ] AI 生成的 tags 带 `source=ai` 标记，与人工标签区分显示
+- [ ] 断网状态下本地 VLM 仍能正常工作
+- [ ] 删除图片时，关联的 tags / captions / embeddings 级联删除
 - [x] 搜索框输入 `tag:cat` 只显示带 cat 标签的图片
 - [x] 选择 5 张图片，批量添加 `favorite` 标签，全部生效
-- [x] 删除标签 `test`，所有关联的 media_tags 记录被级联删除
 
 ---
 
@@ -155,24 +162,32 @@
 
 ## Phase 6: 搜索与高级过滤
 
-**目标**: 强大的搜索能力，支持多维度复合查询
+**目标**: 语义搜索 + 结构化过滤 + 智能筛选器
 
 ### 任务
-1. 全文搜索
+1. 语义搜索（基于 Phase 3 的 embedding）
+   - 查询文本 -> nomic-embed 向量化
+   - 与 `embeddings` 表中 caption/tags 向量做余弦相似度排序
+   - 与现有 `tag:` 语法共存，可混合使用
+2. 全文搜索
    - SQLite FTS5 实现标签和文件名搜索
    - 前端搜索框支持实时建议 (debounce 200ms)
-2. 高级过滤语法
+3. 高级过滤语法
    - `tag:cat dog` - 包含 cat 和 dog
    - `width:>1920` - 宽大于1920
    - `date:2024-01-01..2024-12-31` - 日期范围
    - `size:<1mb` - 文件大小
+   - `cat`（无前缀）- 语义搜索：匹配 caption/tags embedding 相似度
    - 支持逻辑组合：`tag:cat AND (width:>1000 OR height:>1000)`
-3. 保存的筛选器
+4. 保存的筛选器
    - 用户可将常用筛选条件保存为智能文件夹
    - 显示在侧边栏，点击即时应用
 
 ### 验证标准
+- [ ] 语义搜索 "一只橘猫" 返回包含橘猫的图片（无需精确 tag 匹配）
 - [ ] 搜索 `tag:cat` 在 1000 张图库中返回结果 < 100ms
+- [ ] 混合查询 `cat width:>1000` 语义+结构化过滤结果正确
+- [ ] 空搜索结果时显示友好提示和重置按钮
 - [ ] 组合查询 `tag:landscape width:>1920` 结果正确
    - 单独 `tag:landscape` 100 张，`width:>1920` 50 张，组合后 30 张
 - [ ] 保存筛选器后，重启应用仍可用
