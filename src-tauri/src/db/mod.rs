@@ -123,11 +123,25 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        INSERT OR IGNORE INTO _migrations (name) VALUES ('0007_ai_fields');
-
-        ALTER TABLE captions ADD COLUMN source TEXT;
         ",
     )?;
+
+    // 0007: add source column to captions (conditional — SQLite can't do IF NOT EXISTS on ALTER TABLE)
+    let has_source: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('captions') WHERE name='source'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !has_source {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0007_ai_fields');
+             ALTER TABLE captions ADD COLUMN source TEXT;",
+        )?;
+    }
+
     Ok(())
 }
 
