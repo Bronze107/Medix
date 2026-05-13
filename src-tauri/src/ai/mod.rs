@@ -5,8 +5,8 @@ pub use llamacpp::{embed_text, generate_caption, AiResult};
 pub use server::LlamaServer;
 
 use std::path::PathBuf;
+use std::sync::mpsc;
 use tauri::{AppHandle, Manager};
-use tokio::sync::mpsc;
 
 pub enum AiTask {
     GenerateCaption {
@@ -21,32 +21,35 @@ pub struct AiQueue {
 }
 
 impl AiQueue {
-    pub async fn send(
-        &self,
-        task: AiTask,
-    ) -> Result<(), tokio::sync::mpsc::error::SendError<AiTask>> {
-        self.sender.send(task).await
+    pub fn send(&self, task: AiTask) -> Result<(), mpsc::SendError<AiTask>> {
+        self.sender.send(task)
     }
 }
 
 pub fn init_ai_queue(app: AppHandle) -> AiQueue {
-    let (tx, mut rx) = mpsc::channel::<AiTask>(100);
+    let (tx, rx) = mpsc::channel::<AiTask>();
 
-    tokio::spawn(async move {
-        while let Some(task) = rx.recv().await {
-            match task {
-                AiTask::GenerateCaption {
-                    media_id,
-                    image_path,
-                } => {
-                    if let Err(e) =
-                        process_generate_caption(app.clone(), media_id, image_path).await
-                    {
-                        eprintln!("[ai] failed to process caption generation: {}", e);
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build tokio runtime for ai queue");
+        rt.block_on(async move {
+            while let Ok(task) = rx.recv() {
+                match task {
+                    AiTask::GenerateCaption {
+                        media_id,
+                        image_path,
+                    } => {
+                        if let Err(e) =
+                            process_generate_caption(app.clone(), media_id, image_path).await
+                        {
+                            eprintln!("[ai] failed to process caption generation: {}", e);
+                        }
                     }
                 }
             }
-        }
+        });
     });
 
     AiQueue { sender: tx }
@@ -125,7 +128,8 @@ async fn process_generate_caption(
     // Generate embedding for caption
     match embed_text(&result.caption, &model, port).await {
         Ok(vector) => {
-            if let Err(e) = crate::db::embedding_insert(&app, &media_id, &model, "caption", &vector)
+            if let Err(e) =
+                crate::db::embedding_insert(&app, &media_id, &model, "caption", &vector)
             {
                 eprintln!("[ai] failed to store caption embedding: {}", e);
             }

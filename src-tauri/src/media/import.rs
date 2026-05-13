@@ -157,19 +157,17 @@ fn import_single_file(
         }
     });
 
-    // Trigger AI caption generation asynchronously
+    // Trigger AI caption generation asynchronously (fire-and-forget via sync channel)
     let app_clone = app.clone();
     let media_id = id.clone();
     let dest_path_clone = dest_path.clone();
-    tokio::spawn(async move {
+    tokio::task::spawn_blocking(move || {
         use tauri::Manager;
         let queue = app_clone.state::<crate::ai::AiQueue>();
-        let _ = queue
-            .send(crate::ai::AiTask::GenerateCaption {
-                media_id,
-                image_path: dest_path_clone,
-            })
-            .await;
+        let _ = queue.send(crate::ai::AiTask::GenerateCaption {
+            media_id,
+            image_path: dest_path_clone,
+        });
     });
 
     MediaImportResult {
