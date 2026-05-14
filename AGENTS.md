@@ -20,7 +20,7 @@
 | 后端 | Rust | edition 2021 |
 | 数据库 | SQLite via `rusqlite` | latest |
 | 图像处理 | `image` crate + `kamadak-exif` | latest |
-| AI 推理 | ONNX Runtime (`ort`) | 2.x |
+| AI 推理 | llama.cpp `llama-server` (OpenAI 兼容 HTTP API) | latest |
 | 搜索 | SQLite FTS5 | built-in |
 | 浏览器插件 | Chrome Extension Manifest V3 | - |
 
@@ -39,10 +39,15 @@ Medix/
 │   │   ├── commands/       # Tauri IPC 命令 (前端可调用的 Rust 函数)
 │   │   ├── db/             # 数据库: schema, migrations, queries
 │   │   ├── media/          # 媒体处理: 导入, 缩略图, 元数据提取
-│   │   ├── ai/             # AI 推理: 模型加载, tag 推理
+│   │   ├── ai/             # AI 推理
+│   │   │   ├── mod.rs      # AiQueue 异步队列 + 任务处理
+│   │   │   ├── llamacpp.rs # OpenAI 兼容 HTTP 客户端
+│   │   │   └── server.rs   # llama-server 子进程生命周期管理
+│   │   ├── models/         # GGUF 模型文件扫描 + 二进制/mmproj 自动检测
+│   │   ├── settings/       # 设置键定义 + 默认值 getter
 │   │   ├── variants/       # 变体生成: 格式转换, 裁剪, 压缩
-│   │   ├── export/         # 导入导出: ZIP, COCO, YOLO
-│   │   └── server/         # HTTP 服务 (供浏览器插件调用)
+│   │   ├── captions/       # Caption 结构体定义
+│   │   └── tag/            # Tag 结构体定义
 │   └── Cargo.toml
 ├── extension/              # Chrome/Firefox 浏览器插件
 │   ├── manifest.json
@@ -78,10 +83,11 @@ Medix/
 
 ### 数据库
 
-- Schema 变更必须写迁移脚本，按 `YYYYMMDD_HHMMSS_description.sql` 命名
+- Schema 变更在 `db/mod.rs` 的 `run_migrations()` 中追加，使用 `INSERT OR IGNORE INTO _migrations` 追踪
+- 已有列的条件添加使用 `pragma_table_info` 检查（避免 ALTER TABLE 重复报错）
 - 主键使用 ULID (TEXT)，避免自增 ID
 - 时间戳统一使用 `DATETIME` 存储 ISO 8601 字符串
-- JSON 字段使用 SQLite JSON 扩展，Rust 侧对应 `serde_json::Value`
+- Embedding 向量以 `f32::to_le_bytes()` 存为 BLOB
 
 ## 开发工作流
 
@@ -103,18 +109,21 @@ Medix/
 
 | 模块 | 前缀 | 示例 |
 |------|------|------|
-| 媒体 | `media_` | `media_import`, `media_list`, `media_delete` |
-| 标签 | `tag_` | `tag_list`, `tag_add_to_media`, `tag_remove` |
+| 媒体 | `media_` | `media_import`, `media_list`, `media_search` |
+| 标签 | `tag_` | `tag_list`, `tag_create`, `media_tag_add` |
 | 变体 | `variant_` | `variant_generate`, `variant_list`, `variant_delete` |
-| 标注 | `annotation_` | `annotation_create`, `annotation_list` |
-| 搜索 | `search_` | `search_query`, `search_suggestions` |
-| 导出 | `export_` | `export_dataset`, `export_progress` |
-| 系统 | `sys_` | `sys_get_settings`, `sys_set_settings` |
+| 描述 | `caption_` | `caption_create`, `caption_list`, `caption_update` |
+| AI 服务 | `llama_server_` | `llama_server_start`, `llama_server_stop`, `llama_server_status` |
+| AI 模型 | `model_list`, `auto_detect`, `embedding_info` | (无统一前缀) |
+| 设置 | `settings_` | `settings_get`, `settings_set`, `settings_get_all` |
+| 搜索 | `media_search` | (含 `tag:` 语法，语义搜索待 Phase 6) |
+| 系统 | `greet` | (测试用途) |
 
 ## 关键约束
 
-- **本地优先**: 所有数据处理本地完成，不上传云端
-- **延迟生成**: 变体、AI 标签等采用按需生成 + 缓存策略
+- **本地优先**: 所有数据处理本地完成，不上传云端（llama-server 纯本地推理）
+- **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成
+- **延迟生成**: 变体采用按需生成 + 缓存策略
 - **内存安全**: 大图处理必须分块/流式，单图内存占用不超过 200MB
 - **向后兼容**: 数据库 schema 变更需保留迁移路径，不丢失用户数据
 
@@ -138,14 +147,14 @@ Medix/
 
 ### 添加数据库表
 
-1. 在 `src-tauri/src/db/migrations/` 创建迁移文件
-2. 在 `src-tauri/src/db/schema.rs` 更新表结构定义
-3. 在 `src-tauri/src/db/queries.rs` 添加 CRUD 函数
-4. 运行 `cargo test --test db` 验证
+1. 在 `src-tauri/src/db/mod.rs` 的 `run_migrations()` 末尾追加 `INSERT OR IGNORE` + `CREATE TABLE IF NOT EXISTS`
+2. 在同一文件添加对应的 CRUD 函数，参数模式 `fn xxx(app: &AppHandle, ...)`
+3. 在 `src-tauri/src/` 对应的业务模块添加 Rust 结构体（如 `captions/mod.rs`）
+4. `cargo check` 验证编译
 
 ### 添加 AI 模型
 
-1. 下载 `.onnx` 文件到 `models/` (gitignored)
-2. 在 `src-tauri/src/ai/` 添加模型加载和推理代码
-3. 首次运行时自动下载的机制放在 `src-tauri/src/ai/download.rs`
-4. 模型文件不超过 500MB，否则提供外部下载链接
+1. 下载 `.gguf` 文件到 `%APPDATA%/com.bronze107.medix/models/`
+2. VLM 模型需同时下载 `mmproj` 文件（视觉投影器）
+3. 重启 Medix → 设置页自动检测并出现在下拉列表中
+4. llama-server 启动参数：`-m model.gguf --mmproj mmproj.gguf --embeddings --pooling mean`
