@@ -87,6 +87,11 @@ async fn process_generate_caption(
     }
 
     let model = crate::settings::get_llama_model(&app);
+    let model_short = std::path::Path::new(&model)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&model)
+        .to_string();
     if model.is_empty() {
         eprintln!("[ai] no GGUF model configured, skipping {}", media_id);
         return Ok(());
@@ -130,7 +135,7 @@ async fn process_generate_caption(
     match embed_text(&result.caption, &model, port).await {
         Ok(vector) => {
             if let Err(e) =
-                crate::db::embedding_insert(&app, &media_id, &model, "caption", &vector)
+                crate::db::embedding_insert(&app, &media_id, &model_short,"caption", &vector)
             {
                 eprintln!("[ai] failed to store caption embedding: {}", e);
             }
@@ -146,7 +151,7 @@ async fn process_generate_caption(
         match embed_text(&tags_text, &model, port).await {
             Ok(vector) => {
                 if let Err(e) =
-                    crate::db::embedding_insert(&app, &media_id, &model, "tags", &vector)
+                    crate::db::embedding_insert(&app, &media_id, &model_short,"tags", &vector)
                 {
                     eprintln!("[ai] failed to store tags embedding: {}", e);
                 }

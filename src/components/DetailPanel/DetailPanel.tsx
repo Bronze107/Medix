@@ -477,7 +477,7 @@ function DetailPanel({ media }: DetailPanelProps) {
                       {e.content_type === "caption" ? "描述向量" : "标签向量"}
                     </span>
                     <span className="text-[10px] text-neutral-500">
-                      {e.vec_dim}d · {e.model.split("/").pop()}
+                      {e.vec_dim}d · {e.model}
                     </span>
                   </div>
                 ))}
