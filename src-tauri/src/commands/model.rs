@@ -36,3 +36,8 @@ pub async fn llama_server_stop(app: AppHandle) -> Result<(), String> {
 pub fn model_list(app: AppHandle) -> models::GgufModelList {
     models::get_gguf_models(&app)
 }
+
+#[command]
+pub fn auto_detect(app: AppHandle) -> models::AutoDetect {
+    models::auto_detect(&app)
+}

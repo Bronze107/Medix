@@ -81,3 +81,93 @@ pub fn model_exists(app: &AppHandle, name_or_path: &str) -> bool {
             || dir.join(format!("{}.gguf", name_or_path)).exists()
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoDetect {
+    pub binary_paths: Vec<String>,
+    pub binary_path: String,
+    pub mmproj_files: Vec<String>,
+}
+
+/// Auto-detect llama-server binary from PATH and common install locations
+pub fn auto_detect(app: &AppHandle) -> AutoDetect {
+    // Scan for mmproj files
+    let dir = models_dir(app);
+    let mut mmproj_files = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if (name.contains("mmproj") || name.contains("clip") || name.contains("vision"))
+                && path.extension().and_then(|e| e.to_str()) == Some("gguf")
+            {
+                mmproj_files.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // Detect binary
+    let candidates = [
+        "llama-server.exe",
+        "llama-server",
+    ];
+    let mut binary_paths = Vec::new();
+    let mut binary_path = String::new();
+
+    for name in &candidates {
+        // Check in dirs next to common install locations
+        let search_dirs = [
+            "C:\\llama-vulkan",
+            "C:\\llama-cpp",
+            "C:\\llama.cpp",
+            &format!("{}\\llama-vulkan", std::env::var("USERPROFILE").unwrap_or_default()),
+            &format!("{}\\llama-cpp", std::env::var("USERPROFILE").unwrap_or_default()),
+        ];
+        for dir in &search_dirs {
+            let p = std::path::Path::new(dir).join(name);
+            if p.exists() {
+                let path_str = p.to_string_lossy().to_string();
+                if binary_path.is_empty() {
+                    binary_path = path_str.clone();
+                }
+                if !binary_paths.contains(&path_str) {
+                    binary_paths.push(path_str);
+                }
+            }
+            // Also check bin/ subdirectory
+            let p = std::path::Path::new(dir).join("bin").join(name);
+            if p.exists() {
+                let path_str = p.to_string_lossy().to_string();
+                if binary_path.is_empty() {
+                    binary_path = path_str.clone();
+                }
+                if !binary_paths.contains(&path_str) {
+                    binary_paths.push(path_str);
+                }
+            }
+        }
+    }
+
+    // Check PATH
+    for name in &candidates {
+        if let Ok(path) = which::which(name) {
+            let path_str = path.to_string_lossy().to_string();
+            if binary_path.is_empty() {
+                binary_path = path_str.clone();
+            }
+            if !binary_paths.contains(&path_str) {
+                binary_paths.push(path_str);
+            }
+        }
+    }
+
+    AutoDetect {
+        binary_paths,
+        binary_path,
+        mmproj_files,
+    }
+}

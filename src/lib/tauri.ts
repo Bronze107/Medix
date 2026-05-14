@@ -3,7 +3,7 @@ import type { Media, MediaImportResult } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
 import type { Caption } from "@/types/caption";
-import type { LlamaServerStatus, GgufModelList } from "@/types/ai";
+import type { LlamaServerStatus, GgufModelList, AutoDetect } from "@/types/ai";
 
 export function greet(name: string): Promise<string> {
   return invoke("greet", { name });
@@ -123,6 +123,10 @@ export function llamaServerStop(): Promise<void> {
 
 export function modelList(): Promise<GgufModelList> {
   return invoke("model_list");
+}
+
+export function autoDetect(): Promise<AutoDetect> {
+  return invoke("auto_detect");
 }
 
 // --- Settings ---

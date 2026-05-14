@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import type { LlamaServerStatus, GgufModelList } from "@/types/ai";
+import type { LlamaServerStatus, GgufModelList, AutoDetect } from "@/types/ai";
 import {
+  autoDetect,
   llamaServerStatus,
   llamaServerStart,
   llamaServerStop,
@@ -32,15 +33,18 @@ function Settings() {
   const [llamaCtxSize, setLlamaCtxSize] = useState(4096);
   const [llamaMmproj, setLlamaMmproj] = useState("");
 
+  const [detected, setDetected] = useState<AutoDetect | null>(null);
+
   const [saved, setSaved] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [status, models, settings] = await Promise.all([
+      const [status, models, settings, detected] = await Promise.all([
         llamaServerStatus(),
         modelList(),
         settingsGetAll(),
+        autoDetect(),
       ]);
       setServerStatus(status);
       setGgufList(models);
@@ -55,6 +59,17 @@ function Settings() {
       if (settings.llama_gpu_layers) setLlamaGpuLayers(parseInt(settings.llama_gpu_layers) || 0);
       if (settings.llama_ctx_size) setLlamaCtxSize(parseInt(settings.llama_ctx_size) || 4096);
       if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
+
+      // Auto-fill from detection
+      if (!settings.llama_bin_path && detected.binary_path) {
+        setLlamaBinPath(detected.binary_path);
+      }
+      if (!settings.llama_mmproj && detected.mmproj_files.length > 0) {
+        setLlamaMmproj(detected.mmproj_files[0]);
+      }
+
+      // Store detected data for UI
+      setDetected(detected);
     } catch (e) {
       console.error("Failed to load settings:", e);
     } finally {
@@ -202,13 +217,27 @@ function Settings() {
             <label className="mb-1 block text-xs text-neutral-500">
               llama-server 二进制路径
             </label>
-            <input
-              type="text"
-              value={llamaBinPath}
-              onChange={(e) => setLlamaBinPath(e.target.value)}
-              placeholder="llama-server"
-              className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
-            />
+            {detected && detected.binary_paths.length > 0 ? (
+              <select
+                value={llamaBinPath}
+                onChange={(e) => setLlamaBinPath(e.target.value)}
+                className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+              >
+                {detected.binary_paths.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+                <option value="">自定路径...</option>
+              </select>
+            ) : null}
+            {(detected?.binary_paths.length ?? 0) === 0 || llamaBinPath === "" || !detected?.binary_paths.includes(llamaBinPath) ? (
+              <input
+                type="text"
+                value={llamaBinPath}
+                onChange={(e) => setLlamaBinPath(e.target.value)}
+                placeholder="C:\\path\\to\\llama-server.exe"
+                className="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
+              />
+            ) : null}
           </div>
 
           {/* Port */}
@@ -272,15 +301,38 @@ function Settings() {
             <label className="mb-1 block text-xs text-neutral-500">
               mmproj (视觉投影器)
             </label>
-            <input
-              type="text"
-              value={llamaMmproj}
-              onChange={(e) => setLlamaMmproj(e.target.value)}
-              placeholder="留空表示不使用 VLM"
-              className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
-            />
+            {detected && detected.mmproj_files.length > 0 ? (
+              <>
+                <select
+                  value={llamaMmproj}
+                  onChange={(e) => setLlamaMmproj(e.target.value)}
+                  className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+                >
+                  {detected.mmproj_files.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                  <option value="">不使用 VLM</option>
+                </select>
+                {!detected.mmproj_files.includes(llamaMmproj) && llamaMmproj !== "" ? (
+                  <input
+                    type="text"
+                    value={llamaMmproj}
+                    onChange={(e) => setLlamaMmproj(e.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+                  />
+                ) : null}
+              </>
+            ) : (
+              <input
+                type="text"
+                value={llamaMmproj}
+                onChange={(e) => setLlamaMmproj(e.target.value)}
+                placeholder="留空表示不使用 VLM"
+                className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
+              />
+            )}
             <p className="mt-0.5 text-[10px] text-neutral-500">
-              VLM 需要单独的 mmproj 文件，如 mmproj-MiniCPM-V-2_6-f16.gguf
+              将 mmproj 文件放到 models 目录即可自动识别
             </p>
           </div>
         </section>

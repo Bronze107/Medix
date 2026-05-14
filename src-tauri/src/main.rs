@@ -11,11 +11,12 @@ mod variants;
 use tauri::Manager;
 
 use commands::{
-    caption_create, caption_delete, caption_list, caption_update, greet, llama_server_start,
-    llama_server_status, llama_server_stop, media_import, media_list, media_search,
-    media_tag_add, media_tag_add_batch, media_tag_remove, media_tags_get, media_thumbnail,
-    model_list, settings_get, settings_get_all, settings_set, tag_create, tag_delete, tag_list,
-    tag_rename, variant_delete, variant_generate, variant_list, variant_presets,
+    auto_detect, caption_create, caption_delete, caption_list, caption_update, greet,
+    llama_server_start, llama_server_status, llama_server_stop, media_import, media_list,
+    media_search, media_tag_add, media_tag_add_batch, media_tag_remove, media_tags_get,
+    media_thumbnail, model_list, settings_get, settings_get_all, settings_set, tag_create,
+    tag_delete, tag_list, tag_rename, variant_delete, variant_generate, variant_list,
+    variant_presets,
 };
 
 fn main() {
@@ -57,6 +58,7 @@ fn main() {
             llama_server_start,
             llama_server_stop,
             model_list,
+            auto_detect,
             settings_get,
             settings_set,
             settings_get_all,

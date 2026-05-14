@@ -16,3 +16,9 @@ export interface GgufModelList {
   models: GgufModel[];
   models_dir: string;
 }
+
+export interface AutoDetect {
+  binary_paths: string[];
+  binary_path: string;
+  mmproj_files: string[];
+}
