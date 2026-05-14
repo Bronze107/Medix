@@ -134,8 +134,12 @@ pub fn parse(input: &str) -> ParsedQuery {
         match seg.prefix.as_deref() {
             Some("tag:") => {
                 if result.tag_group.is_none() {
-                    if let Some(tg) = parse_tag_content(&seg.content) {
+                    let (tg, leftover) = parse_tag_content(&seg.content);
+                    if let Some(tg) = tg {
                         result.tag_group = Some(tg);
+                    }
+                    if let Some(sem) = leftover {
+                        bare_words.push(sem);
                     }
                 }
             }
@@ -175,40 +179,70 @@ pub fn parse(input: &str) -> ParsedQuery {
     result
 }
 
-fn parse_tag_content(content: &str) -> Option<TagGroup> {
+/// Returns (tag_words, leftover_semantic) where tag_words are ASCII-only (valid tag names)
+/// and leftover_semantic contains non-ASCII words that should be treated as semantic query text.
+fn split_tag_words(content: &str) -> (Vec<String>, Vec<String>) {
+    let mut tags = Vec::new();
+    let mut semantic = Vec::new();
+    for word in content.split_whitespace() {
+        let word = word.trim_matches(',').to_lowercase();
+        if word.is_empty() {
+            continue;
+        }
+        // Chinese/non-ASCII words → semantic, ASCII → tag
+        if word.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            tags.push(word);
+        } else {
+            semantic.push(word);
+        }
+    }
+    (tags, semantic)
+}
+
+fn parse_tag_content(content: &str) -> (Option<TagGroup>, Option<String>) {
     let content = content.trim();
     if content.is_empty() {
-        return None;
+        return (None, None);
     }
 
-    let (tags, mode) = if content.contains(" OR ") {
-        let tags: Vec<String> = content
-            .split(" OR ")
-            .map(|s| s.trim().to_lowercase())
-            .filter(|s| !s.is_empty())
-            .collect();
-        (tags, TagMatchMode::Any)
+    let (tags, mode, leftover) = if content.contains(" or ") {
+        let parts: Vec<&str> = content.split(" or ").collect();
+        let mut tags = Vec::new();
+        let mut sem = Vec::new();
+        for part in parts {
+            let (t, s) = split_tag_words(part.trim());
+            tags.extend(t);
+            sem.extend(s);
+        }
+        (tags, TagMatchMode::Any, sem)
     } else if content.contains('|') {
-        let tags: Vec<String> = content
-            .split('|')
-            .map(|s| s.trim().to_lowercase())
-            .filter(|s| !s.is_empty())
-            .collect();
-        (tags, TagMatchMode::Any)
+        let parts: Vec<&str> = content.split('|').collect();
+        let mut tags = Vec::new();
+        let mut sem = Vec::new();
+        for part in parts {
+            let (t, s) = split_tag_words(part.trim());
+            tags.extend(t);
+            sem.extend(s);
+        }
+        (tags, TagMatchMode::Any, sem)
     } else {
-        let tags: Vec<String> = content
-            .split_whitespace()
-            .map(|s| s.trim_matches(',').to_lowercase())
-            .filter(|s| !s.is_empty())
-            .collect();
-        (tags, TagMatchMode::All)
+        let (tags, semantic) = split_tag_words(&content);
+        (tags, TagMatchMode::All, semantic)
     };
 
-    if tags.is_empty() {
-        return None;
-    }
+    let tag_group = if tags.is_empty() {
+        None
+    } else {
+        Some(TagGroup { tags, mode })
+    };
 
-    Some(TagGroup { tags, mode })
+    let semantic_text = if leftover.is_empty() {
+        None
+    } else {
+        Some(leftover.join(" "))
+    };
+
+    (tag_group, semantic_text)
 }
 
 fn parse_comparison(content: &str) -> Option<Comparison> {
@@ -347,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_tag_union_or() {
-        let r = parse("tag:cat OR dog");
+        let r = parse("tag:cat or dog");
         let tg = r.tag_group.unwrap();
         assert_eq!(tg.tags, vec!["cat", "dog"]);
         assert!(matches!(tg.mode, TagMatchMode::Any));
