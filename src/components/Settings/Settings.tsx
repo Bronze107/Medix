@@ -295,45 +295,6 @@ function Settings() {
             />
           </div>
 
-          {/* mmproj (vision projector) */}
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-neutral-500">
-              mmproj (视觉投影器)
-            </label>
-            {detected && detected.mmproj_files.length > 0 ? (
-              <>
-                <select
-                  value={llamaMmproj}
-                  onChange={(e) => setLlamaMmproj(e.target.value)}
-                  className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
-                >
-                  {detected.mmproj_files.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                  <option value="">不使用 VLM</option>
-                </select>
-                {!detected.mmproj_files.includes(llamaMmproj) && llamaMmproj !== "" ? (
-                  <input
-                    type="text"
-                    value={llamaMmproj}
-                    onChange={(e) => setLlamaMmproj(e.target.value)}
-                    className="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
-                  />
-                ) : null}
-              </>
-            ) : (
-              <input
-                type="text"
-                value={llamaMmproj}
-                onChange={(e) => setLlamaMmproj(e.target.value)}
-                placeholder="留空表示不使用 VLM"
-                className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
-              />
-            )}
-            <p className="mt-0.5 text-[10px] text-neutral-500">
-              将 mmproj 文件放到 models 目录即可自动识别
-            </p>
-          </div>
         </section>
 
         {/* Semantic Search Settings */}
@@ -420,6 +381,46 @@ function Settings() {
               暂无 GGUF 模型。将 .gguf 文件放入 models 目录即可。
             </p>
           )}
+
+          {/* mmproj (vision projector) */}
+          <div className="mb-3 border-t border-neutral-800 pt-3">
+            <label className="mb-1 block text-xs text-neutral-500">
+              mmproj (视觉投影器)
+            </label>
+            {detected && detected.mmproj_files.length > 0 ? (
+              <>
+                <select
+                  value={llamaMmproj}
+                  onChange={(e) => setLlamaMmproj(e.target.value)}
+                  className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+                >
+                  {detected.mmproj_files.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                  <option value="">不使用 VLM</option>
+                </select>
+                {!detected.mmproj_files.includes(llamaMmproj) && llamaMmproj !== "" ? (
+                  <input
+                    type="text"
+                    value={llamaMmproj}
+                    onChange={(e) => setLlamaMmproj(e.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+                  />
+                ) : null}
+              </>
+            ) : (
+              <input
+                type="text"
+                value={llamaMmproj}
+                onChange={(e) => setLlamaMmproj(e.target.value)}
+                placeholder="留空表示不使用 VLM"
+                className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
+              />
+            )}
+            <p className="mt-0.5 text-[10px] text-neutral-500">
+              将 mmproj 文件放到 models 目录即可自动识别
+            </p>
+          </div>
 
           {/* Download hint */}
           <div className="mt-3 rounded bg-neutral-800/50 p-2">
