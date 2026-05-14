@@ -32,6 +32,7 @@ function Settings() {
   const [llamaGpuLayers, setLlamaGpuLayers] = useState(0);
   const [llamaCtxSize, setLlamaCtxSize] = useState(4096);
   const [llamaMmproj, setLlamaMmproj] = useState("");
+  const [semanticThreshold, setSemanticThreshold] = useState(0.25);
 
   const [detected, setDetected] = useState<AutoDetect | null>(null);
 
@@ -59,6 +60,7 @@ function Settings() {
       if (settings.llama_gpu_layers) setLlamaGpuLayers(parseInt(settings.llama_gpu_layers) || 0);
       if (settings.llama_ctx_size) setLlamaCtxSize(parseInt(settings.llama_ctx_size) || 4096);
       if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
+      if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
 
       // Auto-fill from detection
       if (!settings.llama_bin_path && detected.binary_path) {
@@ -95,6 +97,7 @@ function Settings() {
       await settingsSet("llama_gpu_layers", String(llamaGpuLayers));
       await settingsSet("llama_ctx_size", String(llamaCtxSize));
       await settingsSet("llama_mmproj", llamaMmproj);
+      await settingsSet("semantic_threshold", String(semanticThreshold));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -333,6 +336,30 @@ function Settings() {
             )}
             <p className="mt-0.5 text-[10px] text-neutral-500">
               将 mmproj 文件放到 models 目录即可自动识别
+            </p>
+          </div>
+        </section>
+
+        {/* Semantic Search Settings */}
+        <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+          <h2 className="mb-3 text-sm font-semibold text-neutral-200">
+            语义搜索
+          </h2>
+          <div className="mb-3">
+            <label className="mb-1 block text-xs text-neutral-500">
+              最低相似度阈值: {semanticThreshold.toFixed(2)}
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={0.5}
+              step={0.01}
+              value={semanticThreshold}
+              onChange={(e) => setSemanticThreshold(parseFloat(e.target.value))}
+              className="w-48"
+            />
+            <p className="mt-0.5 text-[10px] text-neutral-500">
+              越高越严格（只返回高度相关的图片），越低越宽松。默认 0.25
             </p>
           </div>
         </section>

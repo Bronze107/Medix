@@ -15,6 +15,7 @@ pub fn execute_search(
     query_embedding: Option<Vec<f32>>,
     sort_by: &str,
     descending: bool,
+    min_score: f64,
 ) -> Result<Vec<Media>, String> {
     let parsed = parser::parse(query);
 
@@ -22,7 +23,7 @@ pub fn execute_search(
     let semantic_map: Option<HashMap<String, f64>> =
         query_embedding
             .as_ref()
-            .and_then(|vec| match semantic::semantic_search_by_vector(vec, app, 500) {
+            .and_then(|vec| match semantic::semantic_search_by_vector(vec, app, 500, min_score) {
                 Ok(results) => {
                     Some(results.into_iter().map(|r| (r.media_id, r.score)).collect())
                 }

@@ -71,6 +71,7 @@ pub async fn media_search(
 
     // Run the search engine in spawn_blocking (DB + CPU work)
     let app_clone = app.clone();
+    let min_score = crate::settings::get_semantic_threshold(&app);
     tokio::task::spawn_blocking(move || {
         crate::search::execute_search(
             &app_clone,
@@ -78,6 +79,7 @@ pub async fn media_search(
             query_embedding,
             &sort_by,
             descending,
+            min_score,
         )
     })
     .await

@@ -71,3 +71,11 @@ pub fn get_llama_ctx_size(app: &AppHandle) -> u32 {
 pub fn get_llama_mmproj(app: &AppHandle) -> String {
     get(app, KEY_LLAMA_MMPROJ).unwrap_or_default()
 }
+
+pub const KEY_SEMANTIC_THRESHOLD: &str = "semantic_threshold";
+
+pub fn get_semantic_threshold(app: &AppHandle) -> f64 {
+    get(app, KEY_SEMANTIC_THRESHOLD)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.25)
+}
