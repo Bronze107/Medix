@@ -73,6 +73,7 @@ impl LlamaServer {
         if !mmproj_path.is_empty() {
             cmd.arg("--mmproj").arg(mmproj_path);
         }
+        cmd.arg("--embeddings");
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
