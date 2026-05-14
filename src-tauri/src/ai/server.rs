@@ -25,6 +25,7 @@ impl LlamaServer {
         &self,
         bin_path: &str,
         model_path: &str,
+        mmproj_path: &str,
         port: u16,
         ctx_size: u32,
         threads: u32,
@@ -63,14 +64,15 @@ impl LlamaServer {
         };
 
         let mut cmd = Command::new(bin_path);
-        cmd.args([
-            "-m", &model_full,
-            "--host", "127.0.0.1",
-            "--port", &port.to_string(),
-            "--ctx-size", &ctx_size.to_string(),
-            "--threads", &threads.to_string(),
-            "--n-gpu-layers", &gpu_layers.to_string(),
-        ]);
+        cmd.arg("-m").arg(&model_full);
+        cmd.arg("--host").arg("127.0.0.1");
+        cmd.arg("--port").arg(port.to_string());
+        cmd.arg("--ctx-size").arg(ctx_size.to_string());
+        cmd.arg("--threads").arg(threads.to_string());
+        cmd.arg("--n-gpu-layers").arg(gpu_layers.to_string());
+        if !mmproj_path.is_empty() {
+            cmd.arg("--mmproj").arg(mmproj_path);
+        }
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 

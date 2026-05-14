@@ -12,6 +12,7 @@ pub const KEY_LLAMA_MODEL: &str = "llama_model";
 pub const KEY_LLAMA_THREADS: &str = "llama_threads";
 pub const KEY_LLAMA_GPU_LAYERS: &str = "llama_gpu_layers";
 pub const KEY_LLAMA_CTX_SIZE: &str = "llama_ctx_size";
+pub const KEY_LLAMA_MMPROJ: &str = "llama_mmproj";
 
 pub fn get(app: &AppHandle, key: &str) -> Option<String> {
     crate::db::setting_get(app, key).ok().flatten()
@@ -65,4 +66,8 @@ pub fn get_llama_ctx_size(app: &AppHandle) -> u32 {
     get(app, KEY_LLAMA_CTX_SIZE)
         .and_then(|v| v.parse().ok())
         .unwrap_or(4096)
+}
+
+pub fn get_llama_mmproj(app: &AppHandle) -> String {
+    get(app, KEY_LLAMA_MMPROJ).unwrap_or_default()
 }

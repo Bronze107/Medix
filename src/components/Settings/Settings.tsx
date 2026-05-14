@@ -30,6 +30,7 @@ function Settings() {
   const [llamaThreads, setLlamaThreads] = useState(4);
   const [llamaGpuLayers, setLlamaGpuLayers] = useState(0);
   const [llamaCtxSize, setLlamaCtxSize] = useState(4096);
+  const [llamaMmproj, setLlamaMmproj] = useState("");
 
   const [saved, setSaved] = useState(false);
 
@@ -53,6 +54,7 @@ function Settings() {
       if (settings.llama_threads) setLlamaThreads(parseInt(settings.llama_threads) || 4);
       if (settings.llama_gpu_layers) setLlamaGpuLayers(parseInt(settings.llama_gpu_layers) || 0);
       if (settings.llama_ctx_size) setLlamaCtxSize(parseInt(settings.llama_ctx_size) || 4096);
+      if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
     } catch (e) {
       console.error("Failed to load settings:", e);
     } finally {
@@ -77,6 +79,7 @@ function Settings() {
       await settingsSet("llama_threads", String(llamaThreads));
       await settingsSet("llama_gpu_layers", String(llamaGpuLayers));
       await settingsSet("llama_ctx_size", String(llamaCtxSize));
+      await settingsSet("llama_mmproj", llamaMmproj);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -262,6 +265,23 @@ function Settings() {
               step={512}
               className="w-28 rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
             />
+          </div>
+
+          {/* mmproj (vision projector) */}
+          <div className="mb-3">
+            <label className="mb-1 block text-xs text-neutral-500">
+              mmproj (视觉投影器)
+            </label>
+            <input
+              type="text"
+              value={llamaMmproj}
+              onChange={(e) => setLlamaMmproj(e.target.value)}
+              placeholder="留空表示不使用 VLM"
+              className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
+            />
+            <p className="mt-0.5 text-[10px] text-neutral-500">
+              VLM 需要单独的 mmproj 文件，如 mmproj-MiniCPM-V-2_6-f16.gguf
+            </p>
           </div>
         </section>
 

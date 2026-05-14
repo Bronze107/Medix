@@ -26,6 +26,7 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_LLAMA_THREADS,
         settings::KEY_LLAMA_GPU_LAYERS,
         settings::KEY_LLAMA_CTX_SIZE,
+        settings::KEY_LLAMA_MMPROJ,
     ];
     for key in keys {
         if let Some(val) = settings::get(&app, key) {
