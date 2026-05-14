@@ -49,7 +49,9 @@ pub fn semantic_search_by_vector(
                 .map(|v| cosine_similarity(query_vec, v))
                 .unwrap_or(0.0);
             let combined = caption_score.max(tags_score);
-            if combined > 0.0 {
+            // Cosine similarity below 0.25 is essentially noise — filter it out
+            const MIN_SCORE: f64 = 0.25;
+            if combined > MIN_SCORE {
                 Some(ScoredMedia {
                     media_id,
                     score: combined,

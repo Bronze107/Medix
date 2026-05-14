@@ -848,7 +848,7 @@ pub fn embedding_info_list(
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
-        "SELECT model, content_type, length(vector) as vec_len, created_at
+        "SELECT model, content_type, length(vector) / 4 as vec_len, created_at
          FROM embeddings WHERE media_id = ?1 ORDER BY content_type",
     )?;
     let iter = stmt.query_map(params![media_id], |row| {
