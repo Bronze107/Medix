@@ -169,10 +169,10 @@ function ThumbnailCard({
       onClick={handleCardClick}
       className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border transition-all ${
         isSelected
-          ? "border-blue-500 bg-neutral-800"
+          ? "border-blue-500 bg-[var(--color-bg-tertiary)]"
           : isMultiSelected
-          ? "border-green-500 bg-neutral-800/70"
-          : "border-neutral-700 bg-neutral-800/50 hover:border-neutral-500"
+          ? "border-green-500 bg-[var(--color-bg-tertiary)]/70"
+          : "border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)]/50 hover:border-[var(--color-text-muted)]"
       }`}
     >
       {/* Checkbox overlay */}
@@ -180,7 +180,7 @@ function ThumbnailCard({
         className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded border transition-all ${
           isMultiSelected
             ? "border-green-500 bg-green-500 text-white"
-            : "border-neutral-600 bg-neutral-900/80 text-transparent group-hover:border-neutral-400"
+            : "border-[var(--color-border-light)] bg-[var(--color-bg-secondary)]/80 text-transparent group-hover:border-[var(--color-text-secondary)]"
         } ${selectionMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
         onClick={(e) => {
           e.stopPropagation();
@@ -192,7 +192,7 @@ function ThumbnailCard({
         </svg>
       </div>
 
-      <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-neutral-900/50">
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-[var(--color-bg-secondary)]/50">
         {thumbUrl ? (
           <img
             src={thumbUrl}
@@ -202,7 +202,7 @@ function ThumbnailCard({
             draggable={false}
           />
         ) : (
-          <div className="flex flex-col items-center gap-1 p-2 text-neutral-500">
+          <div className="flex flex-col items-center gap-1 p-2 text-[var(--color-text-muted)]">
             <svg
               className="h-8 w-8"
               fill="none"
@@ -222,11 +222,11 @@ function ThumbnailCard({
           </div>
         )}
       </div>
-      <div className="border-t border-neutral-700 p-2 text-left">
-        <p className="truncate text-xs font-medium text-neutral-300">
+      <div className="border-t border-[var(--color-border-light)] p-2 text-left">
+        <p className="truncate text-xs font-medium text-[var(--color-text-secondary)]">
           {item.id.slice(0, 8)}…
         </p>
-        <p className="mt-0.5 text-[10px] text-neutral-500">
+        <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
           {formatFileSize(item.file_size)}
         </p>
       </div>

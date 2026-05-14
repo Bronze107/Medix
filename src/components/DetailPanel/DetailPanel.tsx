@@ -277,22 +277,22 @@ function DetailPanel({ media }: DetailPanelProps) {
 
   if (!media) {
     return (
-      <div className="flex h-full w-72 flex-col border-l border-neutral-800 bg-neutral-900 p-4">
-        <p className="text-sm text-neutral-500">选择一张图片查看详情</p>
+      <div className="flex h-full w-72 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+        <p className="text-sm text-[var(--color-text-muted)]">选择一张图片查看详情</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full w-72 flex-col border-l border-neutral-800 bg-neutral-900 p-4">
+    <div className="flex h-full w-72 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
       {/* Tabs */}
-      <div className="mb-4 flex border-b border-neutral-800">
+      <div className="mb-4 flex border-b border-[var(--color-border)]">
         <button
           onClick={() => setActiveTab("details")}
           className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "details"
               ? "border-b-2 border-blue-500 text-blue-400"
-              : "text-neutral-500 hover:text-neutral-300"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
           }`}
         >
           详情
@@ -302,7 +302,7 @@ function DetailPanel({ media }: DetailPanelProps) {
           className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "captions"
               ? "border-b-2 border-blue-500 text-blue-400"
-              : "text-neutral-500 hover:text-neutral-300"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
           }`}
         >
           描述 {captions.length > 0 && `(${captions.length})`}
@@ -312,7 +312,7 @@ function DetailPanel({ media }: DetailPanelProps) {
           className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "variants"
               ? "border-b-2 border-blue-500 text-blue-400"
-              : "text-neutral-500 hover:text-neutral-300"
+              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
           }`}
         >
           变体 {variants.length > 0 && `(${variants.length})`}
@@ -323,62 +323,62 @@ function DetailPanel({ media }: DetailPanelProps) {
         <>
           <div className="space-y-3 text-sm">
             <div>
-              <p className="text-xs text-neutral-500">ID</p>
-              <p className="mt-0.5 break-all font-mono text-xs text-neutral-300">
+              <p className="text-xs text-[var(--color-text-muted)]">ID</p>
+              <p className="mt-0.5 break-all font-mono text-xs text-[var(--color-text-secondary)]">
                 {media.id}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-neutral-500">尺寸</p>
-              <p className="mt-0.5 text-neutral-300">
+              <p className="text-xs text-[var(--color-text-muted)]">尺寸</p>
+              <p className="mt-0.5 text-[var(--color-text-secondary)]">
                 {media.width ?? "?"} × {media.height ?? "?"} px
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-neutral-500">文件大小</p>
-              <p className="mt-0.5 text-neutral-300">
+              <p className="text-xs text-[var(--color-text-muted)]">文件大小</p>
+              <p className="mt-0.5 text-[var(--color-text-secondary)]">
                 {formatFileSize(media.file_size)}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-neutral-500">原始路径</p>
-              <p className="mt-0.5 break-all text-xs text-neutral-400">
+              <p className="text-xs text-[var(--color-text-muted)]">原始路径</p>
+              <p className="mt-0.5 break-all text-xs text-[var(--color-text-secondary)]">
                 {media.source_path ?? "—"}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-neutral-500">创建时间 (EXIF)</p>
-              <p className="mt-0.5 text-neutral-300">
+              <p className="text-xs text-[var(--color-text-muted)]">创建时间 (EXIF)</p>
+              <p className="mt-0.5 text-[var(--color-text-secondary)]">
                 {formatDate(media.created_at)}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-neutral-500">修改时间 (EXIF)</p>
-              <p className="mt-0.5 text-neutral-300">
+              <p className="text-xs text-[var(--color-text-muted)]">修改时间 (EXIF)</p>
+              <p className="mt-0.5 text-[var(--color-text-secondary)]">
                 {formatDate(media.modified_at)}
               </p>
             </div>
 
             <div>
-              <p className="text-xs text-neutral-500">导入时间</p>
-              <p className="mt-0.5 text-neutral-300">
+              <p className="text-xs text-[var(--color-text-muted)]">导入时间</p>
+              <p className="mt-0.5 text-[var(--color-text-secondary)]">
                 {formatDate(media.imported_at)}
               </p>
             </div>
           </div>
 
           {/* Tags section */}
-          <div className="mt-6 border-t border-neutral-800 pt-4">
-            <p className="mb-2 text-xs text-neutral-500">标签</p>
+          <div className="mt-6 border-t border-[var(--color-border)] pt-4">
+            <p className="mb-2 text-xs text-[var(--color-text-muted)]">标签</p>
 
             <div className="mb-2 flex flex-wrap gap-1.5">
               {tags.length === 0 && (
-                <span className="text-xs text-neutral-600">暂无标签</span>
+                <span className="text-xs text-[var(--color-text-muted)]">暂无标签</span>
               )}
               {tags.map((tag) => {
                 const isAi = tag.source === "ai";
@@ -388,7 +388,7 @@ function DetailPanel({ media }: DetailPanelProps) {
                     className={`group inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs ${
                       isAi
                         ? "bg-blue-900/30 text-blue-300"
-                        : "bg-neutral-800 text-neutral-300"
+                        : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
                     }`}
                   >
                     {tag.name}
@@ -403,7 +403,7 @@ function DetailPanel({ media }: DetailPanelProps) {
                       title="移除标签"
                     >
                       <svg
-                        className="h-3 w-3 text-neutral-500 hover:text-red-400"
+                        className="h-3 w-3 text-[var(--color-text-muted)] hover:text-red-400"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -441,15 +441,15 @@ function DetailPanel({ media }: DetailPanelProps) {
                   }
                 }}
                 placeholder="添加标签..."
-                className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
               />
               {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded border border-neutral-700 bg-neutral-800 shadow-lg">
+                <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] shadow-lg">
                   {suggestions.map((tag) => (
                     <button
                       key={tag.id}
                       onClick={() => handleAddTag(tag.name)}
-                      className="block w-full px-2 py-1.5 text-left text-xs text-neutral-300 hover:bg-neutral-700"
+                      className="block w-full px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
                     >
                       {tag.name}
                     </button>
@@ -460,10 +460,10 @@ function DetailPanel({ media }: DetailPanelProps) {
           </div>
 
           {/* Embedding status */}
-          <div className="mt-6 border-t border-neutral-800 pt-4">
-            <p className="mb-2 text-xs text-neutral-500">向量嵌入</p>
+          <div className="mt-6 border-t border-[var(--color-border)] pt-4">
+            <p className="mb-2 text-xs text-[var(--color-text-muted)]">向量嵌入</p>
             {embeddings.length === 0 ? (
-              <p className="text-xs text-neutral-600">
+              <p className="text-xs text-[var(--color-text-muted)]">
                 {media ? "暂无 embedding" : "—"}
               </p>
             ) : (
@@ -471,12 +471,12 @@ function DetailPanel({ media }: DetailPanelProps) {
                 {embeddings.map((e) => (
                   <div
                     key={e.content_type}
-                    className="flex items-center justify-between rounded bg-neutral-800/50 px-2 py-1.5"
+                    className="flex items-center justify-between rounded bg-[var(--color-bg-tertiary)]/50 px-2 py-1.5"
                   >
-                    <span className="text-xs text-neutral-300">
+                    <span className="text-xs text-[var(--color-text-secondary)]">
                       {e.content_type === "caption" ? "描述向量" : "标签向量"}
                     </span>
-                    <span className="text-[10px] text-neutral-500">
+                    <span className="text-[10px] text-[var(--color-text-muted)]">
                       {e.vec_dim}d · {e.model}
                     </span>
                   </div>
@@ -523,7 +523,7 @@ function DetailPanel({ media }: DetailPanelProps) {
               const userCaptions = captions.filter((c) => c.source !== "ai");
               if (userCaptions.length === 0 && !captions.some((c) => c.source === "ai")) {
                 return (
-                  <p className="py-4 text-center text-xs text-neutral-600">暂无描述</p>
+                  <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无描述</p>
                 );
               }
               return (
@@ -531,7 +531,7 @@ function DetailPanel({ media }: DetailPanelProps) {
                   {userCaptions.map((c) => (
                     <div
                       key={c.id}
-                      className="rounded border border-neutral-800 bg-neutral-800/50 p-2.5"
+                      className="rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/50 p-2.5"
                     >
                       {editingCaptionId === c.id ? (
                         <div className="space-y-2">
@@ -539,7 +539,7 @@ function DetailPanel({ media }: DetailPanelProps) {
                             value={editingText}
                             onChange={(e) => setEditingText(e.target.value)}
                             rows={3}
-                            className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+                            className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
                             autoFocus
                           />
                           <div className="flex gap-2">
@@ -551,7 +551,7 @@ function DetailPanel({ media }: DetailPanelProps) {
                             </button>
                             <button
                               onClick={handleCancelEdit}
-                              className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-700"
+                              className="rounded border border-[var(--color-border-light)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
                             >
                               取消
                             </button>
@@ -559,19 +559,19 @@ function DetailPanel({ media }: DetailPanelProps) {
                         </div>
                       ) : (
                         <div>
-                          <p className="whitespace-pre-wrap text-xs leading-relaxed text-neutral-300">
+                          <p className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--color-text-secondary)]">
                             {c.text}
                           </p>
                           <div className="mt-2 flex gap-2">
                             <button
                               onClick={() => handleStartEdit(c)}
-                              className="text-[10px] text-neutral-500 hover:text-blue-400"
+                              className="text-[10px] text-[var(--color-text-muted)] hover:text-blue-400"
                             >
                               编辑
                             </button>
                             <button
                               onClick={() => handleDeleteCaption(c.id)}
-                              className="text-[10px] text-neutral-500 hover:text-red-400"
+                              className="text-[10px] text-[var(--color-text-muted)] hover:text-red-400"
                             >
                               删除
                             </button>
@@ -585,8 +585,8 @@ function DetailPanel({ media }: DetailPanelProps) {
             })()}
           </div>
 
-          <div className="mt-4 border-t border-neutral-800 pt-3">
-            <p className="mb-2 text-xs text-neutral-500">添加描述</p>
+          <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+            <p className="mb-2 text-xs text-[var(--color-text-muted)]">添加描述</p>
             <textarea
               value={newCaptionText}
               onChange={(e) => setNewCaptionText(e.target.value)}
@@ -598,7 +598,7 @@ function DetailPanel({ media }: DetailPanelProps) {
               }}
               rows={3}
               placeholder="输入描述文本... (Ctrl+Enter 保存)"
-              className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+              className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
             />
             <button
               onClick={handleAddCaption}
@@ -615,7 +615,7 @@ function DetailPanel({ media }: DetailPanelProps) {
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
             {variants.length === 0 && (
-              <p className="py-4 text-center text-xs text-neutral-600">暂无变体</p>
+              <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无变体</p>
             )}
             <div className="space-y-2">
               {variants.map((v) => {
@@ -623,15 +623,15 @@ function DetailPanel({ media }: DetailPanelProps) {
                 return (
                   <div
                     key={v.id}
-                    className="rounded border border-neutral-800 bg-neutral-800/50 p-2.5"
+                    className="rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/50 p-2.5"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-neutral-300">
+                      <span className="text-xs font-medium text-[var(--color-text-secondary)]">
                         {preset?.label ?? v.preset_name}
                       </span>
                       <button
                         onClick={() => handleDeleteVariant(v.id)}
-                        className="rounded p-1 text-neutral-500 transition-colors hover:bg-red-900/30 hover:text-red-400"
+                        className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-red-900/30 hover:text-red-400"
                         title="删除变体"
                       >
                         <svg
@@ -649,7 +649,7 @@ function DetailPanel({ media }: DetailPanelProps) {
                         </svg>
                       </button>
                     </div>
-                    <p className="mt-1 text-[10px] text-neutral-500">
+                    <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
                       {v.format.toUpperCase()} · {v.width ?? "?"}×{v.height ?? "?"} ·{" "}
                       {formatFileSize(v.file_size)}
                       {v.quality && v.format === "jpeg" && ` · Q${v.quality}`}
@@ -660,8 +660,8 @@ function DetailPanel({ media }: DetailPanelProps) {
             </div>
           </div>
 
-          <div className="mt-4 border-t border-neutral-800 pt-3">
-            <p className="mb-2 text-xs text-neutral-500">生成变体</p>
+          <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+            <p className="mb-2 text-xs text-[var(--color-text-muted)]">生成变体</p>
             <div className="flex flex-wrap gap-2">
               {presets.map((p) => {
                 const exists = variants.some((v) => v.preset_name === p.name);
@@ -675,8 +675,8 @@ function DetailPanel({ media }: DetailPanelProps) {
                       exists
                         ? "border-green-900/50 bg-green-900/20 text-green-400"
                         : isGenerating
-                        ? "border-neutral-700 bg-neutral-800 text-neutral-500"
-                        : "border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+                        ? "border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]"
+                        : "border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
                     }`}
                   >
                     {p.label}

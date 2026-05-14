@@ -193,7 +193,7 @@ function AllMedia() {
   return (
     <div className="flex h-full flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-3">
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-6 py-3">
         <h1 className="text-xl font-bold">全部媒体</h1>
         <div className="flex items-center gap-3">
           <SearchBar
@@ -204,7 +204,7 @@ function AllMedia() {
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortField)}
-            className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 outline-none"
+            className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] outline-none"
           >
             <option value="imported_at">按导入时间</option>
             <option value="created_at">按创建时间</option>
@@ -212,7 +212,7 @@ function AllMedia() {
           </select>
           <button
             onClick={() => setDescending((d) => !d)}
-            className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+            className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
           >
             {descending ? "降序" : "升序"}
           </button>
@@ -225,7 +225,7 @@ function AllMedia() {
             className={`rounded border px-2 py-1 text-xs transition-colors ${
               selectionMode
                 ? "border-green-600 bg-green-900/30 text-green-400 hover:bg-green-900/50"
-                : "border-neutral-700 bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+                : "border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
             }`}
           >
             {selectionMode ? "退出选择" : "批量选择"}
@@ -233,13 +233,13 @@ function AllMedia() {
           {debouncedSearch && (
             <button
               onClick={() => setShowSaveDialog(true)}
-              className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
               title="保存当前筛选"
             >
               保存筛选
             </button>
           )}
-          <span className="text-xs text-neutral-500">{media.length} 项</span>
+          <span className="text-xs text-[var(--color-text-muted)]">{media.length} 项</span>
         </div>
       </div>
 
@@ -260,14 +260,14 @@ function AllMedia() {
 
       {/* Batch action bar */}
       {selectionMode && selectedIds.size > 0 && (
-        <div className="flex items-center justify-between border-b border-neutral-800 bg-neutral-800/80 px-6 py-2">
-          <span className="text-sm text-neutral-300">
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/80 px-6 py-2">
+          <span className="text-sm text-[var(--color-text-secondary)]">
             已选择 <span className="font-bold text-green-400">{selectedIds.size}</span> 项
           </span>
           <div className="flex items-center gap-2">
             <button
               onClick={handleSelectAll}
-              className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
             >
               全选
             </button>
@@ -279,7 +279,7 @@ function AllMedia() {
             </button>
             <button
               onClick={() => setSelectedIds(new Set())}
-              className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
             >
               取消全选
             </button>
@@ -295,7 +295,7 @@ function AllMedia() {
           ) : media.length === 0 && debouncedSearch ? (
             <div className="flex flex-col items-center justify-center py-20">
               <svg
-                className="mb-4 h-10 w-10 text-neutral-600"
+                className="mb-4 h-10 w-10 text-[var(--color-text-muted)]"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -307,8 +307,8 @@ function AllMedia() {
                   d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
                 />
               </svg>
-              <p className="text-sm text-neutral-500">没有找到匹配的媒体</p>
-              <p className="mt-1 text-xs text-neutral-600">
+              <p className="text-sm text-[var(--color-text-muted)]">没有找到匹配的媒体</p>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                 试试修改搜索条件，或
                 <button
                   onClick={() => setSearchQuery("")}
@@ -339,10 +339,10 @@ function AllMedia() {
           onClick={() => setShowBatchTagDialog(false)}
         >
           <div
-            className="w-80 rounded-lg border border-neutral-700 bg-neutral-800 p-4 shadow-xl"
+            className="w-80 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-3 text-sm font-bold text-neutral-200">
+            <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">
               添加标签到 {selectedIds.size} 张图片
             </h3>
             <input
@@ -356,17 +356,17 @@ function AllMedia() {
               }}
               placeholder="搜索或新建标签..."
               autoFocus
-              className="mb-3 w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
             />
             <div className="max-h-48 overflow-auto space-y-1">
               {filteredBatchTags.length === 0 && !batchTagSearch.trim() && (
-                <p className="py-2 text-center text-xs text-neutral-500">暂无标签</p>
+                <p className="py-2 text-center text-xs text-[var(--color-text-muted)]">暂无标签</p>
               )}
               {filteredBatchTags.map((tag) => (
                 <button
                   key={tag.id}
                   onClick={() => handleBatchTagAdd(tag.id)}
-                  className="block w-full rounded px-2 py-1.5 text-left text-xs text-neutral-300 hover:bg-neutral-700"
+                  className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
                 >
                   {tag.name}
                 </button>
@@ -386,7 +386,7 @@ function AllMedia() {
                   setShowBatchTagDialog(false);
                   setBatchTagSearch("");
                 }}
-                className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
               >
                 取消
               </button>
@@ -402,15 +402,15 @@ function AllMedia() {
           onClick={() => setShowSaveDialog(false)}
         >
           <div
-            className="w-80 rounded-lg border border-neutral-700 bg-neutral-800 p-4 shadow-xl"
+            className="w-80 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-3 text-sm font-bold text-neutral-200">保存筛选器</h3>
-            <p className="mb-1 text-[10px] text-neutral-500">查询条件</p>
-            <p className="mb-3 rounded bg-neutral-900 px-2 py-1.5 text-xs text-neutral-300 font-mono">
+            <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">保存筛选器</h3>
+            <p className="mb-1 text-[10px] text-[var(--color-text-muted)]">查询条件</p>
+            <p className="mb-3 rounded bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)] font-mono">
               {debouncedSearch}
             </p>
-            <label className="mb-1 block text-[10px] text-neutral-500">名称</label>
+            <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">名称</label>
             <input
               type="text"
               value={savedFilterName}
@@ -424,7 +424,7 @@ function AllMedia() {
               }}
               placeholder="输入筛选器名称..."
               autoFocus
-              className="mb-3 w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -432,7 +432,7 @@ function AllMedia() {
                   setShowSaveDialog(false);
                   setSavedFilterName("");
                 }}
-                className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
               >
                 取消
               </button>

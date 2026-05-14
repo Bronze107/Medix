@@ -88,7 +88,7 @@ function Tags() {
             if (e.key === "Enter") handleCreate();
           }}
           placeholder="新建标签..."
-          className="flex-1 rounded border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+          className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
         />
         <button
           onClick={handleCreate}
@@ -102,13 +102,13 @@ function Tags() {
       {/* Tag list */}
       <div className="flex-1 overflow-auto">
         {tags.length === 0 ? (
-          <p className="text-sm text-neutral-500">暂无标签</p>
+          <p className="text-sm text-[var(--color-text-muted)]">暂无标签</p>
         ) : (
           <div className="space-y-2">
             {tags.map((tag) => (
               <div
                 key={tag.id}
-                className="flex items-center justify-between rounded-lg border border-neutral-800 bg-neutral-800/50 px-4 py-3"
+                className="flex items-center justify-between rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/50 px-4 py-3"
               >
                 {editingId === tag.id ? (
                   <div className="flex flex-1 items-center gap-2">
@@ -121,7 +121,7 @@ function Tags() {
                         if (e.key === "Escape") cancelEdit();
                       }}
                       autoFocus
-                      className="flex-1 rounded border border-neutral-600 bg-neutral-900 px-2 py-1 text-sm text-neutral-200 outline-none focus:border-blue-500"
+                      className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1 text-sm text-[var(--color-text-primary)] outline-none focus:border-blue-500"
                     />
                     <button
                       onClick={() => handleRename(tag.id)}
@@ -131,7 +131,7 @@ function Tags() {
                     </button>
                     <button
                       onClick={cancelEdit}
-                      className="rounded border border-neutral-600 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+                      className="rounded border border-[var(--color-border-light)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
                     >
                       取消
                     </button>
@@ -140,13 +140,13 @@ function Tags() {
                   <>
                     <button
                       onClick={() => startEdit(tag)}
-                      className="text-sm font-medium text-neutral-300 hover:text-neutral-100"
+                      className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                     >
                       {tag.name}
                     </button>
                     <button
                       onClick={() => handleDelete(tag.id, tag.name)}
-                      className="rounded p-1 text-neutral-500 transition-colors hover:bg-red-900/30 hover:text-red-400"
+                      className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-red-900/30 hover:text-red-400"
                       title="删除"
                     >
                       <svg

@@ -135,8 +135,8 @@ function Settings() {
 
       <div className="flex-1 space-y-6 overflow-auto">
         {/* AI Mode */}
-        <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-200">
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
             AI 推理模式
           </h2>
           <div className="space-y-2">
@@ -149,7 +149,7 @@ function Settings() {
             ).map((opt) => (
               <label
                 key={opt.value}
-                className="flex cursor-pointer items-start gap-3 rounded border border-transparent p-2 hover:bg-neutral-800"
+                className="flex cursor-pointer items-start gap-3 rounded border border-transparent p-2 hover:bg-[var(--color-bg-tertiary)]"
               >
                 <input
                   type="radio"
@@ -160,8 +160,8 @@ function Settings() {
                   className="mt-0.5"
                 />
                 <div>
-                  <p className="text-sm text-neutral-300">{opt.label}</p>
-                  <p className="text-xs text-neutral-500">{opt.desc}</p>
+                  <p className="text-sm text-[var(--color-text-secondary)]">{opt.label}</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">{opt.desc}</p>
                 </div>
               </label>
             ))}
@@ -169,15 +169,15 @@ function Settings() {
         </section>
 
         {/* llama.cpp Server */}
-        <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-200">
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
             llama.cpp 本地服务
           </h2>
 
           {/* Status */}
           <div className="mb-4 flex items-center gap-3">
             {loading && !serverStatus ? (
-              <span className="text-sm text-neutral-500">检测中...</span>
+              <span className="text-sm text-[var(--color-text-muted)]">检测中...</span>
             ) : serverStatus?.running ? (
               <>
                 <span className="h-2 w-2 rounded-full bg-green-500"></span>
@@ -213,14 +213,14 @@ function Settings() {
 
           {/* Binary path */}
           <div className="mb-3">
-            <label className="mb-1 block text-xs text-neutral-500">
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
               llama-server 二进制路径
             </label>
             {detected && detected.binary_paths.length > 0 ? (
               <select
                 value={llamaBinPath}
                 onChange={(e) => setLlamaBinPath(e.target.value)}
-                className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
               >
                 {detected.binary_paths.map((p) => (
                   <option key={p} value={p}>{p}</option>
@@ -234,25 +234,25 @@ function Settings() {
                 value={llamaBinPath}
                 onChange={(e) => setLlamaBinPath(e.target.value)}
                 placeholder="C:\\path\\to\\llama-server.exe"
-                className="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
+                className="mt-1 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
               />
             ) : null}
           </div>
 
           {/* Port */}
           <div className="mb-3">
-            <label className="mb-1 block text-xs text-neutral-500">端口号</label>
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">端口号</label>
             <input
               type="number"
               value={llamaPort}
               onChange={(e) => setLlamaPort(parseInt(e.target.value) || 8080)}
-              className="w-28 rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+              className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
             />
           </div>
 
           {/* Threads */}
           <div className="mb-3">
-            <label className="mb-1 block text-xs text-neutral-500">
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
               线程数: {llamaThreads}
             </label>
             <input
@@ -267,7 +267,7 @@ function Settings() {
 
           {/* GPU Layers */}
           <div className="mb-3">
-            <label className="mb-1 block text-xs text-neutral-500">
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
               GPU 层数 (0 = 纯CPU): {llamaGpuLayers}
             </label>
             <input
@@ -283,7 +283,7 @@ function Settings() {
 
           {/* Context Size */}
           <div className="mb-3">
-            <label className="mb-1 block text-xs text-neutral-500">
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
               上下文大小: {llamaCtxSize}
             </label>
             <input
@@ -291,19 +291,19 @@ function Settings() {
               value={llamaCtxSize}
               onChange={(e) => setLlamaCtxSize(parseInt(e.target.value) || 4096)}
               step={512}
-              className="w-28 rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+              className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
             />
           </div>
 
         </section>
 
         {/* Semantic Search Settings */}
-        <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-200">
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
             语义搜索
           </h2>
           <div className="mb-3">
-            <label className="mb-1 block text-xs text-neutral-500">
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
               最低相似度阈值: {semanticThreshold.toFixed(2)}
             </label>
             <input
@@ -315,31 +315,31 @@ function Settings() {
               onChange={(e) => setSemanticThreshold(parseFloat(e.target.value))}
               className="w-48"
             />
-            <p className="mt-0.5 text-[10px] text-neutral-500">
+            <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
               越高越严格（只返回高度相关的图片），越低越宽松。默认 0.25
             </p>
           </div>
         </section>
 
         {/* GGUF Models */}
-        <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-200">
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
             GGUF 模型
           </h2>
 
           {ggufList && (
-            <p className="mb-2 text-xs text-neutral-500">
+            <p className="mb-2 text-xs text-[var(--color-text-muted)]">
               模型目录: {ggufList.models_dir}
             </p>
           )}
 
           {/* Model selection */}
           <div className="mb-3">
-            <label className="mb-1 block text-xs text-neutral-500">选择模型</label>
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">选择模型</label>
             <select
               value={llamaModel}
               onChange={(e) => setLlamaModel(e.target.value)}
-              className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+              className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
             >
               <option value="">-- 未选择 --</option>
               {ggufList?.models.map((m) => (
@@ -353,15 +353,15 @@ function Settings() {
           {/* Model files list */}
           {ggufList && ggufList.models.length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-xs text-neutral-500">已发现的模型文件</p>
+              <p className="text-xs text-[var(--color-text-muted)]">已发现的模型文件</p>
               {ggufList.models.map((m) => (
                 <div
                   key={m.path}
-                  className="flex items-center justify-between rounded bg-neutral-800/50 px-2 py-1.5"
+                  className="flex items-center justify-between rounded bg-[var(--color-bg-tertiary)]/50 px-2 py-1.5"
                 >
                   <div>
-                    <p className="text-xs text-neutral-300">{m.filename}</p>
-                    <p className="text-[10px] text-neutral-500">
+                    <p className="text-xs text-[var(--color-text-secondary)]">{m.filename}</p>
+                    <p className="text-[10px] text-[var(--color-text-muted)]">
                       {m.size_mb}MB
                       {m.is_vlm && " · VLM"}
                     </p>
@@ -377,14 +377,14 @@ function Settings() {
           )}
 
           {ggufList && ggufList.models.length === 0 && (
-            <p className="py-2 text-xs text-neutral-600">
+            <p className="py-2 text-xs text-[var(--color-text-muted)]">
               暂无 GGUF 模型。将 .gguf 文件放入 models 目录即可。
             </p>
           )}
 
           {/* mmproj (vision projector) */}
-          <div className="mb-3 border-t border-neutral-800 pt-3">
-            <label className="mb-1 block text-xs text-neutral-500">
+          <div className="mb-3 border-t border-[var(--color-border)] pt-3">
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
               mmproj (视觉投影器)
             </label>
             {detected && detected.mmproj_files.length > 0 ? (
@@ -392,7 +392,7 @@ function Settings() {
                 <select
                   value={llamaMmproj}
                   onChange={(e) => setLlamaMmproj(e.target.value)}
-                  className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
                 >
                   {detected.mmproj_files.map((p) => (
                     <option key={p} value={p}>{p}</option>
@@ -404,7 +404,7 @@ function Settings() {
                     type="text"
                     value={llamaMmproj}
                     onChange={(e) => setLlamaMmproj(e.target.value)}
-                    className="mt-1 w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+                    className="mt-1 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
                   />
                 ) : null}
               </>
@@ -414,17 +414,17 @@ function Settings() {
                 value={llamaMmproj}
                 onChange={(e) => setLlamaMmproj(e.target.value)}
                 placeholder="留空表示不使用 VLM"
-                className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
               />
             )}
-            <p className="mt-0.5 text-[10px] text-neutral-500">
+            <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
               将 mmproj 文件放到 models 目录即可自动识别
             </p>
           </div>
 
           {/* Download hint */}
-          <div className="mt-3 rounded bg-neutral-800/50 p-2">
-            <p className="text-[10px] text-neutral-500">
+          <div className="mt-3 rounded bg-[var(--color-bg-tertiary)]/50 p-2">
+            <p className="text-[10px] text-[var(--color-text-muted)]">
               下载模型：{" "}
               <a
                 href="https://huggingface.co/openbmb/MiniCPM-V-2_6-gguf"
@@ -449,17 +449,17 @@ function Settings() {
 
         {/* Cloud Settings */}
         {showCloudSettings && (
-          <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-            <h2 className="mb-3 text-sm font-semibold text-neutral-200">
+          <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+            <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
               云端 API 配置
             </h2>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs text-neutral-500">服务商</label>
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">服务商</label>
                 <select
                   value={cloudProvider}
                   onChange={(e) => setCloudProvider(e.target.value as CloudProvider)}
-                  className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none"
+                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
                 >
                   <option value="claude">Claude (Anthropic)</option>
                   <option value="openai">OpenAI</option>
@@ -467,13 +467,13 @@ function Settings() {
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-neutral-500">API Key</label>
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">API Key</label>
                 <input
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="sk-..."
-                  className="w-full rounded border border-neutral-700 bg-neutral-800 px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-600"
+                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
                 />
               </div>
             </div>

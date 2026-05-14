@@ -50,9 +50,9 @@ function Layout() {
   };
 
   return (
-    <div className="flex h-full bg-neutral-950 text-neutral-100">
+    <div className="flex h-full bg-[var(--color-bg-primary)] text-[var(--color-text-primary)]">
       {/* Sidebar */}
-      <aside className="flex w-56 flex-col border-r border-neutral-800 bg-neutral-900">
+      <aside className="flex w-56 flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
         <div className="flex items-center gap-2 px-4 py-4">
           <div className="h-8 w-8 rounded bg-blue-600" />
           <span className="text-lg font-bold">Medix</span>
@@ -64,8 +64,8 @@ function Layout() {
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-neutral-800 text-blue-400"
-                  : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                  ? "bg-[var(--color-bg-tertiary)] text-blue-400"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
               }`
             }
           >
@@ -77,8 +77,8 @@ function Layout() {
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-neutral-800 text-blue-400"
-                  : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                  ? "bg-[var(--color-bg-tertiary)] text-blue-400"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
               }`
             }
           >
@@ -90,8 +90,8 @@ function Layout() {
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-neutral-800 text-blue-400"
-                  : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+                  ? "bg-[var(--color-bg-tertiary)] text-blue-400"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
               }`
             }
           >
@@ -102,14 +102,14 @@ function Layout() {
           {/* Saved Filters */}
           {filters.length > 0 && (
             <>
-              <div className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">
+              <div className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
                 已保存的筛选器
               </div>
               {filters.map((f) => (
                 <div key={f.name} className="group relative">
                   <button
                     onClick={() => navigate(`/media?q=${encodeURIComponent(f.query)}`)}
-                    className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-xs text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200"
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
                   >
                     <svg
                       className="h-4 w-4 flex-shrink-0"
@@ -132,7 +132,7 @@ function Layout() {
                       await savedFiltersDelete(f.name);
                       loadFilters();
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-neutral-700 opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
                     title="删除筛选器"
                   >
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -146,10 +146,10 @@ function Layout() {
         </nav>
 
         {/* Theme toggle */}
-        <div className="border-t border-neutral-800 px-3 py-2">
+        <div className="border-t border-[var(--color-border)] px-3 py-2">
           <button
             onClick={toggleTheme}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
           >
             {theme === "dark" ? (
               <>
@@ -169,7 +169,7 @@ function Layout() {
           </button>
         </div>
 
-        <div className="border-t border-neutral-800 px-4 py-3 text-xs text-neutral-500">
+        <div className="border-t border-[var(--color-border)] px-4 py-3 text-xs text-[var(--color-text-muted)]">
           Medix v0.1.0
         </div>
       </aside>
