@@ -12,35 +12,24 @@ pub struct LlamaServerStatus {
 
 pub struct LlamaServer {
     process: Mutex<Option<Child>>,
-    port: u16,
-    bin_path: String,
-    model_path: String,
-    ctx_size: u32,
-    threads: u32,
-    gpu_layers: i32,
 }
 
 impl LlamaServer {
-    pub fn new(
-        port: u16,
-        bin_path: &str,
-        model_path: &str,
-        ctx_size: u32,
-        threads: u32,
-        gpu_layers: i32,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
             process: Mutex::new(None),
-            port,
-            bin_path: bin_path.to_string(),
-            model_path: model_path.to_string(),
-            ctx_size,
-            threads,
-            gpu_layers,
         }
     }
 
-    pub fn start(&self) -> Result<(), String> {
+    pub fn start(
+        &self,
+        bin_path: &str,
+        model_path: &str,
+        port: u16,
+        ctx_size: u32,
+        threads: u32,
+        gpu_layers: i32,
+    ) -> Result<(), String> {
         let mut guard = self
             .process
             .lock()
@@ -59,36 +48,28 @@ impl LlamaServer {
             }
         }
 
-        let bin = &self.bin_path;
-        if !std::path::Path::new(bin).exists() {
-            return Err(format!("llama-server binary not found: {}", bin));
+        if !std::path::Path::new(bin_path).exists() {
+            return Err(format!("llama-server binary not found: {}", bin_path));
         }
 
-        if self.model_path.is_empty() {
+        if model_path.is_empty() {
             return Err("no GGUF model selected".to_string());
         }
 
-        let model_full = if std::path::Path::new(&self.model_path).is_absolute() {
-            self.model_path.clone()
+        let model_full = if std::path::Path::new(model_path).is_absolute() {
+            model_path.to_string()
         } else {
-            // Relative path: resolve against app data models dir?
-            // For now treat as-is
-            self.model_path.clone()
+            model_path.to_string()
         };
 
-        let ctx = self.ctx_size.to_string();
-        let threads = self.threads.to_string();
-        let gpu = self.gpu_layers.to_string();
-        let port = self.port.to_string();
-
-        let mut cmd = Command::new(bin);
+        let mut cmd = Command::new(bin_path);
         cmd.args([
             "-m", &model_full,
             "--host", "127.0.0.1",
-            "--port", &port,
-            "--ctx-size", &ctx,
-            "--threads", &threads,
-            "--n-gpu-layers", &gpu,
+            "--port", &port.to_string(),
+            "--ctx-size", &ctx_size.to_string(),
+            "--threads", &threads.to_string(),
+            "--n-gpu-layers", &gpu_layers.to_string(),
         ]);
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -99,8 +80,8 @@ impl LlamaServer {
         Ok(())
     }
 
-    pub async fn wait_until_ready(&self) -> Result<(), String> {
-        let url = format!("http://127.0.0.1:{}/health", self.port);
+    pub async fn wait_until_ready(&self, port: u16) -> Result<(), String> {
+        let url = format!("http://127.0.0.1:{}/health", port);
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
             .build()
@@ -133,13 +114,13 @@ impl LlamaServer {
         Ok(())
     }
 
-    pub fn status(&self) -> LlamaServerStatus {
+    pub fn status(&self, port: u16) -> LlamaServerStatus {
         let guard = match self.process.lock() {
             Ok(g) => g,
             Err(_) => {
                 return LlamaServerStatus {
                     running: false,
-                    port: self.port,
+                    port,
                     pid: None,
                 }
             }
@@ -147,20 +128,20 @@ impl LlamaServer {
         if let Some(ref child) = *guard {
             LlamaServerStatus {
                 running: true,
-                port: self.port,
+                port,
                 pid: Some(child.id()),
             }
         } else {
             LlamaServerStatus {
                 running: false,
-                port: self.port,
+                port,
                 pid: None,
             }
         }
     }
 
-    pub async fn health_check(&self) -> bool {
-        let url = format!("http://127.0.0.1:{}/health", self.port);
+    pub async fn health_check(&self, port: u16) -> bool {
+        let url = format!("http://127.0.0.1:{}/health", port);
         let client = match reqwest::Client::builder()
             .timeout(Duration::from_secs(2))
             .build()
@@ -174,7 +155,7 @@ impl LlamaServer {
         }
     }
 
-    pub fn is_port_available(&self) -> bool {
-        std::net::TcpListener::bind(format!("127.0.0.1:{}", self.port)).is_ok()
+    pub fn is_port_available(&self, port: u16) -> bool {
+        std::net::TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
     }
 }

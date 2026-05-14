@@ -67,9 +67,11 @@ async fn process_generate_caption(
         return Ok(());
     }
 
+    let port = crate::settings::get_llama_port(&app);
+
     // Check llama-server is running
     let server = app.state::<LlamaServer>();
-    if !server.health_check().await {
+    if !server.health_check(port).await {
         if ai_mode == "local" {
             eprintln!(
                 "[ai] llama-server not running and mode is local, skipping {}",
@@ -84,7 +86,6 @@ async fn process_generate_caption(
         return Ok(());
     }
 
-    let port = crate::settings::get_llama_port(&app);
     let model = crate::settings::get_llama_model(&app);
     if model.is_empty() {
         eprintln!("[ai] no GGUF model configured, skipping {}", media_id);
