@@ -74,6 +74,7 @@ impl LlamaServer {
             cmd.arg("--mmproj").arg(mmproj_path);
         }
         cmd.arg("--embeddings");
+        cmd.arg("--pooling").arg("mean");
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
