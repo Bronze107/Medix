@@ -38,18 +38,9 @@ function Settings() {
 
   const [saved, setSaved] = useState(false);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadSettingsOnce = useCallback(async () => {
     try {
-      const [status, models, settings, detected] = await Promise.all([
-        llamaServerStatus(),
-        modelList(),
-        settingsGetAll(),
-        autoDetect(),
-      ]);
-      setServerStatus(status);
-      setGgufList(models);
-
+      const settings = await settingsGetAll();
       if (settings.ai_mode) setAiMode(settings.ai_mode as AiMode);
       if (settings.cloud_provider) setCloudProvider(settings.cloud_provider as CloudProvider);
       if (settings.cloud_api_key) setApiKey(settings.cloud_api_key);
@@ -61,29 +52,34 @@ function Settings() {
       if (settings.llama_ctx_size) setLlamaCtxSize(parseInt(settings.llama_ctx_size) || 4096);
       if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
-
-      // Auto-fill from detection
-      if (!settings.llama_bin_path && detected.binary_path) {
-        setLlamaBinPath(detected.binary_path);
-      }
-      if (!settings.llama_mmproj && detected.mmproj_files.length > 0) {
-        setLlamaMmproj(detected.mmproj_files[0]);
-      }
-
-      // Store detected data for UI
-      setDetected(detected);
     } catch (e) {
       console.error("Failed to load settings:", e);
+    }
+  }, []);
+
+  const pollStatus = useCallback(async () => {
+    try {
+      const [status, models, detected] = await Promise.all([
+        llamaServerStatus(),
+        modelList(),
+        autoDetect(),
+      ]);
+      setServerStatus(status);
+      setGgufList(models);
+      setDetected(detected);
+    } catch (e) {
+      console.error("Failed to poll status:", e);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 5000);
+    loadSettingsOnce();
+    pollStatus();
+    const interval = setInterval(pollStatus, 5000);
     return () => clearInterval(interval);
-  }, [loadData]);
+  }, [loadSettingsOnce, pollStatus]);
 
   const handleSave = async () => {
     try {
@@ -110,7 +106,7 @@ function Settings() {
     try {
       await handleSave();
       await llamaServerStart();
-      await loadData();
+      await pollStatus();
     } catch (e) {
       console.error("Failed to start server:", e);
       alert(`启动失败: ${e}`);
@@ -123,7 +119,7 @@ function Settings() {
     setStopping(true);
     try {
       await llamaServerStop();
-      await loadData();
+      await pollStatus();
     } catch (e) {
       console.error("Failed to stop server:", e);
     } finally {
