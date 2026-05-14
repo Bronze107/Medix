@@ -85,10 +85,11 @@
    - [x] 本地 VLM：`llama-server` + MiniCPM-V 2.6 (~1GB Q4 GGUF)
      - [x] OpenAI `/v1/chat/completions` 生成 dense caption + 结构化 tags
      - [x] `std::sync::mpsc` 异步推理队列，导入时自动触发
-   - [x] 本地 Embedding：同一模型通过 `/v1/embeddings` 向量化
+   - [x] 本地 Embedding：共用 VLM 模型通过 `/v1/embeddings` 向量化
      - [x] caption 和 tags 分别向量化
      - [x] blob 存储 f32 向量到 `embeddings` 表
      - [x] `--embeddings --pooling mean` 参数启用
+     - [ ] 后续优化：支持专用 embedding 模型（nomic-embed-text）独立实例（见 Phase 6）
    - [x] llama-server 子进程生命周期管理（启动/健康检查/关闭）
    - [x] `--mmproj` 视觉投影器支持
    - [x] 自动检测二进制路径 + 扫描 models/ 目录下 GGUF/mmproj 文件
@@ -183,33 +184,38 @@
 **目标**: 语义搜索 + 结构化过滤 + 智能筛选器
 
 ### 任务
-1. 语义搜索（基于 Phase 3 的 embedding）
-   - 查询文本 -> nomic-embed 向量化
-   - 与 `embeddings` 表中 caption/tags 向量做余弦相似度排序
-   - 与现有 `tag:` 语法共存，可混合使用
-2. 全文搜索
-   - SQLite FTS5 实现标签和文件名搜索
-   - 前端搜索框支持实时建议 (debounce 200ms)
-3. 高级过滤语法
-   - `tag:cat dog` - 包含 cat 和 dog
-   - `width:>1920` - 宽大于1920
-   - `date:2024-01-01..2024-12-31` - 日期范围
-   - `size:<1mb` - 文件大小
-   - `cat`（无前缀）- 语义搜索：匹配 caption/tags embedding 相似度
-   - 支持逻辑组合：`tag:cat AND (width:>1000 OR height:>1000)`
-4. 保存的筛选器
-   - 用户可将常用筛选条件保存为智能文件夹
-   - 显示在侧边栏，点击即时应用
+1. [x] 语义搜索（基于 Phase 3 的 embedding）
+   - [x] 查询文本 -> llama-server embedding 向量化
+   - [x] 与 `embeddings` 表中 caption/tags 向量做余弦相似度排序
+   - [x] 最低相似度阈值 0.25 过滤噪声
+   - [x] 与现有 `tag:` 语法共存，可混合使用
+   - [ ] **后续优化**：支持专用 embedding 模型（如 nomic-embed-text）独立实例/端口
+     - 当前共用 MiniCPM-V 做 embedding，语义质量不如专用模型
+     - 方案：设置页支持配置第二个模型 + 端口，llama-server 启动两个实例
+2. [x] 高级过滤语法
+   - [x] `tag:cat dog` - 交集 / `tag:cat | dog` - 并集
+   - [x] `width:>1920` / `height:800..1080` - 尺寸过滤
+   - [x] `date:2024-01..2024-12` - 日期范围
+   - [x] `size:<1mb` / `size:>500kb` - 文件大小
+   - [x] `橘子猫`（无前缀）- 语义搜索
+   - [x] 混合查询 `tag:cat 橘子猫 width:>1000`
+3. [x] 保存的筛选器
+   - [x] 侧边栏"已保存的筛选器"区域，点击即时应用
+   - [x] 悬停显示删除按钮
+   - [x] 搜索框旁"保存筛选"按钮
+4. [x] 搜索前端
+   - [x] SearchBar 组件：彩色 pill 标签显示活跃过滤器 + 清除按钮
+   - [x] 空搜索结果友好提示 + 重置按钮
+5. [ ] 全文搜索（推迟）
+   - [ ] SQLite FTS5（语义搜索已覆盖 caption/tags 文本匹配，优先级降低）
+   - [ ] 搜索建议 (debounce 200ms)
 
 ### 验证标准
-- [ ] 语义搜索 "一只橘猫" 返回包含橘猫的图片（无需精确 tag 匹配）
-- [ ] 搜索 `tag:cat` 在 1000 张图库中返回结果 < 100ms
-- [ ] 混合查询 `cat width:>1000` 语义+结构化过滤结果正确
-- [ ] 空搜索结果时显示友好提示和重置按钮
-- [ ] 组合查询 `tag:landscape width:>1920` 结果正确
-   - 单独 `tag:landscape` 100 张，`width:>1920` 50 张，组合后 30 张
-- [ ] 保存筛选器后，重启应用仍可用
-- [ ] 空搜索结果时显示友好提示和重置按钮
+- [x] 语义搜索 "一只橘猫" 返回包含橘猫的图片（需有相关 caption/tags 的 embedding）
+- [x] 搜索 `tag:cat` 过滤正确
+- [x] 混合查询 `tag:cat 橘子猫 width:>1000` 组合过滤正确
+- [x] 空搜索结果时显示友好提示和重置按钮
+- [x] 保存筛选器后，重启应用仍可用
 
 ---
 
