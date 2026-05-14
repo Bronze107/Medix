@@ -22,3 +22,10 @@ export interface AutoDetect {
   binary_path: string;
   mmproj_files: string[];
 }
+
+export interface EmbeddingInfo {
+  model: string;
+  content_type: string;
+  vec_dim: number;
+  created_at: string | null;
+}

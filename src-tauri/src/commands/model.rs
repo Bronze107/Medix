@@ -41,3 +41,8 @@ pub fn model_list(app: AppHandle) -> models::GgufModelList {
 pub fn auto_detect(app: AppHandle) -> models::AutoDetect {
     models::auto_detect(&app)
 }
+
+#[command]
+pub fn embedding_info(app: AppHandle, media_id: String) -> Result<Vec<crate::db::EmbeddingInfo>, String> {
+    crate::db::embedding_info_list(&app, &media_id).map_err(|e| e.to_string())
+}

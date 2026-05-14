@@ -711,6 +711,41 @@ pub fn embedding_delete_for_media(
     Ok(())
 }
 
+pub fn embedding_info_list(
+    app: &AppHandle,
+    media_id: &str,
+) -> Result<Vec<EmbeddingInfo>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT model, content_type, length(vector) as vec_len, created_at
+         FROM embeddings WHERE media_id = ?1 ORDER BY content_type",
+    )?;
+    let iter = stmt.query_map(params![media_id], |row| {
+        Ok(EmbeddingInfo {
+            model: row.get(0)?,
+            content_type: row.get(1)?,
+            vec_dim: row.get(2)?,
+            created_at: row.get(3)?,
+        })
+    })?;
+    let mut results = Vec::new();
+    for r in iter {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EmbeddingInfo {
+    pub model: String,
+    pub content_type: String,
+    pub vec_dim: usize,
+    pub created_at: Option<String>,
+}
+
 // --- Settings operations ---
 
 pub fn setting_get(app: &AppHandle, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {

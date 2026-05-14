@@ -17,7 +17,9 @@ import {
   captionCreate,
   captionUpdate,
   captionDelete,
+  embeddingInfo,
 } from "@/lib/tauri";
+import type { EmbeddingInfo } from "@/types/ai";
 
 interface DetailPanelProps {
   media: Media | null;
@@ -57,6 +59,7 @@ function DetailPanel({ media }: DetailPanelProps) {
 
   // Captions state
   const [captions, setCaptions] = useState<Caption[]>([]);
+  const [embeddings, setEmbeddings] = useState<EmbeddingInfo[]>([]);
   const [newCaptionText, setNewCaptionText] = useState("");
   const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
@@ -97,6 +100,15 @@ function DetailPanel({ media }: DetailPanelProps) {
     }
   }, []);
 
+  const loadEmbeddings = useCallback(async (mediaId: string) => {
+    try {
+      const list = await embeddingInfo(mediaId);
+      setEmbeddings(list);
+    } catch (e) {
+      console.error("Failed to load embeddings:", e);
+    }
+  }, []);
+
   useEffect(() => {
     loadAllTags();
     variantPresets().then(setPresets);
@@ -107,16 +119,18 @@ function DetailPanel({ media }: DetailPanelProps) {
       loadMediaTags(media.id);
       loadVariants(media.id);
       loadCaptions(media.id);
+      loadEmbeddings(media.id);
       setActiveTab("details");
     } else {
       setTags([]);
       setVariants([]);
       setCaptions([]);
+      setEmbeddings([]);
       setNewCaptionText("");
       setEditingCaptionId(null);
       setEditingText("");
     }
-  }, [media?.id, loadMediaTags, loadVariants, loadCaptions]);
+  }, [media?.id, loadMediaTags, loadVariants, loadCaptions, loadEmbeddings]);
 
   useEffect(() => {
     const input = newTagInput.trim().toLowerCase();
@@ -443,6 +457,32 @@ function DetailPanel({ media }: DetailPanelProps) {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Embedding status */}
+          <div className="mt-6 border-t border-neutral-800 pt-4">
+            <p className="mb-2 text-xs text-neutral-500">向量嵌入</p>
+            {embeddings.length === 0 ? (
+              <p className="text-xs text-neutral-600">
+                {media ? "暂无 embedding" : "—"}
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {embeddings.map((e) => (
+                  <div
+                    key={e.content_type}
+                    className="flex items-center justify-between rounded bg-neutral-800/50 px-2 py-1.5"
+                  >
+                    <span className="text-xs text-neutral-300">
+                      {e.content_type === "caption" ? "描述向量" : "标签向量"}
+                    </span>
+                    <span className="text-[10px] text-neutral-500">
+                      {e.vec_dim}d · {e.model.split("/").pop()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}
