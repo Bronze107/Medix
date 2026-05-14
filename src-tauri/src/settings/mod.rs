@@ -79,3 +79,9 @@ pub fn get_semantic_threshold(app: &AppHandle) -> f64 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.25)
 }
+
+pub const KEY_THEME: &str = "theme";
+
+pub fn get_theme(app: &AppHandle) -> String {
+    get(app, KEY_THEME).unwrap_or_else(|| "dark".to_string())
+}
