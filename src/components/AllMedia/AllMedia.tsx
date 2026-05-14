@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { listen } from "@tauri-apps/api/event";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
@@ -7,12 +8,14 @@ import {
   mediaList,
   mediaSearch,
   mediaTagAddBatch,
+  savedFiltersSave,
   tagCreate,
   tagList,
 } from "@/lib/tauri";
 import DropZone from "@/components/DropZone/DropZone";
 import Gallery from "@/components/Gallery/Gallery";
 import DetailPanel from "@/components/DetailPanel/DetailPanel";
+import SearchBar from "@/components/SearchBar/SearchBar";
 
 type SortField = "imported_at" | "created_at" | "modified_at";
 
@@ -22,6 +25,9 @@ interface DragDropPayload {
 }
 
 function AllMedia() {
+  const [searchParams] = useSearchParams();
+  const initialQuery = searchParams.get("q") ?? "";
+
   const [media, setMedia] = useState<Media[]>([]);
   const [selected, setSelected] = useState<Media | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("imported_at");
@@ -29,8 +35,10 @@ function AllMedia() {
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [dropHover, setDropHover] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState(initialQuery);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
+  const [savedFilterName, setSavedFilterName] = useState("");
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   // Batch selection
   const [selectionMode, setSelectionMode] = useState(false);
@@ -188,25 +196,11 @@ function AllMedia() {
       <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-3">
         <h1 className="text-xl font-bold">全部媒体</h1>
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="tag:cat dog (交集) / tag:cat OR dog (并集)..."
-              className="w-48 rounded border border-neutral-700 bg-neutral-800 py-1 pl-2 pr-6 text-xs text-neutral-300 outline-none placeholder:text-neutral-500 focus:border-blue-500"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-1 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
-              >
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-          </div>
+          <SearchBar
+            value={searchQuery}
+            onChange={setSearchQuery}
+            onClear={() => setSearchQuery("")}
+          />
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortField)}
@@ -236,6 +230,15 @@ function AllMedia() {
           >
             {selectionMode ? "退出选择" : "批量选择"}
           </button>
+          {debouncedSearch && (
+            <button
+              onClick={() => setShowSaveDialog(true)}
+              className="rounded border border-neutral-700 bg-neutral-800 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+              title="保存当前筛选"
+            >
+              保存筛选
+            </button>
+          )}
           <span className="text-xs text-neutral-500">{media.length} 项</span>
         </div>
       </div>
@@ -287,8 +290,34 @@ function AllMedia() {
       {/* Content */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col p-4">
-          {media.length === 0 ? (
+          {media.length === 0 && !debouncedSearch ? (
             <DropZone dropHover={dropHover} />
+          ) : media.length === 0 && debouncedSearch ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <svg
+                className="mb-4 h-10 w-10 text-neutral-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                />
+              </svg>
+              <p className="text-sm text-neutral-500">没有找到匹配的媒体</p>
+              <p className="mt-1 text-xs text-neutral-600">
+                试试修改搜索条件，或
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="ml-1 text-blue-400 hover:text-blue-300"
+                >
+                  重置搜索
+                </button>
+              </p>
+            </div>
           ) : (
             <Gallery
               media={media}
@@ -360,6 +389,64 @@ function AllMedia() {
                 className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
               >
                 取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save filter dialog */}
+      {showSaveDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShowSaveDialog(false)}
+        >
+          <div
+            className="w-80 rounded-lg border border-neutral-700 bg-neutral-800 p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-sm font-bold text-neutral-200">保存筛选器</h3>
+            <p className="mb-1 text-[10px] text-neutral-500">查询条件</p>
+            <p className="mb-3 rounded bg-neutral-900 px-2 py-1.5 text-xs text-neutral-300 font-mono">
+              {debouncedSearch}
+            </p>
+            <label className="mb-1 block text-[10px] text-neutral-500">名称</label>
+            <input
+              type="text"
+              value={savedFilterName}
+              onChange={(e) => setSavedFilterName(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === "Enter" && savedFilterName.trim()) {
+                  await savedFiltersSave(savedFilterName.trim(), debouncedSearch);
+                  setShowSaveDialog(false);
+                  setSavedFilterName("");
+                }
+              }}
+              placeholder="输入筛选器名称..."
+              autoFocus
+              className="mb-3 w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-500 focus:border-blue-500"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowSaveDialog(false);
+                  setSavedFilterName("");
+                }}
+                className="rounded border border-neutral-700 bg-neutral-800 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-700"
+              >
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  if (!savedFilterName.trim()) return;
+                  await savedFiltersSave(savedFilterName.trim(), debouncedSearch);
+                  setShowSaveDialog(false);
+                  setSavedFilterName("");
+                }}
+                disabled={!savedFilterName.trim()}
+                className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+              >
+                保存
               </button>
             </div>
           </div>

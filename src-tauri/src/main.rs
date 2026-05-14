@@ -4,6 +4,7 @@ mod commands;
 mod db;
 mod media;
 mod models;
+mod search;
 mod settings;
 mod tag;
 mod variants;
@@ -11,12 +12,12 @@ mod variants;
 use tauri::Manager;
 
 use commands::{
-    auto_detect, caption_create, embedding_info, caption_delete, caption_list, caption_update, greet,
-    llama_server_start, llama_server_status, llama_server_stop, media_import, media_list,
+    auto_detect, caption_create, caption_delete, caption_list, caption_update, embedding_info,
+    greet, llama_server_start, llama_server_status, llama_server_stop, media_import, media_list,
     media_search, media_tag_add, media_tag_add_batch, media_tag_remove, media_tags_get,
-    media_thumbnail, model_list, settings_get, settings_get_all, settings_set, tag_create,
-    tag_delete, tag_list, tag_rename, variant_delete, variant_generate, variant_list,
-    variant_presets,
+    media_thumbnail, model_list, saved_filters_delete, saved_filters_list, saved_filters_save,
+    settings_get, settings_get_all, settings_set, tag_create, tag_delete, tag_list, tag_rename,
+    variant_delete, variant_generate, variant_list, variant_presets,
 };
 
 fn main() {
@@ -63,6 +64,9 @@ fn main() {
             settings_get,
             settings_set,
             settings_get_all,
+            saved_filters_list,
+            saved_filters_save,
+            saved_filters_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while building application")

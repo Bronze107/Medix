@@ -4,6 +4,7 @@ import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
 import type { Caption } from "@/types/caption";
 import type { LlamaServerStatus, GgufModelList, AutoDetect, EmbeddingInfo } from "@/types/ai";
+import type { SavedFilter } from "@/types/search";
 
 export function greet(name: string): Promise<string> {
   return invoke("greet", { name });
@@ -131,6 +132,20 @@ export function autoDetect(): Promise<AutoDetect> {
 
 export function embeddingInfo(mediaId: string): Promise<EmbeddingInfo[]> {
   return invoke("embedding_info", { mediaId });
+}
+
+// --- Saved Filters ---
+
+export function savedFiltersList(): Promise<SavedFilter[]> {
+  return invoke("saved_filters_list");
+}
+
+export function savedFiltersSave(name: string, query: string): Promise<void> {
+  return invoke("saved_filters_save", { name, query });
+}
+
+export function savedFiltersDelete(name: string): Promise<void> {
+  return invoke("saved_filters_delete", { name });
 }
 
 // --- Settings ---

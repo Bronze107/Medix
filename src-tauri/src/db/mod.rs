@@ -165,7 +165,7 @@ pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-fn resolve_thumb_paths(app: &AppHandle, media_list: &mut [Media]) {
+pub(crate) fn resolve_thumb_paths(app: &AppHandle, media_list: &mut [Media]) {
     let Ok(app_dir) = app.path().app_data_dir() else { return };
     let thumbs_dir = app_dir.join("thumbnails");
 
@@ -445,6 +445,136 @@ pub fn media_search_by_tags(
     }
 
     resolve_thumb_paths(app, &mut results);
+    Ok(results)
+}
+
+pub fn media_query_filtered(
+    app: &AppHandle,
+    media_ids: Option<&[String]>,
+    dimensions: &[crate::search::parser::DimFilter],
+    date_range: &Option<crate::search::parser::DateRange>,
+    file_size: &Option<crate::search::parser::SizeFilter>,
+    sort_by: &str,
+    descending: bool,
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    use crate::search::parser::{Comparison, DimFilter, SizeOp};
+
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+
+    let order = if descending { "DESC" } else { "ASC" };
+    let sort_column = match sort_by {
+        "created_at" => "m.created_at",
+        "modified_at" => "m.modified_at",
+        _ => "m.imported_at",
+    };
+
+    let mut conditions: Vec<String> = Vec::new();
+    let mut bind_values: Vec<rusqlite::types::Value> = Vec::new();
+
+    if let Some(ids) = media_ids {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let ph: Vec<String> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", bind_values.len() + i + 1))
+            .collect();
+        conditions.push(format!("m.id IN ({})", ph.join(",")));
+        for id in ids {
+            bind_values.push(rusqlite::types::Value::Text(id.clone()));
+        }
+    }
+
+    for dim in dimensions {
+        let (col, op) = match dim {
+            DimFilter::Width { op } => ("m.width", op),
+            DimFilter::Height { op } => ("m.height", op),
+        };
+        match op {
+            Comparison::Gt(v) => {
+                bind_values.push(rusqlite::types::Value::Integer(*v));
+                conditions.push(format!("{} > ?{}", col, bind_values.len()));
+            }
+            Comparison::Lt(v) => {
+                bind_values.push(rusqlite::types::Value::Integer(*v));
+                conditions.push(format!("{} < ?{}", col, bind_values.len()));
+            }
+            Comparison::Range(lo, hi) => {
+                bind_values.push(rusqlite::types::Value::Integer(*lo));
+                bind_values.push(rusqlite::types::Value::Integer(*hi));
+                let n = bind_values.len();
+                conditions.push(format!(
+                    "{} BETWEEN ?{} AND ?{}",
+                    col,
+                    n - 1,
+                    n
+                ));
+            }
+        }
+    }
+
+    if let Some(dr) = date_range {
+        bind_values.push(rusqlite::types::Value::Text(dr.start.clone()));
+        bind_values.push(rusqlite::types::Value::Text(dr.end.clone()));
+        let n = bind_values.len();
+        conditions.push(format!(
+            "m.created_at BETWEEN ?{} AND ?{}",
+            n - 1,
+            n
+        ));
+    }
+
+    if let Some(sf) = file_size {
+        match &sf.op {
+            SizeOp::GreaterThan(v) => {
+                bind_values.push(rusqlite::types::Value::Integer(*v as i64));
+                conditions.push(format!("m.file_size > ?{}", bind_values.len()));
+            }
+            SizeOp::LessThan(v) => {
+                bind_values.push(rusqlite::types::Value::Integer(*v as i64));
+                conditions.push(format!("m.file_size < ?{}", bind_values.len()));
+            }
+        }
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+
+    let sql = format!(
+        "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
+                m.created_at, m.modified_at, m.imported_at
+         FROM media m {} ORDER BY {} {}",
+        where_clause, sort_column, order
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        bind_values.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+
+    let iter = stmt.query_map(param_refs.as_slice(), |row| {
+        Ok(Media {
+            id: row.get(0)?,
+            source_path: row.get(1)?,
+            width: row.get(2)?,
+            height: row.get(3)?,
+            file_size: row.get(4)?,
+            created_at: row.get(5)?,
+            modified_at: row.get(6)?,
+            imported_at: row.get(7)?,
+            thumb_256: None,
+            thumb_512: None,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for r in iter {
+        results.push(r?);
+    }
     Ok(results)
 }
 
@@ -736,7 +866,7 @@ pub fn embedding_info_list(
     Ok(results)
 }
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct EmbeddingInfo {
@@ -744,6 +874,67 @@ pub struct EmbeddingInfo {
     pub content_type: String,
     pub vec_dim: usize,
     pub created_at: Option<String>,
+}
+
+pub fn embedding_get_all_by_model(
+    app: &AppHandle,
+    model: &str,
+) -> Result<Vec<(String, String, Vec<f32>)>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT media_id, content_type, vector FROM embeddings WHERE model = ?1",
+    )?;
+    let iter = stmt.query_map(params![model], |row| {
+        let media_id: String = row.get(0)?;
+        let content_type: String = row.get(1)?;
+        let bytes: Vec<u8> = row.get(2)?;
+        let mut vec = Vec::with_capacity(bytes.len() / 4);
+        for chunk in bytes.chunks_exact(4) {
+            let mut arr = [0u8; 4];
+            arr.copy_from_slice(chunk);
+            vec.push(f32::from_le_bytes(arr));
+        }
+        Ok((media_id, content_type, vec))
+    })?;
+    let mut results = Vec::new();
+    for r in iter {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+// --- Saved filters ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedFilter {
+    pub name: String,
+    pub query: String,
+}
+
+pub fn saved_filters_get_all(app: &AppHandle) -> Result<Vec<SavedFilter>, Box<dyn std::error::Error>> {
+    let json = setting_get(app, "saved_filters")?
+        .unwrap_or_else(|| "[]".to_string());
+    Ok(serde_json::from_str(&json)?)
+}
+
+pub fn saved_filters_save(app: &AppHandle, filter: &SavedFilter) -> Result<(), Box<dyn std::error::Error>> {
+    let mut filters = saved_filters_get_all(app)?;
+    if let Some(pos) = filters.iter().position(|f| f.name == filter.name) {
+        filters[pos] = filter.clone();
+    } else {
+        filters.push(filter.clone());
+    }
+    setting_set(app, "saved_filters", &serde_json::to_string(&filters)?)
+}
+
+pub fn saved_filters_delete(app: &AppHandle, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let filters = saved_filters_get_all(app)?;
+    let filters: Vec<SavedFilter> = filters
+        .into_iter()
+        .filter(|f| f.name != name)
+        .collect();
+    setting_set(app, "saved_filters", &serde_json::to_string(&filters)?)
 }
 
 // --- Settings operations ---

@@ -1,0 +1,99 @@
+pub mod parser;
+pub mod semantic;
+
+use crate::db::TagSearchMode;
+use crate::media::Media;
+use std::collections::{HashMap, HashSet};
+use tauri::AppHandle;
+
+use parser::TagMatchMode;
+
+/// Main search entry point. Called from the media_search Tauri command.
+pub fn execute_search(
+    app: &AppHandle,
+    query: &str,
+    query_embedding: Option<Vec<f32>>,
+    sort_by: &str,
+    descending: bool,
+) -> Result<Vec<Media>, String> {
+    let parsed = parser::parse(query);
+
+    // Step 1: Semantic search
+    let semantic_map: Option<HashMap<String, f64>> =
+        query_embedding
+            .as_ref()
+            .and_then(|vec| match semantic::semantic_search_by_vector(vec, app, 500) {
+                Ok(results) => {
+                    Some(results.into_iter().map(|r| (r.media_id, r.score)).collect())
+                }
+                Err(e) => {
+                    eprintln!("[search] semantic search failed: {}", e);
+                    None
+                }
+            });
+
+    // Step 2: Tag filter
+    let tag_ids: Option<HashSet<String>> = parsed
+        .tag_group
+        .as_ref()
+        .map(|tg| {
+            let mode = match tg.mode {
+                TagMatchMode::All => TagSearchMode::Intersection,
+                TagMatchMode::Any => TagSearchMode::Union,
+            };
+            crate::db::media_search_by_tags(app, &tg.tags, sort_by, descending, mode)
+                .map(|list| list.into_iter().map(|m| m.id).collect())
+        })
+        .transpose()
+        .map_err(|e| e.to_string())?;
+
+    // Step 3: Combine candidates (intersection of semantic and tag results)
+    let candidate_ids: Option<Vec<String>> = match (&semantic_map, &tag_ids) {
+        (Some(sem), Some(tag)) => {
+            let ids: Vec<String> = sem.keys().filter(|id| tag.contains(*id)).cloned().collect();
+            if ids.is_empty() {
+                return Ok(vec![]);
+            }
+            Some(ids)
+        }
+        (Some(sem), None) => Some(sem.keys().cloned().collect()),
+        (None, Some(tag)) => Some(tag.iter().cloned().collect()),
+        (None, None) => None,
+    };
+
+    // Step 4: If no filters at all, return all media
+    if candidate_ids.is_none()
+        && parsed.dimensions.is_empty()
+        && parsed.date_range.is_none()
+        && parsed.file_size.is_none()
+    {
+        return crate::db::list_media(app, sort_by, descending).map_err(|e| e.to_string());
+    }
+
+    // Step 5: Apply metadata filters via SQL
+    let mut results = crate::db::media_query_filtered(
+        app,
+        candidate_ids.as_deref(),
+        &parsed.dimensions,
+        &parsed.date_range,
+        &parsed.file_size,
+        sort_by,
+        descending,
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Step 6: If semantic, sort by score; otherwise keep DB sort order
+    if let Some(ref sem_map) = semantic_map {
+        results.sort_by(|a, b| {
+            let sa = sem_map.get(&a.id).copied().unwrap_or(0.0);
+            let sb = sem_map.get(&b.id).copied().unwrap_or(0.0);
+            sb.partial_cmp(&sa)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    // Step 7: Resolve thumbnail paths
+    crate::db::resolve_thumb_paths(app, &mut results);
+
+    Ok(results)
+}

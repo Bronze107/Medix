@@ -1,6 +1,6 @@
-use tauri::{command, AppHandle};
+use tauri::{command, AppHandle, Manager};
 
-use crate::db::{self, TagSearchMode};
+use crate::db;
 use crate::media::{import, Media, MediaImportResult};
 
 #[command]
@@ -29,37 +29,56 @@ pub async fn media_search(
     sort_by: String,
     descending: bool,
 ) -> Result<Vec<Media>, String> {
-    tokio::task::spawn_blocking(move || {
-        let trimmed = query.trim();
-        if trimmed.starts_with("tag:") {
-            let tag_part = trimmed[4..].trim();
-            let (tag_names, mode) = if tag_part.contains(" OR ") {
-                let names: Vec<String> = tag_part
-                    .split(" OR ")
-                    .map(|s| s.trim().to_lowercase())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                (names, TagSearchMode::Union)
-            } else if tag_part.contains('|') {
-                let names: Vec<String> = tag_part
-                    .split('|')
-                    .map(|s| s.trim().to_lowercase())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                (names, TagSearchMode::Union)
+    let trimmed = query.trim().to_string();
+
+    // Quick path: empty query returns all
+    if trimmed.is_empty() {
+        return db::list_media(&app, &sort_by, descending).map_err(|e| e.to_string());
+    }
+
+    // Parse query to check if semantic search is needed
+    let parsed = crate::search::parser::parse(&trimmed);
+
+    // If semantic text present, get embedding (async, outside spawn_blocking)
+    let query_embedding: Option<Vec<f32>> = if parsed.semantic_text.is_some() {
+        let model = crate::settings::get_llama_model(&app);
+        let port = crate::settings::get_llama_port(&app);
+        if !model.is_empty() {
+            let server = app.state::<crate::ai::LlamaServer>();
+            if server.health_check(port).await {
+                match crate::ai::llamacpp::embed_text(
+                    parsed.semantic_text.as_ref().unwrap(),
+                    &model,
+                    port,
+                )
+                .await
+                {
+                    Ok(vec) => Some(vec),
+                    Err(e) => {
+                        eprintln!("[search] embedding failed: {}", e);
+                        None
+                    }
+                }
             } else {
-                let names: Vec<String> = tag_part
-                    .split_whitespace()
-                    .map(|s| s.to_lowercase())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                (names, TagSearchMode::Intersection)
-            };
-            db::media_search_by_tags(&app, &tag_names, &sort_by, descending, mode)
-                .map_err(|e| e.to_string())
+                None
+            }
         } else {
-            db::list_media(&app, &sort_by, descending).map_err(|e| e.to_string())
+            None
         }
+    } else {
+        None
+    };
+
+    // Run the search engine in spawn_blocking (DB + CPU work)
+    let app_clone = app.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::search::execute_search(
+            &app_clone,
+            &trimmed,
+            query_embedding,
+            &sort_by,
+            descending,
+        )
     })
     .await
     .map_err(|e| e.to_string())?

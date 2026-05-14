@@ -1,0 +1,411 @@
+#[derive(Debug, Default)]
+pub struct ParsedQuery {
+    pub tag_group: Option<TagGroup>,
+    pub dimensions: Vec<DimFilter>,
+    pub date_range: Option<DateRange>,
+    pub file_size: Option<SizeFilter>,
+    pub semantic_text: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct TagGroup {
+    pub tags: Vec<String>,
+    pub mode: TagMatchMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TagMatchMode {
+    All,
+    Any,
+}
+
+#[derive(Debug)]
+pub enum DimFilter {
+    Width { op: Comparison },
+    Height { op: Comparison },
+}
+
+#[derive(Debug, Clone)]
+pub enum Comparison {
+    Gt(i64),
+    Lt(i64),
+    Range(i64, i64),
+}
+
+#[derive(Debug)]
+pub struct DateRange {
+    pub start: String,
+    pub end: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SizeFilter {
+    pub op: SizeOp,
+}
+
+#[derive(Debug, Clone)]
+pub enum SizeOp {
+    GreaterThan(u64),
+    LessThan(u64),
+}
+
+const PREFIXES: &[&str] = &["tag:", "width:", "height:", "date:", "size:"];
+
+/// Parse a search query string into structured filters.
+pub fn parse(input: &str) -> ParsedQuery {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return ParsedQuery::default();
+    }
+
+    let lower = trimmed.to_lowercase();
+    let chars: Vec<char> = lower.chars().collect();
+
+    // Split the input into segments: each prefix starts a new segment
+    #[derive(Debug)]
+    struct Segment {
+        prefix: Option<String>,
+        content: String,
+        start: usize,
+    }
+
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut i = 0;
+
+    // Find the first prefix to determine where it starts
+    let mut seg_start = 0;
+    let mut current_prefix: Option<String> = None;
+
+    while i < chars.len() {
+        // Check if we're at a prefix boundary
+        let remaining: String = chars[i..].iter().collect();
+        let mut found_prefix = false;
+
+        for prefix in PREFIXES {
+            if remaining.starts_with(prefix) {
+                // Save previous segment
+                if i > seg_start || current_prefix.is_some() {
+                    let content: String = chars[seg_start..i].iter().collect();
+                    let content = content.trim().to_string();
+                    if !content.is_empty() || current_prefix.is_some() && i > seg_start {
+                        segments.push(Segment {
+                            prefix: current_prefix.take(),
+                            content,
+                            start: seg_start,
+                        });
+                    }
+                }
+                current_prefix = Some(prefix.to_string());
+                i += prefix.len();
+                seg_start = i;
+                found_prefix = true;
+                break;
+            }
+        }
+
+        if !found_prefix {
+            i += 1;
+        }
+    }
+
+    // Save final segment
+    if seg_start < chars.len() || current_prefix.is_some() {
+        let content: String = chars[seg_start..].iter().collect();
+        let content = content.trim().to_string();
+        segments.push(Segment {
+            prefix: current_prefix.take(),
+            content,
+            start: seg_start,
+        });
+    }
+
+    // If no prefixes found at all, everything is semantic text
+    if segments.len() == 1 && segments[0].prefix.is_none() {
+        return ParsedQuery {
+            semantic_text: Some(trimmed.to_string()),
+            ..Default::default()
+        };
+    }
+
+    let mut result = ParsedQuery::default();
+    let mut bare_words: Vec<String> = Vec::new();
+
+    for seg in &segments {
+        match seg.prefix.as_deref() {
+            Some("tag:") => {
+                if result.tag_group.is_none() {
+                    if let Some(tg) = parse_tag_content(&seg.content) {
+                        result.tag_group = Some(tg);
+                    }
+                }
+            }
+            Some("width:") => {
+                if let Some(op) = parse_comparison(&seg.content) {
+                    result.dimensions.push(DimFilter::Width { op });
+                }
+            }
+            Some("height:") => {
+                if let Some(op) = parse_comparison(&seg.content) {
+                    result.dimensions.push(DimFilter::Height { op });
+                }
+            }
+            Some("date:") => {
+                if result.date_range.is_none() {
+                    result.date_range = parse_date_range(&seg.content);
+                }
+            }
+            Some("size:") => {
+                if result.file_size.is_none() {
+                    result.file_size = parse_size_filter(&seg.content);
+                }
+            }
+            None => {
+                for word in seg.content.split_whitespace() {
+                    bare_words.push(word.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !bare_words.is_empty() {
+        result.semantic_text = Some(bare_words.join(" "));
+    }
+
+    result
+}
+
+fn parse_tag_content(content: &str) -> Option<TagGroup> {
+    let content = content.trim();
+    if content.is_empty() {
+        return None;
+    }
+
+    let (tags, mode) = if content.contains(" OR ") {
+        let tags: Vec<String> = content
+            .split(" OR ")
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        (tags, TagMatchMode::Any)
+    } else if content.contains('|') {
+        let tags: Vec<String> = content
+            .split('|')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        (tags, TagMatchMode::Any)
+    } else {
+        let tags: Vec<String> = content
+            .split_whitespace()
+            .map(|s| s.trim_matches(',').to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        (tags, TagMatchMode::All)
+    };
+
+    if tags.is_empty() {
+        return None;
+    }
+
+    Some(TagGroup { tags, mode })
+}
+
+fn parse_comparison(content: &str) -> Option<Comparison> {
+    let content = content.trim();
+    if content.is_empty() {
+        return None;
+    }
+
+    if content.contains("..") {
+        let parts: Vec<&str> = content.split("..").collect();
+        if parts.len() == 2 {
+            let lo: i64 = parts[0].trim().parse().ok()?;
+            let hi: i64 = parts[1].trim().parse().ok()?;
+            return Some(Comparison::Range(lo, hi));
+        }
+    }
+
+    if content.starts_with(">=") {
+        return content[2..].trim().parse().ok().map(Comparison::Gt);
+    }
+    if content.starts_with("<=") {
+        return content[2..].trim().parse().ok().map(Comparison::Lt);
+    }
+    if content.starts_with('>') {
+        return content[1..].trim().parse().ok().map(Comparison::Gt);
+    }
+    if content.starts_with('<') {
+        return content[1..].trim().parse().ok().map(Comparison::Lt);
+    }
+
+    // Plain number = exact match -> treat as range with same value
+    content.trim().parse().ok().map(|v| Comparison::Range(v, v))
+}
+
+fn parse_date_range(content: &str) -> Option<DateRange> {
+    let content = content.trim();
+    if content.is_empty() {
+        return None;
+    }
+
+    if content.contains("..") {
+        let parts: Vec<&str> = content.split("..").collect();
+        if parts.len() == 2 {
+            let start = parts[0].trim().to_string();
+            let end = parts[1].trim().to_string();
+            if !start.is_empty() && !end.is_empty() {
+                return Some(DateRange { start, end });
+            }
+        }
+    }
+
+    // Single date
+    let date = content.to_string();
+    Some(DateRange {
+        start: date.clone(),
+        end: date,
+    })
+}
+
+fn parse_size_filter(content: &str) -> Option<SizeFilter> {
+    let content = content.trim();
+    if content.is_empty() {
+        return None;
+    }
+
+    let (op_char, value_str) = if content.starts_with(">=") {
+        ('>', &content[2..])
+    } else if content.starts_with("<=") {
+        ('<', &content[2..])
+    } else if content.starts_with('>') {
+        ('>', &content[1..])
+    } else if content.starts_with('<') {
+        ('<', &content[1..])
+    } else {
+        return None;
+    };
+
+    let bytes = parse_size_value(value_str.trim())?;
+
+    match op_char {
+        '>' => Some(SizeFilter {
+            op: SizeOp::GreaterThan(bytes),
+        }),
+        '<' => Some(SizeFilter {
+            op: SizeOp::LessThan(bytes),
+        }),
+        _ => None,
+    }
+}
+
+fn parse_size_value(raw: &str) -> Option<u64> {
+    let raw = raw.trim().to_lowercase();
+
+    let (num_str, multiplier): (&str, u64) = if raw.ends_with("gb") {
+        (&raw[..raw.len() - 2], 1024 * 1024 * 1024)
+    } else if raw.ends_with("mb") {
+        (&raw[..raw.len() - 2], 1024 * 1024)
+    } else if raw.ends_with("kb") {
+        (&raw[..raw.len() - 2], 1024)
+    } else if raw.ends_with('b') {
+        (&raw[..raw.len() - 1], 1)
+    } else {
+        (raw.as_str(), 1)
+    };
+
+    let num: f64 = num_str.trim().parse().ok()?;
+    Some((num * multiplier as f64) as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty() {
+        let r = parse("");
+        assert!(r.tag_group.is_none());
+        assert!(r.semantic_text.is_none());
+    }
+
+    #[test]
+    fn test_tag_intersection() {
+        let r = parse("tag:cat dog");
+        let tg = r.tag_group.unwrap();
+        assert_eq!(tg.tags, vec!["cat", "dog"]);
+        assert!(matches!(tg.mode, TagMatchMode::All));
+    }
+
+    #[test]
+    fn test_tag_union() {
+        let r = parse("tag:cat | dog");
+        let tg = r.tag_group.unwrap();
+        assert_eq!(tg.tags, vec!["cat", "dog"]);
+        assert!(matches!(tg.mode, TagMatchMode::Any));
+    }
+
+    #[test]
+    fn test_tag_union_or() {
+        let r = parse("tag:cat OR dog");
+        let tg = r.tag_group.unwrap();
+        assert_eq!(tg.tags, vec!["cat", "dog"]);
+        assert!(matches!(tg.mode, TagMatchMode::Any));
+    }
+
+    #[test]
+    fn test_semantic_only() {
+        let r = parse("一只橘猫");
+        assert_eq!(r.semantic_text, Some("一只橘猫".to_string()));
+        assert!(r.tag_group.is_none());
+    }
+
+    #[test]
+    fn test_mixed() {
+        let r = parse("tag:cat 橘子猫 width:>1000");
+        let tg = r.tag_group.unwrap();
+        assert_eq!(tg.tags, vec!["cat"]);
+        assert_eq!(r.semantic_text, Some("橘子猫".to_string()));
+        assert_eq!(r.dimensions.len(), 1);
+    }
+
+    #[test]
+    fn test_width_gt() {
+        let r = parse("width:>1920");
+        match &r.dimensions[0] {
+            DimFilter::Width { op } => assert!(matches!(op, Comparison::Gt(1920))),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn test_size_lt() {
+        let r = parse("size:<1mb");
+        let sf = r.file_size.unwrap();
+        assert!(matches!(sf.op, SizeOp::LessThan(v) if v == 1024 * 1024));
+    }
+
+    #[test]
+    fn test_size_gt() {
+        let r = parse("size:>500kb");
+        let sf = r.file_size.unwrap();
+        assert!(matches!(sf.op, SizeOp::GreaterThan(v) if v == 500 * 1024));
+    }
+
+    #[test]
+    fn test_date_range() {
+        let r = parse("date:2024-01-01..2024-12-31");
+        let dr = r.date_range.unwrap();
+        assert_eq!(dr.start, "2024-01-01");
+        assert_eq!(dr.end, "2024-12-31");
+    }
+
+    #[test]
+    fn test_height_range() {
+        let r = parse("height:800..1920");
+        match &r.dimensions[0] {
+            DimFilter::Height { op } => assert!(matches!(op, Comparison::Range(800, 1920))),
+            _ => panic!(),
+        }
+    }
+}
