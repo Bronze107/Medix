@@ -12,7 +12,7 @@
 | 前端 | React 19 + TypeScript + Tailwind CSS |
 | 数据库 | SQLite + rusqlite |
 | 图像处理 | Rust `image` + `kamadak-exif` |
-| AI推理 | ONNX Runtime (`ort`) |
+| AI推理 | llama.cpp `llama-server` (OpenAI 兼容 HTTP API) |
 | 搜索索引 | SQLite FTS5 |
 | 浏览器插件 | Chrome Extension Manifest V3 |
 
@@ -73,35 +73,53 @@
 
 **目标**: 本地优先 + 云端后备的 AI 自动 caption/tag/embedding
 
+**架构**: Medix 管理 `llama-server` 子进程，通过 OpenAI 兼容 HTTP API 调用 VLM 和 Embedding
+
 ### 任务
 1. [x] 数据库：标签相关表
-   - [x] `tags`、`media_tags` 表（预留 `confidence`/`source` 字段供 AI 阶段使用）
+   - [x] `tags`、`media_tags` 表（`confidence`/`source` 字段支持 AI）
+   - [x] `embeddings` 表 (media_id, model, content_type, vector)
+   - [x] `settings` 表（AI 模式/路径/云端配置持久化）
    - [ ] FTS5 虚拟表（推迟到 Phase 6）
-2. [ ] AI 推理引擎（本地优先，云端后备）
-   - [ ] 本地 VLM：`llama-cpp-rs` + `MiniCPM-V 4.6` (~1GB Q4 GGUF)
-     - [ ] 生成 dense caption + 结构化 tags
-     - [ ] 异步推理队列，导入时自动触发
-   - [ ] 本地 Embedding：`nomic-embed-text-v1.5` (~270MB Q4 GGUF)
-     - [ ] caption 和 tags 分别向量化
-     - [ ] `embeddings` 表 (media_id, model, content_type, vector)
+2. [x] AI 推理引擎（本地优先，云端后备）
+   - [x] 本地 VLM：`llama-server` + MiniCPM-V 2.6 (~1GB Q4 GGUF)
+     - [x] OpenAI `/v1/chat/completions` 生成 dense caption + 结构化 tags
+     - [x] `std::sync::mpsc` 异步推理队列，导入时自动触发
+   - [x] 本地 Embedding：同一模型通过 `/v1/embeddings` 向量化
+     - [x] caption 和 tags 分别向量化
+     - [x] blob 存储 f32 向量到 `embeddings` 表
+     - [x] `--embeddings --pooling mean` 参数启用
+   - [x] llama-server 子进程生命周期管理（启动/健康检查/关闭）
+   - [x] `--mmproj` 视觉投影器支持
+   - [x] 自动检测二进制路径 + 扫描 models/ 目录下 GGUF/mmproj 文件
    - [ ] 云端后备：Claude / OpenAI / Qwen3.5 API（用户配置 API key）
      - [ ] 本地模型加载失败时自动降级
      - [ ] 用户可手动选择"云端模式"获取更高质量结果
-   - [ ] 模型下载管理：首次使用时自动下载到 `models/`，支持手动删除/更新
 3. [x] 标签管理UI
    - [x] Tags 页面：创建 / 删除 / 重命名标签
    - [x] 图片详情面板显示标签列表 + 添加 / 移除标签
    - [x] 批量打标签 (多选图片)
-   - [ ] AI标签区分显示（等 AI 阶段）
+   - [x] AI 标签蓝色 badge 区分显示
+   - [x] AI 描述独立区域 + "采纳为手动描述"按钮
+   - [x] 详情页底部显示 embedding 向量状态
 4. [x] 标签过滤
    - [x] 顶部搜索框支持 `tag:cat dog` 语法（多标签交集筛选）
    - [ ] 标签云侧边栏（推迟）
+5. [x] 设置页面
+   - [x] AI 模式选择：自动/本地/云端
+   - [x] llama-server 启停控制 + 端口配置
+   - [x] 二进制路径/模型/mmproj 自动检测 + 下拉选择
+   - [x] 线程数/GPU层数/上下文大小配置
+   - [x] 云端 API Key 输入（预留）
+   - [x] GGUF 模型文件扫描列表
 
 ### 验证标准
-- [ ] 导入一张图片，5 秒内自动生成 caption 和 tags
-- [ ] AI 生成的 tags 带 `source=ai` 标记，与人工标签区分显示
-- [ ] 断网状态下本地 VLM 仍能正常工作
-- [ ] 删除图片时，关联的 tags / captions / embeddings 级联删除
+- [x] 导入一张图片，自动生成 caption 和 tags
+- [x] AI 生成的 tags 带 `source=ai` 标记，蓝色 badge 与人工标签区分显示
+- [x] AI caption 显示在"描述"标签页的 AI 描述区域
+- [x] Embedding 向量成功存储（详情页显示维度）
+- [x] 断网状态下本地 llama-server 仍能正常工作
+- [x] 删除图片时，关联的 tags / captions / embeddings 级联删除（外键 ON DELETE CASCADE）
 - [x] 搜索框输入 `tag:cat` 只显示带 cat 标签的图片
 - [x] 选择 5 张图片，批量添加 `favorite` 标签，全部生效
 
@@ -300,12 +318,16 @@ Medix/
 │   ├── src/
 │   │   ├── main.rs             # 入口
 │   │   ├── commands/           # Tauri IPC 命令
-│   │   ├── db/                 # 数据库模块
-│   │   ├── media/              # 媒体处理
+│   │   ├── db/                 # 数据库模块 (migrations + CRUD)
+│   │   ├── media/              # 媒体处理 (import + thumbnail)
 │   │   ├── ai/                 # AI 推理
+│   │   │   ├── mod.rs          # AiQueue 异步队列
+│   │   │   ├── llamacpp.rs     # OpenAI 兼容 HTTP 客户端
+│   │   │   └── server.rs       # llama-server 子进程管理
+│   │   ├── models/             # GGUF 模型扫描 + 自动检测
+│   │   ├── settings/           # 设置键定义 + get/set helper
 │   │   ├── variants/           # 变体生成
-│   │   ├── export/             # 导入导出
-│   │   └── server/             # HTTP 服务 (浏览器插件)
+│   │   └── tag/                # Tag 结构体
 │   └── Cargo.toml
 ├── extension/                  # 浏览器插件
 │   ├── manifest.json
@@ -330,7 +352,7 @@ Medix/
 
 | 风险 | 影响 | 预案 |
 |------|------|------|
-| ONNX 模型加载失败 | Phase 3 阻塞 | 提供云端 API 降级方案 (需配置 key) |
+| llama-server 启动失败 | Phase 3 阻塞 | 自动检测二进制路径、提供云端 API 降级方案 |
 | 大图内存溢出 | Phase 2/4 | 限制单图最大尺寸，超大图分块处理 |
 | 万级图库卡顿 | Phase 2/9 | 提前引入虚拟滚动，SQLite 分页查询 |
 | 浏览器插件审核 | Phase 8 | 同时支持 Firefox + Edge 商店，提供 crx 手动安装 |
