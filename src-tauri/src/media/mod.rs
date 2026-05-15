@@ -16,6 +16,7 @@ pub struct Media {
     pub source_url: Option<String>,
     pub page_url: Option<String>,
     pub source: Option<String>,
+    pub deleted_at: Option<String>,
     pub thumb_256: Option<String>,
     pub thumb_512: Option<String>,
 }

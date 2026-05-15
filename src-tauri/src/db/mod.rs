@@ -160,6 +160,22 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         )?;
     }
 
+    // 0009: soft delete
+    let has_deleted_at: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('media') WHERE name='deleted_at'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !has_deleted_at {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0009_soft_delete');
+             ALTER TABLE media ADD COLUMN deleted_at TEXT;",
+        )?;
+    }
+
     Ok(())
 }
 
@@ -218,7 +234,7 @@ pub fn list_media(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, deleted_at
          FROM media
          ORDER BY {} {}",
         sort_column, order
@@ -238,6 +254,7 @@ pub fn list_media(
             source_url: row.get(8)?,
             page_url: row.get(9)?,
             source: row.get(10)?,
+            deleted_at: row.get(11)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -264,8 +281,8 @@ pub fn media_get_batch(
     let conn = Connection::open(&path)?;
     let placeholders: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 1)).collect();
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source
-         FROM media WHERE id IN ({})",
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, deleted_at
+         FROM media WHERE deleted_at IS NULL AND id IN ({})",
         placeholders.join(",")
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -284,6 +301,7 @@ pub fn media_get_batch(
             source_url: row.get(8)?,
             page_url: row.get(9)?,
             source: row.get(10)?,
+            deleted_at: row.get(11)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -503,6 +521,7 @@ pub fn media_search_by_tags(
             source_url: row.get(8)?,
             page_url: row.get(9)?,
             source: row.get(10)?,
+            deleted_at: row.get(11)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -638,6 +657,7 @@ pub fn media_query_filtered(
             source_url: row.get(8)?,
             page_url: row.get(9)?,
             source: row.get(10)?,
+            deleted_at: row.get(11)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -1034,4 +1054,138 @@ pub fn setting_set(
         params![key, value],
     )?;
     Ok(())
+}
+
+// --- Soft delete / trash ---
+
+pub fn media_soft_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "UPDATE media SET deleted_at = ?1 WHERE id = ?2",
+        params![chrono::Utc::now().to_rfc3339(), id],
+    )?;
+    Ok(())
+}
+
+pub fn media_recover(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "UPDATE media SET deleted_at = NULL WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
+}
+
+pub fn media_permanent_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let app_dir = app.path().app_data_dir().expect("app data dir");
+
+    // Delete files
+    let library_dir = app_dir.join("library");
+    let thumbs_dir = app_dir.join("thumbnails");
+    let variants_dir = app_dir.join("variants");
+
+    // Find and delete library file
+    if let Ok(entries) = std::fs::read_dir(&library_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with(id) {
+                let _ = std::fs::remove_file(entry.path());
+                break;
+            }
+        }
+    }
+
+    // Delete thumbnails
+    for suffix in &["256", "512"] {
+        let thumb = thumbs_dir.join(format!("{}_{}.jpg", id, suffix));
+        let _ = std::fs::remove_file(&thumb);
+    }
+
+    // Delete variants
+    if let Ok(entries) = std::fs::read_dir(&variants_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with(id) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    // Delete DB record (cascades to tags/captions/embeddings/variants)
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute("DELETE FROM media WHERE id = ?1", params![id])?;
+
+    Ok(())
+}
+
+pub fn media_list_trash(
+    app: &AppHandle,
+    sort_by: &str,
+    descending: bool,
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+
+    let order = if descending { "DESC" } else { "ASC" };
+    let sort_column = match sort_by {
+        "created_at" => "created_at",
+        "modified_at" => "modified_at",
+        _ => "imported_at",
+    };
+
+    let sql = format!(
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, deleted_at
+         FROM media
+         WHERE deleted_at IS NOT NULL
+         ORDER BY {} {}",
+        sort_column, order
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let media_iter = stmt.query_map([], |row| {
+        Ok(Media {
+            id: row.get(0)?,
+            source_path: row.get(1)?,
+            width: row.get(2)?,
+            height: row.get(3)?,
+            file_size: row.get(4)?,
+            created_at: row.get(5)?,
+            modified_at: row.get(6)?,
+            imported_at: row.get(7)?,
+            source_url: row.get(8)?,
+            page_url: row.get(9)?,
+            source: row.get(10)?,
+            deleted_at: row.get(11)?,
+            thumb_256: None,
+            thumb_512: None,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for media in media_iter {
+        results.push(media?);
+    }
+
+    resolve_thumb_paths(app, &mut results);
+    Ok(results)
+}
+
+pub fn media_empty_trash(app: &AppHandle) -> Result<usize, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare("SELECT id FROM media WHERE deleted_at IS NOT NULL")?;
+    let ids: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let count = ids.len();
+    for id in &ids {
+        media_permanent_delete(app, id)?;
+    }
+
+    Ok(count)
 }

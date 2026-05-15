@@ -18,11 +18,13 @@ import {
   captionUpdate,
   captionDelete,
   embeddingInfo,
+  mediaSoftDelete,
 } from "@/lib/tauri";
 import type { EmbeddingInfo } from "@/types/ai";
 
 interface DetailPanelProps {
   media: Media | null;
+  onDeleted?: () => void;
 }
 
 function formatFileSize(bytes: number | null): string {
@@ -41,7 +43,7 @@ function formatDate(dateStr: string | null): string {
   }
 }
 
-function DetailPanel({ media }: DetailPanelProps) {
+function DetailPanel({ media, onDeleted }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<"details" | "captions" | "variants">("details");
 
   // Tags state
@@ -412,6 +414,25 @@ function DetailPanel({ media }: DetailPanelProps) {
                 {formatDate(media.imported_at)}
               </p>
             </div>
+          </div>
+
+          {/* Delete button */}
+          <div className="mt-6 border-t border-[var(--color-border)] pt-4">
+            <button
+              onClick={async () => {
+                if (!media) return;
+                if (!confirm("确定要删除这张图片吗？\n可以在回收站中恢复。")) return;
+                try {
+                  await mediaSoftDelete(media.id);
+                  if (onDeleted) onDeleted();
+                } catch (e) {
+                  console.error("Failed to delete:", e);
+                }
+              }}
+              className="w-full rounded border border-red-800/50 bg-red-900/20 px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/30 transition-colors"
+            >
+              删除
+            </button>
           </div>
 
           {/* Tags section */}

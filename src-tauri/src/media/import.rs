@@ -134,6 +134,7 @@ fn import_single_file(
         source_url: None,
         page_url: None,
         source: Some("local".to_string()),
+        deleted_at: None,
         thumb_256: None,
         thumb_512: None,
     };

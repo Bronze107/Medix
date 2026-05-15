@@ -85,3 +85,32 @@ pub async fn media_search(
     .await
     .map_err(|e| e.to_string())?
 }
+
+#[command]
+pub fn media_soft_delete(app: AppHandle, id: String) -> Result<(), String> {
+    db::media_soft_delete(&app, &id).map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn media_recover(app: AppHandle, id: String) -> Result<(), String> {
+    db::media_recover(&app, &id).map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn media_permanent_delete(app: AppHandle, id: String) -> Result<(), String> {
+    db::media_permanent_delete(&app, &id).map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn media_list_trash(
+    app: AppHandle,
+    sort_by: String,
+    descending: bool,
+) -> Result<Vec<Media>, String> {
+    db::media_list_trash(&app, &sort_by, descending).map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn media_empty_trash(app: AppHandle) -> Result<usize, String> {
+    db::media_empty_trash(&app).map_err(|e| e.to_string())
+}

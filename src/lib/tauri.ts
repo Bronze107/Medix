@@ -26,6 +26,29 @@ export function mediaThumbnail(id: string): Promise<string> {
   return invoke("media_thumbnail", { id });
 }
 
+export function mediaSoftDelete(id: string): Promise<void> {
+  return invoke("media_soft_delete", { id });
+}
+
+export function mediaRecover(id: string): Promise<void> {
+  return invoke("media_recover", { id });
+}
+
+export function mediaPermanentDelete(id: string): Promise<void> {
+  return invoke("media_permanent_delete", { id });
+}
+
+export function mediaListTrash(
+  sortBy: string = "imported_at",
+  descending: boolean = true
+): Promise<Media[]> {
+  return invoke("media_list_trash", { sortBy, descending });
+}
+
+export function mediaEmptyTrash(): Promise<number> {
+  return invoke("media_empty_trash");
+}
+
 // --- Tags ---
 
 export function tagList(): Promise<Tag[]> {

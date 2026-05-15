@@ -379,7 +379,7 @@ function AllMedia() {
             />
           )}
         </div>
-        <DetailPanel media={selected} />
+        <DetailPanel media={selected} onDeleted={() => { setSelected(null); loadMedia(); }} />
       </div>
 
       {/* Batch tag dialog */}
