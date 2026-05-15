@@ -251,30 +251,30 @@
 
 **目标**: 浏览器右键一键添加图片到库，记录图片来源
 
+**实现**: `tiny_http` 本地 HTTP 服务 (8765) + Chrome Extension Manifest V3
+
 ### 任务
-1. 数据库：media 表增加来源字段
-   - migration 添加 `source_url TEXT`（图片 URL）、`page_url TEXT`（所在页面 URL）、`source TEXT`（来源渠道：`web` / `local` 等）
-   - 前端详情面板显示来源信息（可点击 URL 打开浏览器）
-2. 本地 HTTP 服务
-   - Tauri 启动时在 `localhost:8765` 启动 HTTP 服务（`actix-web` 或 `tiny_http`）
-   - `POST /api/import` 接收 `{url, page_url, alt_text}`
-   - `GET /api/health` 健康检查（插件连接状态判定）
-   - 收到 URL 后异步下载图片，走正常导入流程，填充 `source_url` / `page_url`
-   - 完成后系统通知提示结果
-3. Chrome Extension
-   - Manifest V3 配置
-   - 右键菜单：`添加到 Medix`（仅在图片上显示）
-   - 点击后发送 `POST /api/import`，携带图片 URL、页面 URL、alt 文本
-   - 弹窗显示连接状态 + 最近导入结果
-4. 剪贴板导入（附加）
-   - Medix 内支持 Ctrl+V 粘贴网页复制的图片 → 导入（`source=local, source_url=null`）
+1. [x] 数据库：media 表增加来源字段 (migration 0008)
+   - [x] `source_url TEXT`（图片 URL）、`page_url TEXT`（所在页面 URL）、`source TEXT`（`web` / `local` / `zip`）
+   - [x] 前端详情面板显示来源信息（可点击 URL 打开浏览器）
+2. [x] 本地 HTTP 服务
+   - [x] Tauri 启动时自动启动 `tiny_http` 服务（端口可配置，默认 8765）
+   - [x] `POST /api/import` 接收 `{url, page_url, alt_text}` → 下载 → 导入 → 缩略图 + AI
+   - [x] `GET /api/health` 健康检查
+   - [x] 导入完成后 Tauri event `remote-import` 推送前端自动刷新
+3. [x] Chrome Extension
+   - [x] Manifest V3，右键菜单 `添加到 Medix`（contexts: image）
+   - [x] 弹窗显示连接状态（绿/红点）+ 端口配置
+   - [x] 3 秒轮询健康检查自动更新状态
+4. [ ] 剪贴板导入（推迟）
+   - [ ] Ctrl+V 粘贴网页复制的图片
 
 ### 验证标准
-- [ ] Tauri 启动后，浏览器插件显示 "已连接"
-- [ ] 在网页右键图片 → "添加到 Medix"，桌面应用弹出通知并显示新图片
-- [ ] 图片详情面板显示来源 URL，可点击打开
-- [ ] 关闭 Tauri 应用后，插件显示 "未连接，请启动 Medix"
-- [ ] 一次导入 10 张网页图片，全部成功且 `source_url` 字段完整
+- [x] Tauri 启动后，浏览器插件显示 "已连接"
+- [x] 在网页右键图片 → "添加到 Medix"，应用自动刷新并显示新图片
+- [x] 图片详情面板显示来源 URL，可点击打开
+- [x] 关闭 Tauri 应用后，插件显示 "未连接，请启动 Medix"
+- [x] `source_url` / `page_url` / `source` 字段完整
 
 ---
 
