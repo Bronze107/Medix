@@ -102,15 +102,38 @@ function AllMedia() {
     async (paths: string[]) => {
       if (paths.length === 0) return;
 
+      // Split ZIPs from image files
+      const zips = paths.filter((p) => p.toLowerCase().endsWith(".zip"));
+      const images = paths.filter((p) => !p.toLowerCase().endsWith(".zip"));
+
       setIsImporting(true);
-      setImportMessage(`正在导入 ${paths.length} 个文件...`);
 
       try {
-        const results = await mediaImport(paths);
-        const successCount = results.filter((r) => r.success).length;
-        const failCount = results.length - successCount;
+        let totalImported = 0;
+        let totalFailed = 0;
+
+        // Import images
+        if (images.length > 0) {
+          setImportMessage(`正在导入 ${images.length} 个文件...`);
+          const results = await mediaImport(images);
+          totalImported += results.filter((r) => r.success).length;
+          totalFailed += results.length - results.filter((r) => r.success).length;
+        }
+
+        // Import ZIPs
+        for (const zipPath of zips) {
+          setImportMessage(`正在导入 ZIP: ${zipPath.split("\\").pop() || zipPath}...`);
+          try {
+            const count = await importZip(zipPath);
+            totalImported += count;
+          } catch (e) {
+            totalFailed++;
+            console.error(`ZIP import failed: ${zipPath}`, e);
+          }
+        }
+
         setImportMessage(
-          `导入完成: ${successCount} 成功${failCount > 0 ? `, ${failCount} 失败` : ""}`
+          `导入完成: ${totalImported} 成功${totalFailed > 0 ? `, ${totalFailed} 失败` : ""}`
         );
         await loadMedia();
       } catch (e) {
