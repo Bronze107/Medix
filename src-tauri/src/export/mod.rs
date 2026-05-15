@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -38,7 +39,7 @@ fn find_media_file(app: &AppHandle, media_id: &str) -> Result<PathBuf, String> {
     Err(format!("media file not found in library: {}", media_id))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct JsonExport {
     filename: String,
     caption: serde_json::Value, // String or Vec<String>
@@ -268,19 +269,103 @@ pub fn import_zip(app: &AppHandle, zip_path: &str) -> Result<usize, String> {
         }
     }
 
+    // Parse JSON metadata files (before import, map by filename stem)
+    let mut json_metadata: HashMap<String, JsonExport> = HashMap::new();
+    collect_json_metadata(&tmp_dir, &mut json_metadata);
+
     // Collect supported image files
     let mut img_paths = Vec::new();
     collect_images(&tmp_dir, &mut img_paths);
 
+    // Import images
     let count = img_paths.len();
-    if count > 0 {
-        crate::media::import::import_files(app, img_paths).map_err(|e| e.to_string())?;
+    let results = if count > 0 {
+        crate::media::import::import_files(app, img_paths).map_err(|e| e.to_string())?
+    } else {
+        Vec::new()
+    };
+
+    // Restore captions and tags from JSON metadata
+    for result in &results {
+        if !result.success {
+            continue;
+        }
+        // Match by original filename stem
+        let src_path = Path::new(&result.path);
+        let stem = src_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        // Also try stripping variant suffix like "_web_share"
+        let base_stem = stem
+            .rsplit_once('_')
+            .map(|(base, _suffix)| base)
+            .unwrap_or(stem);
+
+        // Try exact match first, then base stem
+        let meta = json_metadata
+            .get(stem)
+            .or_else(|| json_metadata.get(base_stem));
+
+        if let Some(meta) = meta {
+            // Create caption
+            let caption_text = match &meta.caption {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Array(arr) => {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+                _ => continue,
+            };
+            if !caption_text.is_empty() {
+                let _ = crate::db::caption_create(app, &result.id, &caption_text);
+            }
+
+            // Create tags
+            for tag_name in &meta.tags {
+                let existing = crate::db::tag_list(app).ok();
+                let tag_id: Option<String> = existing
+                    .as_ref()
+                    .and_then(|list| {
+                        list.iter().find(|t| t.name.eq_ignore_ascii_case(tag_name))
+                    })
+                    .map(|t| t.id.clone())
+                    .or_else(|| {
+                        crate::db::tag_create(app, &tag_name.to_lowercase()).ok()
+                    });
+
+                if let Some(tid) = tag_id {
+                    let _ = crate::db::media_tag_add(app, &result.id, &tid);
+                }
+            }
+        }
     }
 
     // Clean up
     let _ = fs::remove_dir_all(&tmp_dir);
 
     Ok(count)
+}
+
+fn collect_json_metadata(dir: &Path, out: &mut HashMap<String, JsonExport>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path.extension().and_then(|e| e.to_str()) == Some("json")
+            {
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if let Ok(content) = fs::read_to_string(&path) {
+                    if let Ok(meta) = serde_json::from_str::<JsonExport>(&content) {
+                        out.insert(stem, meta);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn collect_images(dir: &Path, out: &mut Vec<String>) {
