@@ -232,7 +232,8 @@
      - **ZIP 打包**：同上但压缩为 ZIP
    - 前端进度条（Tauri 事件推送进度）
 2. 标注导出格式
-   - `.txt` 旁文件：每张图片导出同名文本文件，内容为所有 caption（AI + 手动）
+   - 用户可选择要导出的 caption：仅手动 / 仅 AI / 全部 / 指定某条
+   - `.txt` 旁文件：每张图片导出同名文本文件，内容为所选 caption
    - `metadata.jsonl`：每行一个 JSON `{filename, caption, tags: [...], width, height}`
    - 不实现 COCO/YOLO（需要 bounding box，当前无区域标注功能）
 3. ZIP 导入
@@ -240,7 +241,8 @@
    - 可选择复制到库或仅建立引用
 
 ### 验证标准
-- [ ] 导出 50 张图到目录，每张有对应 `.txt`，`metadata.jsonl` 格式正确
+- [ ] 导出 50 张图到目录，每张有对应 `.txt`（内容为所选 caption），`metadata.jsonl` 格式正确
+- [ ] 选择"仅手动 caption"导出，不包含 AI caption
 - [ ] ZIP 导出后解压，文件结构完整
 - [ ] 导入 ZIP 后，媒体列表正确显示所有图片
 - [ ] 导出进度条在导出 1000 张图片时线性增长，不卡死
