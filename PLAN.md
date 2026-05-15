@@ -247,32 +247,34 @@
 
 ---
 
-## Phase 8: 浏览器插件
+## Phase 8: 浏览器插件 + 媒体来源追踪
 
-**目标**: 浏览器右键一键添加图片到库
+**目标**: 浏览器右键一键添加图片到库，记录图片来源
 
 ### 任务
-1. Chrome Extension 基础
+1. 数据库：media 表增加来源字段
+   - migration 添加 `source_url TEXT`（图片 URL）、`page_url TEXT`（所在页面 URL）、`source TEXT`（来源渠道：`web` / `local` 等）
+   - 前端详情面板显示来源信息（可点击 URL 打开浏览器）
+2. 本地 HTTP 服务
+   - Tauri 启动时在 `localhost:8765` 启动 HTTP 服务（`actix-web` 或 `tiny_http`）
+   - `POST /api/import` 接收 `{url, page_url, alt_text}`
+   - `GET /api/health` 健康检查（插件连接状态判定）
+   - 收到 URL 后异步下载图片，走正常导入流程，填充 `source_url` / `page_url`
+   - 完成后系统通知提示结果
+3. Chrome Extension
    - Manifest V3 配置
-   - 右键菜单：`添加到 Medix`
-   - 图标和基础弹窗 (显示连接状态)
-2. 本地通信协议
-   - Tauri 应用启动 localhost HTTP 服务 (port 8765)
-   - CORS 配置允许扩展访问
-   - 简单 REST API: `POST /api/import` `{url, page_url, alt_text}`
-3. 后端下载处理
-   - 收到 URL 后异步下载图片
-   - 走正常导入流程 (AI标签、缩略图)
-   - 系统通知提示导入结果
-4. 插件设置
-   - 配置 Tauri 服务端口号
-   - 选择默认导入标签
+   - 右键菜单：`添加到 Medix`（仅在图片上显示）
+   - 点击后发送 `POST /api/import`，携带图片 URL、页面 URL、alt 文本
+   - 弹窗显示连接状态 + 最近导入结果
+4. 剪贴板导入（附加）
+   - Medix 内支持 Ctrl+V 粘贴网页复制的图片 → 导入（`source=local, source_url=null`）
 
 ### 验证标准
 - [ ] Tauri 启动后，浏览器插件显示 "已连接"
 - [ ] 在网页右键图片 → "添加到 Medix"，桌面应用弹出通知并显示新图片
+- [ ] 图片详情面板显示来源 URL，可点击打开
 - [ ] 关闭 Tauri 应用后，插件显示 "未连接，请启动 Medix"
-- [ ] 一次导入 10 张网页图片，全部成功且带 `from_web` 标签
+- [ ] 一次导入 10 张网页图片，全部成功且 `source_url` 字段完整
 
 ---
 
