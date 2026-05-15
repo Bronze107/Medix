@@ -6,6 +6,7 @@ mod export;
 mod media;
 mod models;
 mod search;
+mod server;
 mod settings;
 mod tag;
 mod variants;
@@ -32,6 +33,8 @@ fn main() {
 
             let ai_queue = ai::init_ai_queue(app.handle().clone());
             app.manage(ai_queue);
+
+            server::start_http_server(app.handle().clone());
 
             Ok(())
         })

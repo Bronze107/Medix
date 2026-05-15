@@ -29,6 +29,7 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_LLAMA_MMPROJ,
         settings::KEY_SEMANTIC_THRESHOLD,
         settings::KEY_THEME,
+        settings::KEY_HTTP_PORT,
     ];
     for key in keys {
         if let Some(val) = settings::get(&app, key) {

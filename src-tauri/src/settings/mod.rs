@@ -85,3 +85,11 @@ pub const KEY_THEME: &str = "theme";
 pub fn get_theme(app: &AppHandle) -> String {
     get(app, KEY_THEME).unwrap_or_else(|| "dark".to_string())
 }
+
+pub const KEY_HTTP_PORT: &str = "http_port";
+
+pub fn get_http_port(app: &AppHandle) -> u16 {
+    get(app, KEY_HTTP_PORT)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8765)
+}

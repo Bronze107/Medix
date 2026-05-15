@@ -13,6 +13,9 @@ pub struct Media {
     pub created_at: Option<String>,
     pub modified_at: Option<String>,
     pub imported_at: String,
+    pub source_url: Option<String>,
+    pub page_url: Option<String>,
+    pub source: Option<String>,
     pub thumb_256: Option<String>,
     pub thumb_512: Option<String>,
 }

@@ -142,6 +142,24 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         )?;
     }
 
+    // 0008: media source tracking
+    let has_source_url: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('media') WHERE name='source_url'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !has_source_url {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0008_media_source');
+             ALTER TABLE media ADD COLUMN source_url TEXT;
+             ALTER TABLE media ADD COLUMN page_url TEXT;
+             ALTER TABLE media ADD COLUMN source TEXT;",
+        )?;
+    }
+
     Ok(())
 }
 
@@ -149,8 +167,8 @@ pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::e
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     conn.execute(
-        "INSERT INTO media (id, source_path, width, height, file_size, created_at, modified_at, imported_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO media (id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             &media.id,
             media.source_path.as_ref(),
@@ -160,6 +178,9 @@ pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::e
             media.created_at.as_ref(),
             media.modified_at.as_ref(),
             &media.imported_at,
+            media.source_url.as_ref(),
+            media.page_url.as_ref(),
+            media.source.as_ref(),
         ],
     )?;
     Ok(())
@@ -197,7 +218,7 @@ pub fn list_media(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source
          FROM media
          ORDER BY {} {}",
         sort_column, order
@@ -214,6 +235,9 @@ pub fn list_media(
             created_at: row.get(5)?,
             modified_at: row.get(6)?,
             imported_at: row.get(7)?,
+            source_url: row.get(8)?,
+            page_url: row.get(9)?,
+            source: row.get(10)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -240,7 +264,7 @@ pub fn media_get_batch(
     let conn = Connection::open(&path)?;
     let placeholders: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 1)).collect();
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source
          FROM media WHERE id IN ({})",
         placeholders.join(",")
     );
@@ -257,6 +281,9 @@ pub fn media_get_batch(
             created_at: row.get(5)?,
             modified_at: row.get(6)?,
             imported_at: row.get(7)?,
+            source_url: row.get(8)?,
+            page_url: row.get(9)?,
+            source: row.get(10)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -473,6 +500,9 @@ pub fn media_search_by_tags(
             created_at: row.get(5)?,
             modified_at: row.get(6)?,
             imported_at: row.get(7)?,
+            source_url: row.get(8)?,
+            page_url: row.get(9)?,
+            source: row.get(10)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -605,6 +635,9 @@ pub fn media_query_filtered(
             created_at: row.get(5)?,
             modified_at: row.get(6)?,
             imported_at: row.get(7)?,
+            source_url: row.get(8)?,
+            page_url: row.get(9)?,
+            source: row.get(10)?,
             thumb_256: None,
             thumb_512: None,
         })

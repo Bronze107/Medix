@@ -33,6 +33,7 @@ function Settings() {
   const [llamaCtxSize, setLlamaCtxSize] = useState(4096);
   const [llamaMmproj, setLlamaMmproj] = useState("");
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
+  const [httpPort, setHttpPort] = useState(8765);
 
   const [detected, setDetected] = useState<AutoDetect | null>(null);
 
@@ -52,6 +53,7 @@ function Settings() {
       if (settings.llama_ctx_size) setLlamaCtxSize(parseInt(settings.llama_ctx_size) || 4096);
       if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
+      if (settings.http_port) setHttpPort(parseInt(settings.http_port) || 8765);
     } catch (e) {
       console.error("Failed to load settings:", e);
     }
@@ -94,6 +96,7 @@ function Settings() {
       await settingsSet("llama_ctx_size", String(llamaCtxSize));
       await settingsSet("llama_mmproj", llamaMmproj);
       await settingsSet("semantic_threshold", String(semanticThreshold));
+      await settingsSet("http_port", String(httpPort));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -295,6 +298,27 @@ function Settings() {
             />
           </div>
 
+        </section>
+
+        {/* Browser Extension */}
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
+            浏览器插件
+          </h2>
+          <div className="mb-3">
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+              HTTP 服务端口
+            </label>
+            <input
+              type="number"
+              value={httpPort}
+              onChange={(e) => setHttpPort(parseInt(e.target.value) || 8765)}
+              className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
+            />
+            <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+              浏览器插件通过此端口与 Medix 通信，修改后需重启应用
+            </p>
+          </div>
         </section>
 
         {/* Semantic Search Settings */}

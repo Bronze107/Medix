@@ -131,6 +131,9 @@ fn import_single_file(
         created_at,
         modified_at,
         imported_at: chrono::Utc::now().to_rfc3339(),
+        source_url: None,
+        page_url: None,
+        source: Some("local".to_string()),
         thumb_256: None,
         thumb_512: None,
     };

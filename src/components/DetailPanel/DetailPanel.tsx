@@ -350,6 +350,48 @@ function DetailPanel({ media }: DetailPanelProps) {
               </p>
             </div>
 
+            {media.source && (
+              <div>
+                <p className="text-xs text-[var(--color-text-muted)]">来源</p>
+                <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
+                  {media.source === "web" && "网页"}
+                  {media.source === "local" && "本地"}
+                  {media.source === "zip" && "ZIP 导入"}
+                  {media.source !== "web" && media.source !== "local" && media.source !== "zip" && media.source}
+                </p>
+              </div>
+            )}
+            {media.source_url && (
+              <div>
+                <p className="text-xs text-[var(--color-text-muted)]">图片 URL</p>
+                <p className="mt-0.5 break-all text-xs">
+                  <a
+                    href={media.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:underline"
+                  >
+                    {media.source_url}
+                  </a>
+                </p>
+              </div>
+            )}
+            {media.page_url && (
+              <div>
+                <p className="text-xs text-[var(--color-text-muted)]">页面 URL</p>
+                <p className="mt-0.5 break-all text-xs">
+                  <a
+                    href={media.page_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:underline"
+                  >
+                    {media.page_url}
+                  </a>
+                </p>
+              </div>
+            )}
+
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">创建时间 (EXIF)</p>
               <p className="mt-0.5 text-[var(--color-text-secondary)]">
