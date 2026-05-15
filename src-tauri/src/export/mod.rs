@@ -48,10 +48,26 @@ struct JsonExport {
 }
 
 pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, String> {
-    let output_dir = Path::new(&options.output_dir);
-    fs::create_dir_all(output_dir).map_err(|e| e.to_string())?;
-
     let total = options.media_ids.len();
+
+    // For ZIP mode, stage files in a temp dir under app data, then zip to user-specified path
+    let (work_dir, final_zip_path) = if options.use_zip {
+        let app_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?;
+        let tmp_dir = app_dir.join("tmp_export");
+        // Clean up any previous temp dir
+        let _ = fs::remove_dir_all(&tmp_dir);
+        fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+        (tmp_dir, Some(PathBuf::from(&options.output_dir)))
+    } else {
+        let dir = PathBuf::from(&options.output_dir);
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        (dir, None)
+    };
+
+    let output_dir = &work_dir;
 
     for (i, media_id) in options.media_ids.iter().enumerate() {
         // Progress
@@ -182,11 +198,8 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
         fs::write(&json_path, json_str).map_err(|e| e.to_string())?;
     }
 
-    let output_path = if options.use_zip {
-        // Create ZIP
-        let zip_path = output_dir.with_extension("zip");
+    let output_path = if let Some(zip_path) = final_zip_path {
         create_zip(output_dir, &zip_path)?;
-        // Clean up temp dir
         let _ = fs::remove_dir_all(output_dir);
         zip_path.to_string_lossy().to_string()
     } else {

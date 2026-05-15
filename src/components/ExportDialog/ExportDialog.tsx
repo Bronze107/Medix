@@ -223,16 +223,16 @@ function ExportDialog({ mediaIds, totalCount, onClose }: ExportDialogProps) {
               </div>
             </div>
 
-            {/* Output directory */}
+            {/* Output path */}
             <div className="mb-4">
               <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-                输出目录
+                输出路径
               </label>
               <input
                 type="text"
                 value={outputDir}
                 onChange={(e) => setOutputDir(e.target.value)}
-                placeholder="C:\Users\...\export"
+                placeholder={useZip ? "C:\\Users\\...\\export.zip" : "C:\\Users\\...\\export"}
                 className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
               />
             </div>
