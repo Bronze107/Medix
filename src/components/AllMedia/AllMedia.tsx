@@ -17,6 +17,7 @@ import Gallery from "@/components/Gallery/Gallery";
 import DetailPanel from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
+import { mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at";
@@ -202,6 +203,22 @@ function AllMedia() {
     }
   };
 
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`确定要删除 ${selectedIds.size} 张图片吗？\n可以在回收站中恢复。`)) return;
+    for (const id of selectedIds) {
+      try {
+        await mediaSoftDelete(id);
+      } catch (e) {
+        console.error("Failed to delete:", id, e);
+      }
+    }
+    setSelectedIds(new Set());
+    setSelected(null);
+    setSelectionMode(false);
+    loadMedia();
+  };
+
   const handleCreateAndBatchAdd = async () => {
     const name = batchTagSearch.trim().toLowerCase();
     if (!name) return;
@@ -326,6 +343,12 @@ function AllMedia() {
               className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500"
             >
               添加标签
+            </button>
+            <button
+              onClick={handleBatchDelete}
+              className="rounded border border-red-800/50 bg-red-900/20 px-3 py-1 text-xs text-red-400 hover:bg-red-900/30"
+            >
+              删除
             </button>
             <button
               onClick={() => setSelectedIds(new Set())}
