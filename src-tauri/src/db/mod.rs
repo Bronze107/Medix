@@ -229,6 +229,45 @@ pub fn list_media(
     Ok(results)
 }
 
+pub fn media_get_batch(
+    app: &AppHandle,
+    ids: &[String],
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let placeholders: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 1)).collect();
+    let sql = format!(
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at
+         FROM media WHERE id IN ({})",
+        placeholders.join(",")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+        ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let iter = stmt.query_map(param_refs.as_slice(), |row| {
+        Ok(Media {
+            id: row.get(0)?,
+            source_path: row.get(1)?,
+            width: row.get(2)?,
+            height: row.get(3)?,
+            file_size: row.get(4)?,
+            created_at: row.get(5)?,
+            modified_at: row.get(6)?,
+            imported_at: row.get(7)?,
+            thumb_256: None,
+            thumb_512: None,
+        })
+    })?;
+    let mut results = Vec::new();
+    for r in iter {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
 // --- Tag operations ---
 
 pub fn tag_list(app: &AppHandle) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {

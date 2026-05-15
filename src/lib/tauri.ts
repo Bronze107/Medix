@@ -5,6 +5,7 @@ import type { Variant, VariantPreset } from "@/types/variant";
 import type { Caption } from "@/types/caption";
 import type { LlamaServerStatus, GgufModelList, AutoDetect, EmbeddingInfo } from "@/types/ai";
 import type { SavedFilter } from "@/types/search";
+import type { ExportOptions } from "@/types/export";
 
 export function greet(name: string): Promise<string> {
   return invoke("greet", { name });
@@ -146,6 +147,16 @@ export function savedFiltersSave(name: string, query: string): Promise<void> {
 
 export function savedFiltersDelete(name: string): Promise<void> {
   return invoke("saved_filters_delete", { name });
+}
+
+// --- Export ---
+
+export function exportDataset(options: ExportOptions): Promise<string> {
+  return invoke("export_dataset", { options });
+}
+
+export function importZip(zipPath: string): Promise<number> {
+  return invoke("import_zip", { zipPath });
 }
 
 // --- Settings ---

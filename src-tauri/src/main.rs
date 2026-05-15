@@ -2,6 +2,7 @@ mod ai;
 mod captions;
 mod commands;
 mod db;
+mod export;
 mod media;
 mod models;
 mod search;
@@ -13,7 +14,8 @@ use tauri::Manager;
 
 use commands::{
     auto_detect, caption_create, caption_delete, caption_list, caption_update, embedding_info,
-    greet, llama_server_start, llama_server_status, llama_server_stop, media_import, media_list,
+    export_dataset, greet, import_zip, llama_server_start, llama_server_status,
+    llama_server_stop, media_import, media_list,
     media_search, media_tag_add, media_tag_add_batch, media_tag_remove, media_tags_get,
     media_thumbnail, model_list, saved_filters_delete, saved_filters_list, saved_filters_save,
     settings_get, settings_get_all, settings_set, tag_create, tag_delete, tag_list, tag_rename,
@@ -67,6 +69,8 @@ fn main() {
             saved_filters_list,
             saved_filters_save,
             saved_filters_delete,
+            export_dataset,
+            import_zip,
         ])
         .build(tauri::generate_context!())
         .expect("error while building application")

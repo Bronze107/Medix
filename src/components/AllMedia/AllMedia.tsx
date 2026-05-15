@@ -16,6 +16,7 @@ import DropZone from "@/components/DropZone/DropZone";
 import Gallery from "@/components/Gallery/Gallery";
 import DetailPanel from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
+import ExportDialog from "@/components/ExportDialog/ExportDialog";
 
 type SortField = "imported_at" | "created_at" | "modified_at";
 
@@ -39,6 +40,7 @@ function AllMedia() {
   const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
   const [savedFilterName, setSavedFilterName] = useState("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
 
   // Batch selection
   const [selectionMode, setSelectionMode] = useState(false);
@@ -229,6 +231,13 @@ function AllMedia() {
             }`}
           >
             {selectionMode ? "退出选择" : "批量选择"}
+          </button>
+          <button
+            onClick={() => setShowExportDialog(true)}
+            disabled={media.length === 0}
+            className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50"
+          >
+            导出
           </button>
           {debouncedSearch && (
             <button
@@ -451,6 +460,14 @@ function AllMedia() {
             </div>
           </div>
         </div>
+      )}
+      {/* Export dialog */}
+      {showExportDialog && (
+        <ExportDialog
+          mediaIds={Array.from(selectedIds)}
+          totalCount={media.length}
+          onClose={() => setShowExportDialog(false)}
+        />
       )}
     </div>
   );
