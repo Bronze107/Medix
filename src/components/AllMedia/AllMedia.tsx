@@ -17,6 +17,7 @@ import Gallery from "@/components/Gallery/Gallery";
 import DetailPanel from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
+import { importZip } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at";
 
@@ -41,6 +42,10 @@ function AllMedia() {
   const [savedFilterName, setSavedFilterName] = useState("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importZipPath, setImportZipPath] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
 
   // Batch selection
   const [selectionMode, setSelectionMode] = useState(false);
@@ -238,6 +243,12 @@ function AllMedia() {
             className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50"
           >
             导出
+          </button>
+          <button
+            onClick={() => setShowImportDialog(true)}
+            className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+          >
+            导入ZIP
           </button>
           {debouncedSearch && (
             <button
@@ -468,6 +479,90 @@ function AllMedia() {
           totalCount={media.length}
           onClose={() => setShowExportDialog(false)}
         />
+      )}
+
+      {/* Import ZIP dialog */}
+      {showImportDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => {
+            setShowImportDialog(false);
+            setImportResult(null);
+          }}
+        >
+          <div
+            className="w-80 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-4 text-sm font-bold text-[var(--color-text-primary)]">
+              导入 ZIP 数据集
+            </h3>
+
+            {importResult ? (
+              <div className="space-y-3">
+                <div className="rounded bg-green-900/20 p-3">
+                  <p className="text-xs text-green-400">{importResult}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowImportDialog(false);
+                    setImportResult(null);
+                  }}
+                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                >
+                  关闭
+                </button>
+              </div>
+            ) : (
+              <>
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+                  ZIP 文件路径
+                </label>
+                <input
+                  type="text"
+                  value={importZipPath}
+                  onChange={(e) => setImportZipPath(e.target.value)}
+                  placeholder="C:\Users\...\export.zip"
+                  className="mb-4 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                />
+                <p className="mb-4 text-[10px] text-[var(--color-text-muted)]">
+                  导入 ZIP 中的图片及同名 .json 元数据（caption + tags）
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setShowImportDialog(false);
+                      setImportResult(null);
+                    }}
+                    className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!importZipPath.trim()) return;
+                      setImporting(true);
+                      try {
+                        const count = await importZip(importZipPath.trim());
+                        setImportResult(`成功导入 ${count} 张图片`);
+                        setImportZipPath("");
+                        loadMedia();
+                      } catch (e) {
+                        setImportResult(`导入失败: ${e}`);
+                      } finally {
+                        setImporting(false);
+                      }
+                    }}
+                    disabled={!importZipPath.trim() || importing}
+                    className="rounded bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                  >
+                    {importing ? "导入中..." : "开始导入"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
