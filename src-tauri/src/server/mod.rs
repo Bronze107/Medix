@@ -1,9 +1,9 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[derive(Debug, Deserialize)]
 struct ImportRequest {
@@ -193,6 +193,9 @@ fn download_and_import(
 
     // Clean up temp file
     let _ = fs::remove_file(&tmp_path);
+
+    // Notify frontend
+    let _ = app.emit("remote-import", id.clone());
 
     Ok(id)
 }

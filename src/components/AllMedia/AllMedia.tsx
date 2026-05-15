@@ -158,12 +158,19 @@ function AllMedia() {
       setDropHover(false);
       doImport(event.payload.paths);
     });
+    const unlistenRemote = listen<string>("remote-import", () => {
+      loadMedia();
+      setImportMessage("收到来自浏览器的图片，已导入");
+      setTimeout(() => setImportMessage(""), 3000);
+    });
+
     return () => {
       unlistenEnter.then((f) => f());
       unlistenLeave.then((f) => f());
       unlistenDrop.then((f) => f());
+      unlistenRemote.then((f) => f());
     };
-  }, [doImport]);
+  }, [doImport, loadMedia]);
 
   const handleToggleSelect = (item: Media) => {
     setSelectedIds((prev) => {
