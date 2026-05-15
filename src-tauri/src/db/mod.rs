@@ -236,6 +236,7 @@ pub fn list_media(
     let sql = format!(
         "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, deleted_at
          FROM media
+         WHERE deleted_at IS NULL
          ORDER BY {} {}",
         sort_column, order
     );
@@ -482,22 +483,22 @@ pub fn media_search_by_tags(
     let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = match mode {
         TagSearchMode::Intersection => format!(
-            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at
+            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.deleted_at
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
-             WHERE t.name IN ({})
+             WHERE m.deleted_at IS NULL AND t.name IN ({})
              GROUP BY m.id
              HAVING COUNT(DISTINCT t.id) = {}
              ORDER BY m.{} {}",
             placeholders, tag_names.len(), sort_column, order
         ),
         TagSearchMode::Union => format!(
-            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at
+            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.deleted_at
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
-             WHERE t.name IN ({})
+             WHERE m.deleted_at IS NULL AND t.name IN ({})
              ORDER BY m.{} {}",
             placeholders, sort_column, order
         ),
@@ -557,7 +558,7 @@ pub fn media_query_filtered(
         _ => "m.imported_at",
     };
 
-    let mut conditions: Vec<String> = Vec::new();
+    let mut conditions: Vec<String> = vec!["m.deleted_at IS NULL".to_string()];
     let mut bind_values: Vec<rusqlite::types::Value> = Vec::new();
 
     if let Some(ids) = media_ids {
