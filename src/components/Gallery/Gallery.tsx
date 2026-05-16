@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Media } from "@/types/media";
 import { mediaThumbnail } from "@/lib/tauri";
 
@@ -41,10 +42,11 @@ function useThumbnail(id: string | null) {
 
     const load = () => {
       mediaThumbnail(id)
-        .then((b64) => {
+        .then((path) => {
           if (!cancelled) {
-            thumbCache.set(id, b64);
-            setUrl(b64);
+            const src = convertFileSrc(path);
+            thumbCache.set(id, src);
+            setUrl(src);
           }
         })
         .catch(() => {

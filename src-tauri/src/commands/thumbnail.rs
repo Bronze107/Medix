@@ -1,6 +1,4 @@
-use std::fs;
 use tauri::{command, AppHandle, Manager};
-use base64::Engine;
 
 #[command]
 pub fn media_thumbnail(app: AppHandle, id: String) -> Result<String, String> {
@@ -11,7 +9,5 @@ pub fn media_thumbnail(app: AppHandle, id: String) -> Result<String, String> {
         return Err("Thumbnail not found".to_string());
     }
 
-    let bytes = fs::read(&thumb_path).map_err(|e| e.to_string())?;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Ok(format!("data:image/jpeg;base64,{}", b64))
+    Ok(thumb_path.to_string_lossy().replace('\\', "/"))
 }
