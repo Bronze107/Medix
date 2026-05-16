@@ -49,6 +49,10 @@ export function mediaEmptyTrash(): Promise<number> {
   return invoke("media_empty_trash");
 }
 
+export function mediaFindDuplicates(): Promise<Media[][]> {
+  return invoke("media_find_duplicates");
+}
+
 // --- Tags ---
 
 export function tagList(): Promise<Tag[]> {

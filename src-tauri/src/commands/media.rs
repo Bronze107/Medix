@@ -114,3 +114,8 @@ pub fn media_list_trash(
 pub fn media_empty_trash(app: AppHandle) -> Result<usize, String> {
     db::media_empty_trash(&app).map_err(|e| e.to_string())
 }
+
+#[command]
+pub fn media_find_duplicates(app: AppHandle) -> Result<Vec<Vec<Media>>, String> {
+    db::media_find_similar(&app, 10).map_err(|e| e.to_string())
+}

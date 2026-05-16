@@ -209,6 +209,7 @@ pub fn media_get_by_sha256(
         Ok(Media {
             id: row.get(0)?,
             source_path: row.get(1)?,
+            phash: None,
             width: row.get(2)?,
             height: row.get(3)?,
             file_size: row.get(4)?,
@@ -234,11 +235,12 @@ pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::e
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     conn.execute(
-        "INSERT INTO media (id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        "INSERT INTO media (id, source_path, phash, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             &media.id,
             media.source_path.as_ref(),
+            media.phash.as_ref(),
             media.width,
             media.height,
             media.file_size,
@@ -298,6 +300,7 @@ pub fn list_media(
         Ok(Media {
             id: row.get(0)?,
             source_path: row.get(1)?,
+            phash: None,
             width: row.get(2)?,
             height: row.get(3)?,
             file_size: row.get(4)?,
@@ -346,6 +349,7 @@ pub fn media_get_batch(
         Ok(Media {
             id: row.get(0)?,
             source_path: row.get(1)?,
+            phash: None,
             width: row.get(2)?,
             height: row.get(3)?,
             file_size: row.get(4)?,
@@ -567,6 +571,7 @@ pub fn media_search_by_tags(
         Ok(Media {
             id: row.get(0)?,
             source_path: row.get(1)?,
+            phash: None,
             width: row.get(2)?,
             height: row.get(3)?,
             file_size: row.get(4)?,
@@ -704,6 +709,7 @@ pub fn media_query_filtered(
         Ok(Media {
             id: row.get(0)?,
             source_path: row.get(1)?,
+            phash: None,
             width: row.get(2)?,
             height: row.get(3)?,
             file_size: row.get(4)?,
@@ -1206,6 +1212,7 @@ pub fn media_list_trash(
         Ok(Media {
             id: row.get(0)?,
             source_path: row.get(1)?,
+            phash: None,
             width: row.get(2)?,
             height: row.get(3)?,
             file_size: row.get(4)?,
@@ -1246,4 +1253,82 @@ pub fn media_empty_trash(app: &AppHandle) -> Result<usize, Box<dyn std::error::E
     }
 
     Ok(count)
+}
+
+pub fn media_find_similar(
+    app: &AppHandle,
+    threshold: u32,
+) -> Result<Vec<Vec<Media>>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, source_path, phash, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source
+         FROM media WHERE phash IS NOT NULL AND deleted_at IS NULL",
+    )?;
+
+    let rows: Vec<(String, Option<Vec<u8>>)> = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<Vec<u8>>>(2)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Convert to u64 hashes
+    let items: Vec<(String, u64)> = rows
+        .into_iter()
+        .filter_map(|(id, phash_bytes)| {
+            phash_bytes.and_then(|bytes| {
+                let arr: [u8; 8] = bytes.try_into().ok()?;
+                Some((id, u64::from_le_bytes(arr)))
+            })
+        })
+        .collect();
+
+    // Build similarity graph (union-find style)
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for i in 0..items.len() {
+        if used.contains(&items[i].0) {
+            continue;
+        }
+        let mut group = vec![items[i].0.clone()];
+        used.insert(items[i].0.clone());
+
+        for j in (i + 1)..items.len() {
+            if used.contains(&items[j].0) {
+                continue;
+            }
+            let dist = crate::media::phash::hamming_distance(items[i].1, items[j].1);
+            if dist <= threshold {
+                group.push(items[j].0.clone());
+                used.insert(items[j].0.clone());
+            }
+        }
+
+        if group.len() > 1 {
+            groups.push(group);
+        }
+    }
+
+    // Resolve groups to Media objects
+    let mut result = Vec::new();
+    for group in &groups {
+        let mut media_list = Vec::new();
+        for id in group {
+            if let Ok(Some(media)) = media_get_by_id(app, id) {
+                media_list.push(media);
+            }
+        }
+        if media_list.len() > 1 {
+            result.push(media_list);
+        }
+    }
+
+    Ok(result)
+}
+
+fn media_get_by_id(app: &AppHandle, id: &str) -> Result<Option<Media>, Box<dyn std::error::Error>> {
+    let list = media_get_batch(app, &[id.to_string()])?;
+    Ok(list.into_iter().next())
 }

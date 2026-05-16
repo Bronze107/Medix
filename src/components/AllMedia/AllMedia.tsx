@@ -17,7 +17,7 @@ import Gallery from "@/components/Gallery/Gallery";
 import DetailPanel from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
-import { mediaSoftDelete } from "@/lib/tauri";
+import { mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at";
@@ -44,6 +44,9 @@ function AllMedia() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showDupDialog, setShowDupDialog] = useState(false);
+  const [dupGroups, setDupGroups] = useState<Media[][]>([]);
+  const [findingDups, setFindingDups] = useState(false);
   const [importZipPath, setImportZipPath] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
@@ -296,6 +299,24 @@ function AllMedia() {
             导出
           </button>
           <button
+            onClick={async () => {
+              setFindingDups(true);
+              try {
+                const groups = await mediaFindDuplicates();
+                setDupGroups(groups);
+                setShowDupDialog(true);
+              } catch (e) {
+                console.error("Failed to find duplicates:", e);
+              } finally {
+                setFindingDups(false);
+              }
+            }}
+            disabled={findingDups}
+            className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50"
+          >
+            {findingDups ? "分析中..." : "查找重复"}
+          </button>
+          <button
             onClick={() => setShowImportDialog(true)}
             className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
           >
@@ -529,6 +550,59 @@ function AllMedia() {
           </div>
         </div>
       )}
+      {/* Duplicate finder dialog */}
+      {showDupDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShowDupDialog(false)}
+        >
+          <div
+            className="max-h-[80vh] w-[500px] overflow-auto rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-4 text-sm font-bold text-[var(--color-text-primary)]">
+              相似图片（pHash 汉明距离 ≤ 10）
+            </h3>
+            {dupGroups.length === 0 ? (
+              <p className="text-xs text-[var(--color-text-muted)]">未发现重复图片</p>
+            ) : (
+              <div className="space-y-3">
+                {dupGroups.map((group, i) => (
+                  <div key={i} className="rounded border border-[var(--color-border-light)] p-3">
+                    <p className="mb-2 text-xs text-[var(--color-text-muted)]">
+                      组 {i + 1} — {group.length} 张相似图片
+                    </p>
+                    <div className="max-h-48 overflow-auto space-y-1">
+                      {group.map((m) => (
+                        <div
+                          key={m.id}
+                          className="flex items-center justify-between rounded bg-[var(--color-bg-secondary)] px-2 py-1"
+                        >
+                          <span className="text-xs text-[var(--color-text-secondary)] truncate">
+                            {m.source_path?.split("\\").pop() || m.id}
+                          </span>
+                          <span className="text-[10px] text-[var(--color-text-muted)]">
+                            {m.width}×{m.height}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setShowDupDialog(false)}
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Export dialog */}
       {showExportDialog && (
         <ExportDialog

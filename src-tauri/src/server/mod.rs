@@ -170,6 +170,7 @@ fn download_and_import(
         source_url: Some(req.url.clone()),
         page_url: req.page_url.clone(),
         source: Some("web".to_string()),
+        phash: None,
         sha256,
         deleted_at: None,
         thumb_256: None,

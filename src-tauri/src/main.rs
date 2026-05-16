@@ -16,8 +16,8 @@ use tauri::Manager;
 use commands::{
     auto_detect, caption_create, caption_delete, caption_list, caption_update, embedding_info,
     export_dataset, greet, import_zip, llama_server_start, llama_server_status,
-    llama_server_stop, media_empty_trash, media_import, media_list, media_list_trash,
-    media_permanent_delete, media_recover,
+    llama_server_stop, media_empty_trash, media_find_duplicates, media_import, media_list,
+    media_list_trash, media_permanent_delete, media_recover,
     media_soft_delete,
     media_search, media_tag_add, media_tag_add_batch, media_tag_remove, media_tags_get,
     media_thumbnail, model_list, saved_filters_delete, saved_filters_list, saved_filters_save,
@@ -49,6 +49,7 @@ fn main() {
             media_recover,
             media_permanent_delete,
             media_empty_trash,
+            media_find_duplicates,
             media_search,
             media_tag_add,
             media_tag_add_batch,

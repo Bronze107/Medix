@@ -1,4 +1,5 @@
 pub mod import;
+pub mod phash;
 pub mod thumbnail;
 
 use serde::Serialize;
@@ -16,6 +17,7 @@ pub struct Media {
     pub source_url: Option<String>,
     pub page_url: Option<String>,
     pub source: Option<String>,
+    pub phash: Option<Vec<u8>>,
     pub sha256: Option<String>,
     pub deleted_at: Option<String>,
     pub thumb_256: Option<String>,
