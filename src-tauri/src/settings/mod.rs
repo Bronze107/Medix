@@ -13,6 +13,7 @@ pub const KEY_LLAMA_THREADS: &str = "llama_threads";
 pub const KEY_LLAMA_GPU_LAYERS: &str = "llama_gpu_layers";
 pub const KEY_LLAMA_CTX_SIZE: &str = "llama_ctx_size";
 pub const KEY_LLAMA_MMPROJ: &str = "llama_mmproj";
+pub const KEY_LLAMA_AUTO_START: &str = "llama_auto_start";
 
 pub fn get(app: &AppHandle, key: &str) -> Option<String> {
     crate::db::setting_get(app, key).ok().flatten()
@@ -70,6 +71,12 @@ pub fn get_llama_ctx_size(app: &AppHandle) -> u32 {
 
 pub fn get_llama_mmproj(app: &AppHandle) -> String {
     get(app, KEY_LLAMA_MMPROJ).unwrap_or_default()
+}
+
+pub fn get_llama_auto_start(app: &AppHandle) -> bool {
+    get(app, KEY_LLAMA_AUTO_START)
+        .map(|v| v == "true")
+        .unwrap_or(false)
 }
 
 pub const KEY_SEMANTIC_THRESHOLD: &str = "semantic_threshold";

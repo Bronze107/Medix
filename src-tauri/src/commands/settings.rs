@@ -27,6 +27,7 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_LLAMA_GPU_LAYERS,
         settings::KEY_LLAMA_CTX_SIZE,
         settings::KEY_LLAMA_MMPROJ,
+        settings::KEY_LLAMA_AUTO_START,
         settings::KEY_SEMANTIC_THRESHOLD,
         settings::KEY_THEME,
         settings::KEY_HTTP_PORT,

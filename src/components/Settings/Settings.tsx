@@ -32,6 +32,7 @@ function Settings() {
   const [llamaGpuLayers, setLlamaGpuLayers] = useState(0);
   const [llamaCtxSize, setLlamaCtxSize] = useState(4096);
   const [llamaMmproj, setLlamaMmproj] = useState("");
+  const [llamaAutoStart, setLlamaAutoStart] = useState(false);
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [httpPort, setHttpPort] = useState(8765);
 
@@ -52,6 +53,7 @@ function Settings() {
       if (settings.llama_gpu_layers) setLlamaGpuLayers(parseInt(settings.llama_gpu_layers) || 0);
       if (settings.llama_ctx_size) setLlamaCtxSize(parseInt(settings.llama_ctx_size) || 4096);
       if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
+      if (settings.llama_auto_start) setLlamaAutoStart(settings.llama_auto_start === "true");
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
       if (settings.http_port) setHttpPort(parseInt(settings.http_port) || 8765);
     } catch (e) {
@@ -95,6 +97,7 @@ function Settings() {
       await settingsSet("llama_gpu_layers", String(llamaGpuLayers));
       await settingsSet("llama_ctx_size", String(llamaCtxSize));
       await settingsSet("llama_mmproj", llamaMmproj);
+      await settingsSet("llama_auto_start", llamaAutoStart ? "true" : "false");
       await settingsSet("semantic_threshold", String(semanticThreshold));
       await settingsSet("http_port", String(httpPort));
       setSaved(true);
@@ -213,6 +216,19 @@ function Settings() {
               {stopping ? "停止中..." : "停止服务"}
             </button>
           </div>
+
+          {/* Auto-start checkbox */}
+          <label className="mb-4 flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={llamaAutoStart}
+              onChange={(e) => setLlamaAutoStart(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            <span className="text-xs text-[var(--color-text-secondary)]">
+              应用启动时自动启动 llama-server
+            </span>
+          </label>
 
           {/* Binary path */}
           <div className="mb-3">
