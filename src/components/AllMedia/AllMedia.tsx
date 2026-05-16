@@ -111,14 +111,16 @@ function AllMedia() {
 
       try {
         let totalImported = 0;
+        let totalDuplicates = 0;
         let totalFailed = 0;
 
         // Import images
         if (images.length > 0) {
           setImportMessage(`正在导入 ${images.length} 个文件...`);
           const results = await mediaImport(images);
-          totalImported += results.filter((r) => r.success).length;
-          totalFailed += results.length - results.filter((r) => r.success).length;
+          totalImported += results.filter((r) => r.success && !r.error?.includes("重复")).length;
+          totalDuplicates += results.filter((r) => r.success && r.error?.includes("重复")).length;
+          totalFailed += results.filter((r) => !r.success).length;
         }
 
         // Import ZIPs
@@ -133,9 +135,11 @@ function AllMedia() {
           }
         }
 
-        setImportMessage(
-          `导入完成: ${totalImported} 成功${totalFailed > 0 ? `, ${totalFailed} 失败` : ""}`
-        );
+        const parts: string[] = [];
+        if (totalImported > 0) parts.push(`${totalImported} 成功`);
+        if (totalDuplicates > 0) parts.push(`${totalDuplicates} 重复`);
+        if (totalFailed > 0) parts.push(`${totalFailed} 失败`);
+        setImportMessage(`导入完成: ${parts.join(", ")}`);
         await loadMedia();
       } catch (e) {
         setImportMessage(`导入失败: ${e}`);
