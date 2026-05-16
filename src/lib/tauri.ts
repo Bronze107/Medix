@@ -53,6 +53,16 @@ export function mediaFindDuplicates(): Promise<Media[][]> {
   return invoke("media_find_duplicates");
 }
 
+export interface MediaPaths {
+  original: string | null;
+  thumb_256: string | null;
+  thumb_512: string | null;
+}
+
+export function mediaGetPaths(id: string): Promise<MediaPaths> {
+  return invoke("media_get_paths", { id });
+}
+
 // --- Tags ---
 
 export function tagList(): Promise<Tag[]> {

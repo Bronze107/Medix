@@ -7,6 +7,7 @@ interface GalleryProps {
   media: Media[];
   selectedId: string | null;
   onSelect: (media: Media) => void;
+  onDoubleClick?: (media: Media) => void;
   selectedIds: string[];
   selectionMode: boolean;
   onToggleSelect: (media: Media) => void;
@@ -72,6 +73,7 @@ function Gallery({
   media,
   selectedId,
   onSelect,
+  onDoubleClick,
   selectedIds,
   selectionMode,
   onToggleSelect,
@@ -128,6 +130,7 @@ function Gallery({
                   isMultiSelected={selectedIds.includes(item.id)}
                   selectionMode={selectionMode}
                   onClick={() => onSelect(item)}
+                  onDoubleClick={onDoubleClick ? () => onDoubleClick(item) : undefined}
                   onToggleSelect={() => onToggleSelect(item)}
                 />
               ))}
@@ -145,6 +148,7 @@ function ThumbnailCard({
   isMultiSelected,
   selectionMode,
   onClick,
+  onDoubleClick,
   onToggleSelect,
 }: {
   item: Media;
@@ -152,6 +156,7 @@ function ThumbnailCard({
   isMultiSelected: boolean;
   selectionMode: boolean;
   onClick: () => void;
+  onDoubleClick?: () => void;
   onToggleSelect: () => void;
 }) {
   const thumbUrl = useThumbnail(item.id);
@@ -167,6 +172,12 @@ function ThumbnailCard({
   return (
     <div
       onClick={handleCardClick}
+      onDoubleClick={(e) => {
+        if (!selectionMode && onDoubleClick) {
+          e.stopPropagation();
+          onDoubleClick();
+        }
+      }}
       className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border transition-all ${
         isSelected
           ? "border-blue-500 bg-[var(--color-bg-tertiary)]"

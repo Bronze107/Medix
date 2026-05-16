@@ -119,3 +119,51 @@ pub fn media_empty_trash(app: AppHandle) -> Result<usize, String> {
 pub fn media_find_duplicates(app: AppHandle) -> Result<Vec<Vec<Media>>, String> {
     db::media_find_similar(&app, 10).map_err(|e| e.to_string())
 }
+
+#[derive(serde::Serialize)]
+pub struct MediaPaths {
+    pub original: Option<String>,
+    pub thumb_256: Option<String>,
+    pub thumb_512: Option<String>,
+}
+
+#[command]
+pub fn media_get_paths(app: AppHandle, id: String) -> Result<MediaPaths, String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+
+    let original = {
+        let library_dir = app_dir.join("library");
+        let mut found = None;
+        if library_dir.exists() {
+            for entry in std::fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with(&format!("{}.", &id)) {
+                    found = Some(entry.path().to_string_lossy().replace('\\', "/"));
+                    break;
+                }
+            }
+        }
+        found
+    };
+
+    let thumb_dir = app_dir.join("thumbnails");
+    let thumb_256 = {
+        let p = thumb_dir.join(format!("{}_256.jpg", &id));
+        p.exists().then(|| p.to_string_lossy().replace('\\', "/"))
+    };
+    let thumb_512 = {
+        let p = thumb_dir.join(format!("{}_512.jpg", &id));
+        p.exists().then(|| p.to_string_lossy().replace('\\', "/"))
+    };
+
+    Ok(MediaPaths {
+        original,
+        thumb_256,
+        thumb_512,
+    })
+}

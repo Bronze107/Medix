@@ -17,6 +17,7 @@ import Gallery from "@/components/Gallery/Gallery";
 import DetailPanel from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
+import Lightbox from "@/components/Lightbox/Lightbox";
 import { mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
 
@@ -50,6 +51,7 @@ function AllMedia() {
   const [importZipPath, setImportZipPath] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Batch selection
   const [selectionMode, setSelectionMode] = useState(false);
@@ -421,6 +423,10 @@ function AllMedia() {
               media={media}
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
+              onDoubleClick={(item) => {
+                const idx = media.findIndex((m) => m.id === item.id);
+                if (idx >= 0) setLightboxIndex(idx);
+              }}
               selectedIds={Array.from(selectedIds)}
               selectionMode={selectionMode}
               onToggleSelect={handleToggleSelect}
@@ -609,6 +615,16 @@ function AllMedia() {
           mediaIds={Array.from(selectedIds)}
           totalCount={media.length}
           onClose={() => setShowExportDialog(false)}
+        />
+      )}
+
+      {/* Lightbox */}
+      {lightboxIndex !== null && (
+        <Lightbox
+          media={media}
+          currentIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={(idx) => setLightboxIndex(idx)}
         />
       )}
 
