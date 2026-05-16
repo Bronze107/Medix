@@ -10,6 +10,7 @@ export interface Media {
   source_url: string | null;
   page_url: string | null;
   source: string | null;
+  sha256: string | null;
   deleted_at: string | null;
   thumb_256: string | null;
   thumb_512: string | null;

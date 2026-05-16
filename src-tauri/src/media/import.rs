@@ -1,4 +1,6 @@
+use sha2::{Sha256, Digest};
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use tauri::{AppHandle, Manager};
 use ulid::Ulid;
@@ -90,6 +92,25 @@ fn import_single_file(
         };
     }
 
+    // Compute SHA256 for dedup
+    let sha256 = compute_sha256(source_path);
+    if let Some(ref hash) = sha256 {
+        match crate::db::media_get_by_sha256(app, hash) {
+            Ok(Some(existing)) => {
+                return MediaImportResult {
+                    id: existing.id,
+                    path: path_str,
+                    success: true,
+                    error: Some("已存在（重复文件）".to_string()),
+                };
+            }
+            Err(e) => {
+                eprintln!("[import] sha256 lookup failed: {}", e);
+            }
+            _ => {}
+        }
+    }
+
     let id = Ulid::new().to_string();
     let ext = source_path
         .extension()
@@ -134,6 +155,7 @@ fn import_single_file(
         source_url: None,
         page_url: None,
         source: Some("local".to_string()),
+        sha256,
         deleted_at: None,
         thumb_256: None,
         thumb_512: None,
@@ -188,6 +210,20 @@ fn read_image_info(path: &Path) -> Result<(i32, i32, i64), Box<dyn std::error::E
     let height = img.height() as i32;
     let file_size = fs::metadata(path)?.len() as i64;
     Ok((width, height, file_size))
+}
+
+fn compute_sha256(path: &Path) -> Option<String> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buf[..n]),
+            Err(_) => return None,
+        }
+    }
+    Some(format!("{:x}", hasher.finalize()))
 }
 
 fn read_exif_timestamps(path: &Path) -> (Option<String>, Option<String>) {

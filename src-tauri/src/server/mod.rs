@@ -123,6 +123,10 @@ fn download_and_import(
 
     let bytes = response.bytes().map_err(|e| e.to_string())?;
 
+    // Compute SHA256 for dedup
+    use sha2::{Sha256, Digest};
+    let sha256 = Some(format!("{:x}", Sha256::new().chain_update(&bytes[..]).finalize()));
+
     // Determine extension from URL or Content-Type
     let ext = req
         .url
@@ -166,6 +170,7 @@ fn download_and_import(
         source_url: Some(req.url.clone()),
         page_url: req.page_url.clone(),
         source: Some("web".to_string()),
+        sha256,
         deleted_at: None,
         thumb_256: None,
         thumb_512: None,
