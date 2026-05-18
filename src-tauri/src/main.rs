@@ -28,6 +28,7 @@ use commands::{
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             db::init(app.handle())?;
 

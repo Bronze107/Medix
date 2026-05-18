@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import {
@@ -680,13 +681,28 @@ function AllMedia() {
                 <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
                   ZIP 文件路径
                 </label>
-                <input
-                  type="text"
-                  value={importZipPath}
-                  onChange={(e) => setImportZipPath(e.target.value)}
-                  placeholder="C:\Users\...\export.zip"
-                  className="mb-4 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                />
+                <div className="mb-4 flex gap-1.5">
+                  <input
+                    type="text"
+                    value={importZipPath}
+                    onChange={(e) => setImportZipPath(e.target.value)}
+                    placeholder="C:\Users\...\export.zip"
+                    className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                  />
+                  <button
+                    onClick={async () => {
+                      const selected = await open({
+                        multiple: false,
+                        filters: [{ name: "ZIP", extensions: ["zip"] }],
+                      });
+                      if (selected) setImportZipPath(selected);
+                    }}
+                    className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                    title="选择文件"
+                  >
+                    ...
+                  </button>
+                </div>
                 <p className="mb-4 text-[10px] text-[var(--color-text-muted)]">
                   导入 ZIP 中的图片及同名 .json 元数据（caption + tags）
                 </p>

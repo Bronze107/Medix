@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { exportDataset } from "@/lib/tauri";
 import type { ExportProgress } from "@/types/export";
 
@@ -228,13 +229,33 @@ function ExportDialog({ mediaIds, totalCount, onClose }: ExportDialogProps) {
               <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
                 输出路径
               </label>
-              <input
-                type="text"
-                value={outputDir}
-                onChange={(e) => setOutputDir(e.target.value)}
-                placeholder={useZip ? "C:\\Users\\...\\export.zip" : "C:\\Users\\...\\export"}
-                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-              />
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={outputDir}
+                  onChange={(e) => setOutputDir(e.target.value)}
+                  placeholder={useZip ? "C:\\Users\\...\\export.zip" : "C:\\Users\\...\\export"}
+                  className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                />
+                <button
+                  onClick={async () => {
+                    if (useZip) {
+                      const selected = await open({
+                        multiple: false,
+                        filters: [{ name: "ZIP", extensions: ["zip"] }],
+                      });
+                      if (selected) setOutputDir(selected);
+                    } else {
+                      const selected = await open({ directory: true });
+                      if (selected) setOutputDir(selected);
+                    }
+                  }}
+                  className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                  title={useZip ? "选择 ZIP 文件" : "选择目录"}
+                >
+                  ...
+                </button>
+              </div>
             </div>
 
             {/* Summary */}

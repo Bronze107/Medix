@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
@@ -760,6 +761,19 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                 }}
                 className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
               />
+              <button
+                onClick={async () => {
+                  const selected = await open({
+                    multiple: false,
+                    filters: [{ name: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }],
+                  });
+                  if (selected) setImportVersionPath(selected);
+                }}
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                title="选择文件"
+              >
+                ...
+              </button>
               <button
                 onClick={handleImportVersion}
                 disabled={!importVersionPath.trim() || importingVersion}
