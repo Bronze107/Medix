@@ -12,6 +12,7 @@ import {
   tagCreate,
   variantList,
   variantGenerate,
+  variantImport,
   variantDelete,
   variantPresets,
   captionList,
@@ -57,10 +58,21 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Variants state
+  // Version state
   const [variants, setVariants] = useState<Variant[]>([]);
   const [presets, setPresets] = useState<VariantPreset[]>([]);
-  const [generatingPreset, setGeneratingPreset] = useState<string | null>(null);
+
+  // Version generation form
+  const [versionLabel, setVersionLabel] = useState("");
+  const [versionFormat, setVersionFormat] = useState("jpeg");
+  const [versionMaxWidth, setVersionMaxWidth] = useState<number | null>(1080);
+  const [versionMaxHeight, setVersionMaxHeight] = useState<number | null>(null);
+  const [versionQuality, setVersionQuality] = useState(75);
+  const [versionGenerating, setVersionGenerating] = useState(false);
+
+  // Import version
+  const [importVersionPath, setImportVersionPath] = useState("");
+  const [importingVersion, setImportingVersion] = useState(false);
 
   // Captions state
   const [captions, setCaptions] = useState<Caption[]>([]);
@@ -196,16 +208,48 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
     }
   };
 
-  const handleGenerateVariant = async (presetName: string) => {
+  const fillPreset = (preset: VariantPreset) => {
+    setVersionLabel(preset.label);
+    setVersionFormat(preset.format);
+    setVersionMaxWidth(preset.max_width ?? null);
+    setVersionMaxHeight(preset.max_height ?? null);
+    setVersionQuality(preset.quality);
+  };
+
+  const handleGenerateVersion = async () => {
     if (!media) return;
-    setGeneratingPreset(presetName);
+    setVersionGenerating(true);
     try {
-      await variantGenerate(media.id, presetName);
+      await variantGenerate(
+        media.id,
+        versionLabel.trim(),
+        versionFormat,
+        versionMaxWidth,
+        versionMaxHeight,
+        versionQuality,
+      );
       await loadVariants(media.id);
+      setVersionLabel("");
     } catch (e) {
-      console.error("Failed to generate variant:", e);
+      console.error("Failed to generate version:", e);
     } finally {
-      setGeneratingPreset(null);
+      setVersionGenerating(false);
+    }
+  };
+
+  const handleImportVersion = async () => {
+    if (!media) return;
+    const path = importVersionPath.trim();
+    if (!path) return;
+    setImportingVersion(true);
+    try {
+      await variantImport(media.id, path);
+      await loadVariants(media.id);
+      setImportVersionPath("");
+    } catch (e) {
+      console.error("Failed to import version:", e);
+    } finally {
+      setImportingVersion(false);
     }
   };
 
@@ -320,7 +364,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
           }`}
         >
-          变体 {variants.length > 0 && `(${variants.length})`}
+          版本 {variants.length > 0 && `(${variants.length})`}
         </button>
       </div>
 
@@ -704,12 +748,35 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
       {activeTab === "variants" && (
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
+            {/* Import external file as version */}
+            <div className="mb-3 flex gap-1.5">
+              <input
+                type="text"
+                value={importVersionPath}
+                onChange={(e) => setImportVersionPath(e.target.value)}
+                placeholder="外部文件路径..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleImportVersion();
+                }}
+                className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+              />
+              <button
+                onClick={handleImportVersion}
+                disabled={!importVersionPath.trim() || importingVersion}
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50 whitespace-nowrap"
+              >
+                {importingVersion ? "导入中..." : "导入"}
+              </button>
+            </div>
+
             {variants.length === 0 && (
-              <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无变体</p>
+              <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无版本</p>
             )}
             <div className="space-y-2">
               {variants.map((v) => {
-                const preset = presets.find((p) => p.name === v.preset_name);
+                const displayLabel = v.label || v.preset_name || "未命名版本";
+                const isGenerated = v.source === "generated" || !v.source;
+                const isImported = v.source === "imported";
                 return (
                   <div
                     key={v.id}
@@ -717,19 +784,19 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                   >
                     <img
                       src={convertFileSrc(v.file_path)}
-                      alt={preset?.label ?? v.preset_name}
+                      alt={displayLabel}
                       className="w-full h-32 object-cover bg-[var(--color-bg-secondary)]"
                       draggable={false}
                     />
                     <div className="p-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-[var(--color-text-secondary)]">
-                          {preset?.label ?? v.preset_name}
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-[var(--color-text-secondary)] truncate">
+                          {displayLabel}
                         </span>
                         <button
                           onClick={() => handleDeleteVariant(v.id)}
-                          className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-red-900/30 hover:text-red-400"
-                          title="删除变体"
+                          className="shrink-0 rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-red-900/30 hover:text-red-400"
+                          title="删除版本"
                         >
                           <svg
                             className="h-3.5 w-3.5"
@@ -746,11 +813,19 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                           </svg>
                         </button>
                       </div>
-                      <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
-                        {v.format.toUpperCase()} · {v.width ?? "?"}×{v.height ?? "?"} ·{" "}
-                        {formatFileSize(v.file_size)}
-                        {v.quality && v.format === "jpeg" && ` · Q${v.quality}`}
-                      </p>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        {isImported && (
+                          <span className="rounded bg-green-900/30 px-1 text-[9px] text-green-400">导入</span>
+                        )}
+                        {isGenerated && (
+                          <span className="rounded bg-blue-900/30 px-1 text-[9px] text-blue-400">生成</span>
+                        )}
+                        <span className="text-[10px] text-[var(--color-text-muted)]">
+                          {v.format.toUpperCase()} · {v.width ?? "?"}×{v.height ?? "?"} ·{" "}
+                          {formatFileSize(v.file_size)}
+                          {v.quality && v.format === "jpeg" && ` · Q${v.quality}`}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -758,31 +833,74 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
             </div>
           </div>
 
+          {/* Generate version */}
           <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-            <p className="mb-2 text-xs text-[var(--color-text-muted)]">生成变体</p>
-            <div className="flex flex-wrap gap-2">
-              {presets.map((p) => {
-                const exists = variants.some((v) => v.preset_name === p.name);
-                const isGenerating = generatingPreset === p.name;
-                return (
-                  <button
-                    key={p.name}
-                    onClick={() => handleGenerateVariant(p.name)}
-                    disabled={exists || isGenerating}
-                    className={`rounded border px-2 py-1 text-xs transition-colors ${
-                      exists
-                        ? "border-green-900/50 bg-green-900/20 text-green-400"
-                        : isGenerating
-                        ? "border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]"
-                        : "border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-                    }`}
-                  >
-                    {p.label}
-                    {isGenerating && "..."}
-                    {exists && " ✓"}
-                  </button>
-                );
-              })}
+            <p className="mb-2 text-xs text-[var(--color-text-muted)]">生成版本</p>
+
+            {/* Preset templates */}
+            <div className="mb-2 flex flex-wrap gap-1">
+              {presets.map((p) => (
+                <button
+                  key={p.name}
+                  onClick={() => fillPreset(p)}
+                  className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+                  title={`${p.label}: ${p.format} max${p.max_width ?? "—"}px Q${p.quality}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom params */}
+            <div className="space-y-1.5">
+              <input
+                type="text"
+                value={versionLabel}
+                onChange={(e) => setVersionLabel(e.target.value)}
+                placeholder="版本名称（可选）"
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+              />
+              <div className="flex gap-1.5">
+                <select
+                  value={versionFormat}
+                  onChange={(e) => setVersionFormat(e.target.value)}
+                  className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none"
+                >
+                  <option value="jpeg">JPEG</option>
+                  <option value="png">PNG</option>
+                </select>
+                <input
+                  type="number"
+                  value={versionMaxWidth ?? ""}
+                  onChange={(e) => setVersionMaxWidth(e.target.value ? parseInt(e.target.value) : null)}
+                  placeholder="最大宽度"
+                  className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                />
+                <input
+                  type="number"
+                  value={versionMaxHeight ?? ""}
+                  onChange={(e) => setVersionMaxHeight(e.target.value ? parseInt(e.target.value) : null)}
+                  placeholder="最大高度"
+                  className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                />
+                <input
+                  type="number"
+                  value={versionQuality}
+                  onChange={(e) => setVersionQuality(parseInt(e.target.value) || 75)}
+                  min={1}
+                  max={100}
+                  placeholder="Q"
+                  className="w-12 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none"
+                  title="质量 1-100"
+                />
+              </div>
+              <button
+                onClick={handleGenerateVersion}
+                disabled={versionGenerating}
+                className="w-full rounded bg-blue-600 px-2 py-1.5 text-xs text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
+              >
+                {versionGenerating ? "生成中..." : "生成版本"}
+              </button>
             </div>
           </div>
         </div>

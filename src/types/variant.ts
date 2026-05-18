@@ -8,6 +8,8 @@ export interface Variant {
   quality: number | null;
   file_size: number | null;
   file_path: string;
+  label: string | null;
+  source: string | null;
 }
 
 export interface VariantPreset {

@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use tauri::{command, AppHandle, Manager};
 
 use crate::db;
@@ -26,15 +27,77 @@ pub fn variant_list(app: AppHandle, media_id: String) -> Result<Vec<Variant>, St
 pub async fn variant_generate(
     app: AppHandle,
     media_id: String,
-    preset_name: String,
+    label: String,
+    format: String,
+    max_width: Option<u32>,
+    max_height: Option<u32>,
+    quality: u8,
 ) -> Result<Variant, String> {
     tokio::task::spawn_blocking(move || {
         let source_path = resolve_source_path(&app, &media_id)?;
-        generate_variant(&app, &media_id, &source_path, &preset_name)
-            .map_err(|e| e.to_string())
+        generate_variant(
+            &app, &media_id, &source_path,
+            &label, &format, max_width, max_height, quality,
+        )
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[command]
+pub fn variant_import(
+    app: AppHandle,
+    media_id: String,
+    source_path: String,
+) -> Result<Variant, String> {
+    let src = Path::new(&source_path);
+    if !src.exists() {
+        return Err("Source file not found".to_string());
+    }
+
+    let ext = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    if !matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp") {
+        return Err(format!("Unsupported file type: {}", ext));
+    }
+
+    let img = image::open(src).map_err(|e| e.to_string())?;
+    let file_size = src.metadata().map_err(|e| e.to_string())?.len() as i64;
+
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let versions_dir = app_dir.join("variants");
+    fs::create_dir_all(&versions_dir).map_err(|e| e.to_string())?;
+
+    let id = ulid::Ulid::new().to_string();
+    let file_name = format!("{}_{}.{}", media_id, id, ext);
+    let dest = versions_dir.join(&file_name);
+    fs::copy(src, &dest).map_err(|e| e.to_string())?;
+
+    let label = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string());
+
+    let variant = Variant {
+        id: id.clone(),
+        media_id: media_id.clone(),
+        preset_name: String::new(),
+        format: ext,
+        width: Some(img.width() as i32),
+        height: Some(img.height() as i32),
+        quality: None,
+        file_size: Some(file_size),
+        file_path: dest.to_string_lossy().replace('\\', "/"),
+        label,
+        source: Some("imported".to_string()),
+    };
+
+    db::variant_insert(&app, &variant).map_err(|e| e.to_string())?;
+    Ok(variant)
 }
 
 #[command]

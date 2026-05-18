@@ -22,7 +22,7 @@ use commands::{
     media_search, media_tag_add, media_tag_add_batch, media_tag_remove, media_tags_get,
     media_thumbnail, model_list, saved_filters_delete, saved_filters_list, saved_filters_save,
     settings_get, settings_get_all, settings_set, tag_create, tag_delete, tag_list, tag_rename,
-    variant_delete, variant_generate, variant_list, variant_presets,
+    variant_delete, variant_generate, variant_import, variant_list, variant_presets,
 };
 
 fn main() {
@@ -93,6 +93,7 @@ fn main() {
             tag_rename,
             variant_delete,
             variant_generate,
+            variant_import,
             variant_list,
             variant_presets,
             caption_list,

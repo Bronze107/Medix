@@ -192,6 +192,36 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         )?;
     }
 
+    // 0011: variant versioning — add label and source columns
+    let has_label: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('variants') WHERE name='label'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !has_label {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0011_variant_versioning');
+             ALTER TABLE variants ADD COLUMN label TEXT;
+             ALTER TABLE variants ADD COLUMN source TEXT DEFAULT 'generated';",
+        )?;
+        // Backfill existing preset-based variants with Chinese labels
+        conn.execute(
+            "UPDATE variants SET label = 'Web分享' WHERE preset_name = 'web_share' AND label IS NULL",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE variants SET label = '打印' WHERE preset_name = 'print' AND label IS NULL",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE variants SET label = '训练数据集' WHERE preset_name = 'dataset' AND label IS NULL",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -742,7 +772,7 @@ pub fn variant_list(
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path
+        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source
          FROM variants WHERE media_id = ?1 ORDER BY created_at",
     )?;
     let variant_iter = stmt.query_map(params![media_id], |row| {
@@ -756,6 +786,8 @@ pub fn variant_list(
             quality: row.get(6)?,
             file_size: row.get(7)?,
             file_path: row.get(8)?,
+            label: row.get(9)?,
+            source: row.get(10)?,
         })
     })?;
     let mut results = Vec::new();
@@ -772,8 +804,8 @@ pub fn variant_insert(
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     conn.execute(
-        "INSERT OR REPLACE INTO variants (id, media_id, preset_name, format, width, height, quality, file_size, file_path)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT OR REPLACE INTO variants (id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             &variant.id,
             &variant.media_id,
@@ -784,6 +816,8 @@ pub fn variant_insert(
             variant.quality,
             variant.file_size,
             &variant.file_path,
+            &variant.label,
+            &variant.source,
         ],
     )?;
     Ok(())
@@ -803,7 +837,7 @@ pub fn variant_get_by_id(
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path
+        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source
          FROM variants WHERE id = ?1",
     )?;
     let mut rows = stmt.query_map(params![id], |row| {
@@ -817,6 +851,8 @@ pub fn variant_get_by_id(
             quality: row.get(6)?,
             file_size: row.get(7)?,
             file_path: row.get(8)?,
+            label: row.get(9)?,
+            source: row.get(10)?,
         })
     })?;
     if let Some(row) = rows.next() {
@@ -833,7 +869,7 @@ pub fn variant_get_by_media_and_preset(
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path
+        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source
          FROM variants WHERE media_id = ?1 AND preset_name = ?2",
     )?;
     let mut rows = stmt.query_map(params![media_id, preset_name], |row| {
@@ -847,6 +883,8 @@ pub fn variant_get_by_media_and_preset(
             quality: row.get(6)?,
             file_size: row.get(7)?,
             file_path: row.get(8)?,
+            label: row.get(9)?,
+            source: row.get(10)?,
         })
     })?;
     if let Some(row) = rows.next() {

@@ -119,9 +119,20 @@ export function variantList(mediaId: string): Promise<Variant[]> {
 
 export function variantGenerate(
   mediaId: string,
-  presetName: string
+  label: string,
+  format: string,
+  maxWidth: number | null,
+  maxHeight: number | null,
+  quality: number,
 ): Promise<Variant> {
-  return invoke("variant_generate", { mediaId, presetName });
+  return invoke("variant_generate", { mediaId, label, format, maxWidth, maxHeight, quality });
+}
+
+export function variantImport(
+  mediaId: string,
+  sourcePath: string,
+): Promise<Variant> {
+  return invoke("variant_import", { mediaId, sourcePath });
 }
 
 export function variantDelete(id: string): Promise<void> {

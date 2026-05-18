@@ -216,7 +216,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                 </option>
                 {variants.map((v) => (
                   <option key={v.id} value={v.id} className="bg-gray-900 text-white">
-                    {v.preset_name} ({v.format} {v.width}x{v.height})
+                    {v.label || v.preset_name || "未命名"} ({v.format} {v.width}x{v.height})
                   </option>
                 ))}
               </select>
@@ -293,11 +293,11 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
               {/* Right: Variant */}
               <div className="flex-1 relative overflow-hidden">
                 <div className="text-[10px] text-white/40 absolute top-2 left-0 right-0 text-center pointer-events-none z-10">
-                  {compareVariant.preset_name}
+                  {(compareVariant.label || compareVariant.preset_name || "版本")}
                 </div>
                 <img
                   src={convertFileSrc(compareVariant.file_path)}
-                  alt={compareVariant.preset_name}
+                  alt={(compareVariant.label || compareVariant.preset_name || "版本")}
                   className="absolute inset-0 w-full h-full object-contain"
                   draggable={false}
                 />
@@ -319,7 +319,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
               {/* Variant - clipped left side */}
               <img
                 src={convertFileSrc(compareVariant.file_path)}
-                alt={compareVariant.preset_name}
+                alt={(compareVariant.label || compareVariant.preset_name || "版本")}
                 className="absolute inset-0 w-full h-full object-contain"
                 style={{
                   clipPath: `inset(0 0 0 ${sliderPos}%)`,
@@ -341,7 +341,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
               </div>
               <div className="absolute bottom-4 left-0 right-0 text-center pointer-events-none">
                 <span className="rounded bg-black/50 px-2 py-1 text-[10px] text-white/50">
-                  原图 ← → {compareVariant.preset_name}
+                  原图 ← → {(compareVariant.label || compareVariant.preset_name || "版本")}
                 </span>
               </div>
             </div>

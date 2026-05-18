@@ -146,18 +146,26 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
             }
 
             // Generate on the fly
-            match crate::variants::generate_variant(app, media_id, &source_file, preset_name) {
-                Ok(v) => {
-                    let src = Path::new(&v.file_path);
-                    if src.exists() {
-                        fs::copy(src, &dest).map_err(|e| e.to_string())?;
+            let preset = crate::variants::built_in_presets()
+                .into_iter()
+                .find(|p| &p.name == preset_name);
+            if let Some(p) = preset {
+                match crate::variants::generate_variant(
+                    app, media_id, &source_file, &p.label, &p.format,
+                    p.max_width, p.max_height, p.quality,
+                ) {
+                    Ok(v) => {
+                        let src = Path::new(&v.file_path);
+                        if src.exists() {
+                            fs::copy(src, &dest).map_err(|e| e.to_string())?;
+                        }
                     }
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[export] failed to generate variant {} for {}: {}",
-                        preset_name, media_id, e
-                    );
+                    Err(e) => {
+                        eprintln!(
+                            "[export] failed to generate variant {} for {}: {}",
+                            preset_name, media_id, e
+                        );
+                    }
                 }
             }
         }
