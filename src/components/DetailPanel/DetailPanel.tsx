@@ -325,7 +325,8 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
       </div>
 
       {activeTab === "details" && (
-        <>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-auto">
           <div className="space-y-3 text-sm">
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">ID</p>
@@ -572,7 +573,8 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
               AI 标注
             </button>
           </div>
-        </>
+          </div>
+        </div>
       )}
 
       {activeTab === "captions" && (
