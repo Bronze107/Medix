@@ -541,6 +541,43 @@ pub fn media_tag_remove(
     Ok(())
 }
 
+pub fn media_tags_intersect(
+    app: &AppHandle,
+    media_ids: &[String],
+) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
+    if media_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let placeholders: Vec<String> = media_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let sql = format!(
+        "SELECT t.id, t.name, mt.source, mt.confidence
+         FROM tags t
+         JOIN media_tags mt ON mt.tag_id = t.id
+         WHERE mt.media_id IN ({})
+         GROUP BY t.id
+         HAVING COUNT(DISTINCT mt.media_id) = {}",
+        placeholders.join(", "),
+        media_ids.len()
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let params: Vec<&dyn rusqlite::types::ToSql> = media_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let rows = stmt.query_map(params.as_slice(), |row| {
+        Ok(Tag {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            source: row.get(2)?,
+            confidence: row.get(3)?,
+        })
+    })?;
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum TagSearchMode {
     Intersection,

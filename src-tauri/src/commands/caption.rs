@@ -22,3 +22,15 @@ pub fn caption_update(app: AppHandle, id: String, text: String) -> Result<(), St
 pub fn caption_delete(app: AppHandle, id: String) -> Result<(), String> {
     db::caption_delete(&app, &id).map_err(|e| e.to_string())
 }
+
+#[command]
+pub fn caption_create_batch(
+    app: AppHandle,
+    media_ids: Vec<String>,
+    text: String,
+) -> Result<(), String> {
+    for id in &media_ids {
+        db::caption_create(&app, id, &text).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

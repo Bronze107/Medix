@@ -5,10 +5,13 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import {
+  captionCreateBatch,
   mediaImport,
   mediaList,
   mediaSearch,
   mediaTagAddBatch,
+  mediaTagRemoveBatch,
+  mediaTagsIntersect,
   savedFiltersSave,
   tagCreate,
   tagList,
@@ -63,6 +66,15 @@ function AllMedia() {
   const [showBatchTagDialog, setShowBatchTagDialog] = useState(false);
   const [batchTagSearch, setBatchTagSearch] = useState("");
   const [allTags, setAllTags] = useState<Tag[]>([]);
+
+  // Batch caption dialog
+  const [showBatchCaptionDialog, setShowBatchCaptionDialog] = useState(false);
+  const [batchCaptionText, setBatchCaptionText] = useState("");
+
+  // Batch remove tag dialog
+  const [showBatchRemoveTagDialog, setShowBatchRemoveTagDialog] = useState(false);
+  const [batchRemoveTagSearch, setBatchRemoveTagSearch] = useState("");
+  const [intersectTags, setIntersectTags] = useState<Tag[]>([]);
 
   // Debounce search input
   useEffect(() => {
@@ -388,6 +400,24 @@ function AllMedia() {
               添加标签
             </button>
             <button
+              onClick={async () => {
+                setBatchRemoveTagSearch("");
+                setIntersectTags([]);
+                setShowBatchRemoveTagDialog(true);
+                const tags = await mediaTagsIntersect(Array.from(selectedIds));
+                setIntersectTags(tags);
+              }}
+              className="rounded border border-orange-800/50 bg-orange-900/20 px-3 py-1 text-xs text-orange-400 hover:bg-orange-900/30"
+            >
+              移除标签
+            </button>
+            <button
+              onClick={() => setShowBatchCaptionDialog(true)}
+              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+            >
+              添加描述
+            </button>
+            <button
               onClick={handleBatchDelete}
               className="rounded border border-red-800/50 bg-red-900/20 px-3 py-1 text-xs text-red-400 hover:bg-red-900/30"
             >
@@ -505,6 +535,132 @@ function AllMedia() {
                 onClick={() => {
                   setShowBatchTagDialog(false);
                   setBatchTagSearch("");
+                }}
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch caption dialog */}
+      {showBatchCaptionDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShowBatchCaptionDialog(false)}
+        >
+          <div
+            className="w-96 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">
+              添加描述到 {selectedIds.size} 张图片
+            </h3>
+            <textarea
+              value={batchCaptionText}
+              onChange={(e) => setBatchCaptionText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  if (batchCaptionText.trim()) {
+                    captionCreateBatch(Array.from(selectedIds), batchCaptionText.trim()).then(() => {
+                      setShowBatchCaptionDialog(false);
+                      setBatchCaptionText("");
+                      setSelectedIds(new Set());
+                      setSelectionMode(false);
+                    });
+                  }
+                }
+              }}
+              placeholder="输入描述文本... (Ctrl+Enter 保存)"
+              rows={4}
+              autoFocus
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowBatchCaptionDialog(false);
+                  setBatchCaptionText("");
+                }}
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+              >
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  if (!batchCaptionText.trim()) return;
+                  await captionCreateBatch(Array.from(selectedIds), batchCaptionText.trim());
+                  setShowBatchCaptionDialog(false);
+                  setBatchCaptionText("");
+                  setSelectedIds(new Set());
+                  setSelectionMode(false);
+                }}
+                disabled={!batchCaptionText.trim()}
+                className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+              >
+                添加
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch remove tag dialog */}
+      {showBatchRemoveTagDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShowBatchRemoveTagDialog(false)}
+        >
+          <div
+            className="w-80 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">
+              从 {selectedIds.size} 张图片移除标签
+            </h3>
+            <input
+              type="text"
+              value={batchRemoveTagSearch}
+              onChange={(e) => setBatchRemoveTagSearch(e.target.value)}
+              placeholder="搜索标签..."
+              autoFocus
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+            />
+            <div className="max-h-48 overflow-auto space-y-1">
+              {intersectTags.length === 0 ? (
+                <p className="py-2 text-center text-xs text-[var(--color-text-muted)]">
+                  {intersectTags.length === 0 && batchRemoveTagSearch === "" ? "所选图片没有共同标签" : "未找到匹配标签"}
+                </p>
+              ) : (
+                intersectTags
+                  .filter((t) =>
+                    t.name.toLowerCase().includes(batchRemoveTagSearch.trim().toLowerCase())
+                  )
+                  .map((tag) => (
+                    <button
+                      key={tag.id}
+                      onClick={async () => {
+                        await mediaTagRemoveBatch(Array.from(selectedIds), tag.id);
+                        setShowBatchRemoveTagDialog(false);
+                        setBatchRemoveTagSearch("");
+                        setSelectedIds(new Set());
+                        setSelectionMode(false);
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-red-900/20 hover:text-red-400"
+                    >
+                      移除 "{tag.name}"
+                    </button>
+                  ))
+              )}
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={() => {
+                  setShowBatchRemoveTagDialog(false);
+                  setBatchRemoveTagSearch("");
                 }}
                 className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
               >

@@ -101,6 +101,14 @@ export function mediaTagRemove(mediaId: string, tagId: string): Promise<void> {
   return invoke("media_tag_remove", { mediaId, tagId });
 }
 
+export function mediaTagRemoveBatch(mediaIds: string[], tagId: string): Promise<void> {
+  return invoke("media_tag_remove_batch", { mediaIds, tagId });
+}
+
+export function mediaTagsIntersect(mediaIds: string[]): Promise<Tag[]> {
+  return invoke("media_tags_intersect", { mediaIds });
+}
+
 // --- Search ---
 
 export function mediaSearch(
@@ -159,6 +167,10 @@ export function captionUpdate(id: string, text: string): Promise<void> {
 
 export function captionDelete(id: string): Promise<void> {
   return invoke("caption_delete", { id });
+}
+
+export function captionCreateBatch(mediaIds: string[], text: string): Promise<void> {
+  return invoke("caption_create_batch", { mediaIds, text });
 }
 
 // --- AI / Models ---

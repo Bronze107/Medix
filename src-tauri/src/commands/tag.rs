@@ -54,3 +54,23 @@ pub fn media_tag_remove(
 ) -> Result<(), String> {
     db::media_tag_remove(&app, &media_id, &tag_id).map_err(|e| e.to_string())
 }
+
+#[command]
+pub fn media_tag_remove_batch(
+    app: AppHandle,
+    media_ids: Vec<String>,
+    tag_id: String,
+) -> Result<(), String> {
+    for id in &media_ids {
+        db::media_tag_remove(&app, id, &tag_id).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[command]
+pub fn media_tags_intersect(
+    app: AppHandle,
+    media_ids: Vec<String>,
+) -> Result<Vec<Tag>, String> {
+    db::media_tags_intersect(&app, &media_ids).map_err(|e| e.to_string())
+}
