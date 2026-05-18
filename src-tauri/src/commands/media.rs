@@ -1,4 +1,4 @@
-use tauri::{command, AppHandle, Manager};
+use tauri::{command, AppHandle, Emitter, Manager};
 
 use crate::db;
 use crate::media::{import, Media, MediaImportResult};
@@ -166,4 +166,47 @@ pub fn media_get_paths(app: AppHandle, id: String) -> Result<MediaPaths, String>
         thumb_256,
         thumb_512,
     })
+}
+
+#[command]
+pub fn media_ai_annotate(app: AppHandle, id: String) -> Result<(), String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+
+    // Find original file in library
+    let library_dir = app_dir.join("library");
+    let mut image_path = None;
+    if library_dir.exists() {
+        for entry in std::fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with(&format!("{}.", &id)) {
+                image_path = Some(entry.path());
+                break;
+            }
+        }
+    }
+
+    let image_path = image_path.ok_or("Original file not found in library")?;
+
+    let queue = app.state::<crate::ai::AiQueue>();
+    queue
+        .send(crate::ai::AiTask::GenerateCaption {
+            media_id: id.clone(),
+            image_path,
+        })
+        .map_err(|e| e.to_string())?;
+
+    // Notify frontend immediately
+    let _ = app.emit(
+        "ai-task-done",
+        crate::ai::AiTaskProgress {
+            remaining: queue.pending_count(),
+        },
+    );
+
+    Ok(())
 }

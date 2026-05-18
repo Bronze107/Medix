@@ -19,6 +19,8 @@ import {
   captionUpdate,
   captionDelete,
   embeddingInfo,
+  mediaAiAnnotate,
+  aiPendingCount,
   mediaSoftDelete,
 } from "@/lib/tauri";
 import type { EmbeddingInfo } from "@/types/ai";
@@ -547,6 +549,28 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                 ))}
               </div>
             )}
+            <button
+              onClick={async () => {
+                if (!media) return;
+                try {
+                  await mediaAiAnnotate(media.id);
+                  // Poll for completion (max 30s)
+                  let remaining = await aiPendingCount();
+                  for (let i = 0; i < 10 && remaining > 0; i++) {
+                    await new Promise((r) => setTimeout(r, 3000));
+                    remaining = await aiPendingCount();
+                  }
+                  await loadCaptions(media.id);
+                  await loadMediaTags(media.id);
+                  await loadEmbeddings(media.id);
+                } catch (e) {
+                  console.error("Failed to trigger AI annotation:", e);
+                }
+              }}
+              className="mt-2 w-full rounded border border-blue-800/50 bg-blue-900/20 px-2 py-1.5 text-xs text-blue-400 hover:bg-blue-900/30 transition-colors"
+            >
+              AI 标注
+            </button>
           </div>
         </>
       )}

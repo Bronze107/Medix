@@ -63,6 +63,10 @@ export function mediaGetPaths(id: string): Promise<MediaPaths> {
   return invoke("media_get_paths", { id });
 }
 
+export function mediaAiAnnotate(id: string): Promise<void> {
+  return invoke("media_ai_annotate", { id });
+}
+
 // --- Tags ---
 
 export function tagList(): Promise<Tag[]> {
