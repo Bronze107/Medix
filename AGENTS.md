@@ -45,8 +45,11 @@ Medix/
 │   │   │   └── server.rs   # llama-server 子进程生命周期管理
 │   │   ├── models/         # GGUF 模型文件扫描 + 二进制/mmproj 自动检测
 │   │   ├── settings/       # 设置键定义 + 默认值 getter
-│   │   ├── variants/       # 变体生成: 格式转换, 裁剪, 压缩
+│   │   ├── variants/       # 版本控制: 生成 + 外部导入
 │   │   ├── captions/       # Caption 结构体定义
+│   │   ├── search/         # 搜索引擎: 语义搜索 + 结构化过滤
+│   │   ├── export/         # 数据集导出: 目录/ZIP, caption 选择
+│   │   ├── server/         # 本地 HTTP 服务: 浏览器插件通信
 │   │   └── tag/            # Tag 结构体定义
 │   └── Cargo.toml
 ├── extension/              # Chrome/Firefox 浏览器插件
@@ -110,22 +113,28 @@ Medix/
 | 模块 | 前缀 | 示例 |
 |------|------|------|
 | 媒体 | `media_` | `media_import`, `media_list`, `media_search` |
-| 标签 | `tag_` | `tag_list`, `tag_create`, `media_tag_add` |
-| 变体 | `variant_` | `variant_generate`, `variant_list`, `variant_delete` |
-| 描述 | `caption_` | `caption_create`, `caption_list`, `caption_update` |
+| 删除/回收站 | `media_` | `media_soft_delete`, `media_recover`, `media_permanent_delete`, `media_empty_trash`, `media_list_trash` |
+| 去重 | `media_` | `media_find_duplicates` |
+| 标签 | `tag_` / `media_tag_` | `tag_list`, `tag_create`, `media_tag_add`, `media_tag_add_batch` |
+| 版本 | `variant_` | `variant_generate`, `variant_import`, `variant_list`, `variant_delete`, `variant_presets` |
+| 描述 | `caption_` | `caption_create`, `caption_list`, `caption_update`, `caption_delete` |
 | AI 服务 | `llama_server_` | `llama_server_start`, `llama_server_stop`, `llama_server_status` |
+| AI 标注 | `media_ai_annotate`, `ai_pending_count` | 手动触发 AI 标注 + 查询排队数 |
 | AI 模型 | `model_list`, `auto_detect`, `embedding_info` | (无统一前缀) |
 | 设置 | `settings_` | `settings_get`, `settings_set`, `settings_get_all` |
-| 搜索 | `media_search` | (含 `tag:` 语法，语义搜索待 Phase 6) |
+| 筛选器 | `saved_filters_` | `saved_filters_list`, `saved_filters_save`, `saved_filters_delete` |
+| 导出 | `export_dataset`, `import_zip` | (无统一前缀) |
+| 文件路径 | `media_get_paths`, `media_thumbnail` | (无统一前缀) |
 | 系统 | `greet` | (测试用途) |
 
 ## 关键约束
 
 - **本地优先**: 所有数据处理本地完成，不上传云端（llama-server 纯本地推理）
-- **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成
-- **延迟生成**: 变体采用按需生成 + 缓存策略
-- **内存安全**: 大图处理必须分块/流式，单图内存占用不超过 200MB
-- **向后兼容**: 数据库 schema 变更需保留迁移路径，不丢失用户数据
+- **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成，详情面板可手动重跑
+- **版本控制**: 同一原图支持多个衍生版本（内部生成 + 外部导入），带自定义标签和来源追踪
+- **原图查看**: 双击缩略图进入全屏 Lightbox，支持缩放/拖拽/变体对比
+- **内存安全**: 图片通过 `asset://` 协议直出，不经过 base64 编解码
+- **向后兼容**: 数据库 schema 变更采用 `pragma_table_info` 条件检查，不丢失用户数据
 
 ## 测试策略
 

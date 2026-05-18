@@ -126,31 +126,40 @@
 
 ---
 
-## Phase 4: 变体系统 (Variants)
+## Phase 4: 版本控制系统 (Version Control)
 
-**目标**: 支持同一图片的多格式、多分辨率变体
+**目标**: 同一原图支持多个衍生版本（内部生成 + 外部导入），带自定义标签和时间线
 
 ### 任务
-1. [x] 数据库：`variants` 表 + migration
-2. [x] 变体生成引擎
+1. [x] 数据库：`variants` 表 + migration `0003_variants` + `0011_variant_versioning`
+   - [x] `label` 字段（用户自定义版本名）、`source` 字段（`generated` / `imported`）
+   - [x] 旧数据自动回填 label（Web分享/打印/训练数据集）
+2. [x] 版本生成引擎
    - [x] 格式转换：JPEG、PNG (WebP/AVIF 推迟 — `image` crate v0.25 无 encoder)
-   - [x] 分辨率缩放：等比缩放 (Lanczos3)
-   - [x] 质量档位：JPEG 可调 quality，PNG 无损
-   - [x] 懒生成：先查数据库+文件系统，存在则直接返回，不重新编码
-3. [x] 变体管理UI
-   - [x] 详情面板标签页切换："详情" / "变体"
-   - [x] 变体标签页：列出所有变体（格式、尺寸、文件大小）
-   - [x] 每个变体可删除（同步删除磁盘文件和数据库记录）
-   - [ ] 预览对比：原图 vs 变体并排对比（推迟）
-4. [x] 变体预设系统
-   - [x] 内置 3 个预设：Web分享 (JPEG, 1080px, Q75) / 打印 (PNG, 2048px, Q95) / 训练数据集 (JPEG, 512px, Q85)
-   - [ ] 用户自定义预设 (JSON 配置)（推迟）
+   - [x] 分辨率缩放：等比缩放 (Lanczos3)，自定义最大宽/高
+   - [x] 质量：JPEG 可调 quality 1-100，PNG 无损
+   - [x] 3 个内置预设作为模板（Web分享/打印/训练数据集），一键填充参数
+3. [x] 外部版本导入
+   - [x] `variant_import` 命令：复制外部文件到 variants/ 目录 → 创建 DB 记录
+   - [x] 支持通过文本路径或文件选择器添加版本
+   - [x] `source="imported"` 与生成版本区分，绿色 "导入" badge
+4. [x] 版本管理UI
+   - [x] 详情面板标签页："版本"（原名"变体"）
+   - [x] 版本卡片：缩略图 + 自定义标签 + 来源 badge + 格式/尺寸/文件大小
+   - [x] 每个版本可删除（同步删除磁盘文件和数据库记录）
+   - [x] 预览对比：Lightbox 并排对比 + 滑块叠加模式
+5. [x] 版本生成表单
+   - [x] 预设模板按钮（填充参数，不直接生成）
+   - [x] 自定义参数：名称、格式、最大宽/高、质量
+   - [x] "生成版本"按钮
 
 ### 验证标准
-- [x] 对一张 4MB 的 PNG 生成 JPEG/quality-75 变体，体积显著缩小
-- [x] 同一张图片请求同一变体两次，第二次直接返回缓存，不重新编码
-- [x] 删除变体后，对应文件从磁盘和数据库同时删除
-- [ ] 导出时选择 "Web分享" 预设批量生成并打包（Phase 7）
+- [x] 自定义参数生成版本，格式/尺寸/质量正确
+- [x] 外部文件导入为版本，label 取自文件名，source="imported"
+- [x] 旧变体数据迁移后正常显示，label 回填正确
+- [x] 删除版本后，对应文件从磁盘和数据库同时删除
+- [x] Lightbox 对比模式下原图和版本同尺寸渲染
+- [x] 版本卡片显示缩略图 + 标签 + 来源 badge
 
 ---
 
@@ -163,7 +172,7 @@
    - `id`, `media_id`, `text`, `created_at`, `updated_at`
    - 一张图片可有多条 caption，ON DELETE CASCADE
 2. [x] 描述编辑UI
-   - [x] 详情面板新增 "描述" 标签页（与 "详情"/"变体" 并列）
+   - [x] 详情面板新增 "描述" 标签页（与 "详情"/"版本" 并列）
    - [x] 文本输入框支持多行输入（Ctrl+Enter 保存）
    - [x] 列出当前图片的所有描述条目
    - [x] 每条描述可编辑、删除
@@ -285,7 +294,7 @@
 ### 任务
 1. [ ] 性能优化
    - [ ] 缩略图预生成改为 Worker 线程 / 后台任务
-   - [ ] 大型网格使用虚拟滚动 + 回收 DOM
+   - [x] 大型网格使用虚拟滚动 + 回收 DOM（@tanstack/react-virtual）
    - [ ] SQLite 索引优化 (覆盖索引、查询计划分析)
    - [ ] 图片解码使用流式/分块处理
 2. [x] 数据安全
@@ -303,7 +312,7 @@
 ### 验证标准
 - [ ] 图库 10000 张图片，冷启动到可浏览 < 3 秒
 - [ ] 连续导入 1000 张图片，内存增长 < 200MB，不泄露
-- [ ] 重复导入同一张图片，提示"已存在"而不是重复存储
+- [x] 重复导入同一张图片，提示"已存在"而不是重复存储
 - [x] 删除图片进入回收站，可恢复
 - [x] 永久删除后文件从磁盘清除
 - [x] 批量选中后一键删除
@@ -316,6 +325,8 @@
 ```
 Medix/
 ├── PLAN.md                     # 本文档
+├── AGENTS.md                   # 项目协作规范
+├── BUILD.md                    # 构建指南
 ├── src/
 │   ├── main.tsx                # 前端入口
 │   ├── App.tsx                 # 根组件
@@ -324,8 +335,11 @@ Medix/
 │   │   ├── Gallery/
 │   │   ├── DetailPanel/
 │   │   ├── DropZone/
-│   │   ├── AnnotationCanvas/
+│   │   ├── Lightbox/
 │   │   ├── SearchBar/
+│   │   ├── Settings/
+│   │   ├── ExportDialog/
+│   │   ├── Trash/
 │   │   └── TagManager/
 │   ├── hooks/                  # React hooks
 │   ├── stores/                 # Zustand stores
@@ -343,7 +357,11 @@ Medix/
 │   │   │   └── server.rs       # llama-server 子进程管理
 │   │   ├── models/             # GGUF 模型扫描 + 自动检测
 │   │   ├── settings/           # 设置键定义 + get/set helper
-│   │   ├── variants/           # 变体生成
+│   │   ├── variants/           # 版本控制 (生成 + 导入)
+│   │   ├── captions/           # Caption 结构体
+│   │   ├── search/             # 搜索引擎
+│   │   ├── export/             # 数据集导出
+│   │   ├── server/             # 本地 HTTP 服务
 │   │   └── tag/                # Tag 结构体
 │   └── Cargo.toml
 ├── extension/                  # 浏览器插件
