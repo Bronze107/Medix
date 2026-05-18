@@ -14,8 +14,8 @@ mod variants;
 use tauri::Manager;
 
 use commands::{
-    auto_detect, caption_create, caption_delete, caption_list, caption_update, embedding_info,
-    export_dataset, greet, import_zip, llama_server_start, llama_server_status,
+    ai_pending_count, auto_detect, caption_create, caption_delete, caption_list, caption_update,
+    embedding_info, export_dataset, greet, import_zip, llama_server_start, llama_server_status,
     llama_server_stop, media_empty_trash, media_find_duplicates, media_get_paths, media_import,
     media_list, media_list_trash, media_permanent_delete, media_recover,
     media_soft_delete,
@@ -102,6 +102,7 @@ fn main() {
             llama_server_start,
             llama_server_stop,
             model_list,
+            ai_pending_count,
             auto_detect,
             embedding_info,
             settings_get,

@@ -46,3 +46,9 @@ pub fn auto_detect(app: AppHandle) -> models::AutoDetect {
 pub fn embedding_info(app: AppHandle, media_id: String) -> Result<Vec<crate::db::EmbeddingInfo>, String> {
     crate::db::embedding_info_list(&app, &media_id).map_err(|e| e.to_string())
 }
+
+#[command]
+pub fn ai_pending_count(app: AppHandle) -> usize {
+    let queue = app.state::<crate::ai::AiQueue>();
+    queue.pending_count()
+}

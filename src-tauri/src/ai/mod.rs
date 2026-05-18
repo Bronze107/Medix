@@ -5,8 +5,10 @@ pub use llamacpp::{embed_text, generate_caption, AiResult};
 pub use server::LlamaServer;
 
 use std::path::PathBuf;
-use std::sync::mpsc;
-use tauri::{AppHandle, Manager};
+use std::sync::mpsc::{self, Sender};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub enum AiTask {
     GenerateCaption {
@@ -15,19 +17,32 @@ pub enum AiTask {
     },
 }
 
+#[derive(Clone, serde::Serialize)]
+pub struct AiTaskProgress {
+    pub remaining: usize,
+}
+
 #[derive(Clone)]
 pub struct AiQueue {
-    sender: mpsc::Sender<AiTask>,
+    sender: Sender<AiTask>,
+    pending: Arc<AtomicUsize>,
 }
 
 impl AiQueue {
     pub fn send(&self, task: AiTask) -> Result<(), mpsc::SendError<AiTask>> {
+        self.pending.fetch_add(1, Ordering::SeqCst);
         self.sender.send(task)
+    }
+
+    pub fn pending_count(&self) -> usize {
+        self.pending.load(Ordering::SeqCst)
     }
 }
 
 pub fn init_ai_queue(app: AppHandle) -> AiQueue {
     let (tx, rx) = mpsc::channel::<AiTask>();
+    let pending = Arc::new(AtomicUsize::new(0));
+    let pending_clone = pending.clone();
 
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -46,13 +61,15 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
                         {
                             eprintln!("[ai] failed to process caption generation: {}", e);
                         }
+                        let remaining = pending_clone.fetch_sub(1, Ordering::SeqCst) - 1;
+                        let _ = app.emit("ai-task-done", AiTaskProgress { remaining });
                     }
                 }
             }
         });
     });
 
-    AiQueue { sender: tx }
+    AiQueue { sender: tx, pending }
 }
 
 async fn process_generate_caption(

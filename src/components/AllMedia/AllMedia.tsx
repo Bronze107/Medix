@@ -18,7 +18,7 @@ import DetailPanel from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import Lightbox from "@/components/Lightbox/Lightbox";
-import { mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
+import { aiPendingCount, mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at";
@@ -52,6 +52,7 @@ function AllMedia() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [aiRemaining, setAiRemaining] = useState(0);
 
   // Batch selection
   const [selectionMode, setSelectionMode] = useState(false);
@@ -146,6 +147,8 @@ function AllMedia() {
         if (totalFailed > 0) parts.push(`${totalFailed} 失败`);
         setImportMessage(`导入完成: ${parts.join(", ")}`);
         await loadMedia();
+        const pending = await aiPendingCount();
+        setAiRemaining(pending);
       } catch (e) {
         setImportMessage(`导入失败: ${e}`);
       } finally {
@@ -173,12 +176,19 @@ function AllMedia() {
       setImportMessage("收到来自浏览器的图片，已导入");
       setTimeout(() => setImportMessage(""), 3000);
     });
+    const unlistenAiDone = listen<{ remaining: number }>("ai-task-done", (event) => {
+      setAiRemaining(event.payload.remaining);
+      if (event.payload.remaining === 0) {
+        loadMedia(); // auto refresh when all AI tasks complete
+      }
+    });
 
     return () => {
       unlistenEnter.then((f) => f());
       unlistenLeave.then((f) => f());
       unlistenDrop.then((f) => f());
       unlistenRemote.then((f) => f());
+      unlistenAiDone.then((f) => f());
     };
   }, [doImport, loadMedia]);
 
@@ -334,6 +344,11 @@ function AllMedia() {
             </button>
           )}
           <span className="text-xs text-[var(--color-text-muted)]">{media.length} 项</span>
+          {aiRemaining > 0 && (
+            <span className="rounded-full bg-blue-900/30 px-2 py-0.5 text-[11px] text-blue-400">
+              AI 处理中 · {aiRemaining} 剩余
+            </span>
+          )}
         </div>
       </div>
 

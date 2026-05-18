@@ -172,6 +172,10 @@ export function embeddingInfo(mediaId: string): Promise<EmbeddingInfo[]> {
   return invoke("embedding_info", { mediaId });
 }
 
+export function aiPendingCount(): Promise<number> {
+  return invoke("ai_pending_count");
+}
+
 // --- Saved Filters ---
 
 export function savedFiltersList(): Promise<SavedFilter[]> {
