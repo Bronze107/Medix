@@ -314,6 +314,9 @@ pub fn list_media(
     let sort_column = match sort_by {
         "created_at" => "created_at",
         "modified_at" => "modified_at",
+        "file_size" => "file_size",
+        "width" => "width",
+        "height" => "height",
         _ => "imported_at",
     };
 
@@ -602,6 +605,9 @@ pub fn media_search_by_tags(
     let sort_column = match sort_by {
         "created_at" => "created_at",
         "modified_at" => "modified_at",
+        "file_size" => "file_size",
+        "width" => "width",
+        "height" => "height",
         _ => "imported_at",
     };
 
@@ -682,6 +688,9 @@ pub fn media_query_filtered(
     let sort_column = match sort_by {
         "created_at" => "m.created_at",
         "modified_at" => "m.modified_at",
+        "file_size" => "m.file_size",
+        "width" => "m.width",
+        "height" => "m.height",
         _ => "m.imported_at",
     };
 
