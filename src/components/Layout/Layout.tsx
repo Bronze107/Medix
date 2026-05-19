@@ -1,22 +1,35 @@
 import { useCallback, useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { Images, Tags, Settings } from "./icons";
 import {
+  collectionList,
   savedFiltersList,
   savedFiltersDelete,
   settingsGet,
   settingsSet,
 } from "@/lib/tauri";
 import type { SavedFilter } from "@/types/search";
+import type { Collection } from "@/types/collection";
 
 function Layout() {
   const [filters, setFilters] = useState<SavedFilter[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const location = useLocation();
   const navigate = useNavigate();
 
   const loadFilters = useCallback(async () => {
     try {
       setFilters(await savedFiltersList());
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const loadCollections = useCallback(async () => {
+    try {
+      const all = await collectionList();
+      setCollections(all.filter((c) => c.pinned_at));
     } catch {
       // ignore
     }
@@ -35,8 +48,16 @@ function Layout() {
 
   useEffect(() => {
     loadFilters();
+    loadCollections();
     loadTheme();
-  }, [loadFilters, loadTheme]);
+  }, [loadFilters, loadCollections, loadTheme, location]);
+
+  // Listen for collection changes from other pages
+  useEffect(() => {
+    const handler = () => loadCollections();
+    window.addEventListener("collections-changed", handler);
+    return () => window.removeEventListener("collections-changed", handler);
+  }, [loadCollections]);
 
   const toggleTheme = async () => {
     const next = theme === "dark" ? "light" : "dark";
@@ -87,6 +108,51 @@ function Layout() {
             </svg>
             回收站
           </NavLink>
+          <div className="mt-2 border-t border-[var(--color-border)]" />
+
+          {/* Collections */}
+          <>
+            <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+              集合
+            </div>
+            {collections.slice(0, 5).map((c) => (
+              <NavLink
+                key={c.id}
+                to={`/collections/${c.id}`}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-[var(--color-bg-tertiary)] text-blue-400"
+                      : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                  }`
+                }
+              >
+                <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                </svg>
+                <span className="truncate text-xs">{c.name}</span>
+                {c.item_count != null && (
+                  <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">{c.item_count}</span>
+                )}
+              </NavLink>
+            ))}
+            <NavLink
+              to="/collections"
+              className={({ isActive }) =>
+                `flex items-center gap-3 rounded-lg px-3 py-1.5 text-xs transition-colors ${
+                  isActive
+                    ? "bg-[var(--color-bg-tertiary)] text-blue-400"
+                    : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                }`
+              }
+            >
+              <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              全部集合
+            </NavLink>
+          </>
+          <div className="mt-2 border-t border-[var(--color-border)]" />
           <NavLink
             to="/tags"
             className={({ isActive }) =>

@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import type { Collection } from "@/types/collection";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import {
   captionCreateBatch,
   mediaImport,
   mediaList,
+  mediaListByCollection,
   mediaSearch,
   mediaTagAddBatch,
   mediaTagRemoveBatch,
@@ -23,7 +25,7 @@ import DetailPanel from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import Lightbox from "@/components/Lightbox/Lightbox";
-import { aiPendingCount, mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
+import { aiPendingCount, collectionAddBatch, collectionGet, collectionGetItemIds, collectionList as loadCollections, collectionRemoveItem as removeFromCollection, mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
@@ -34,7 +36,11 @@ interface DragDropPayload {
   position: { x: number; y: number };
 }
 
-function AllMedia() {
+interface AllMediaProps {
+  collectionId?: string;
+}
+
+function AllMedia({ collectionId }: AllMediaProps) {
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get("q") ?? "";
 
@@ -63,6 +69,19 @@ function AllMedia() {
 
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; media: Media } | null>(null);
+  const [collectionName, setCollectionName] = useState<string | null>(null);
+
+  // Add to collection dialog (shared between context menu and batch)
+  const [showAddToCollection, setShowAddToCollection] = useState(false);
+  const [addToCollectionMediaIds, setAddToCollectionMediaIds] = useState<string[]>([]);
+  const [collectionPickerSearch, setCollectionPickerSearch] = useState("");
+  const [collectionsForPicker, setCollectionsForPicker] = useState<Collection[]>([]);
+
+  // Load collection name when in collection mode
+  useEffect(() => {
+    if (!collectionId) { setCollectionName(null); return; }
+    collectionGet(collectionId).then((c) => setCollectionName(c?.name ?? null));
+  }, [collectionId]);
 
   // Batch selection
   const [selectionMode, setSelectionMode] = useState(false);
@@ -94,16 +113,27 @@ function AllMedia() {
     try {
       const query = debouncedSearch.trim();
       let list: Media[];
-      if (query) {
-        list = await mediaSearch(query, sortBy, descending);
+      if (collectionId) {
+        if (query) {
+          const ids = await collectionGetItemIds(collectionId);
+          const idSet = new Set(ids);
+          const searchResults = await mediaSearch(query, sortBy, descending);
+          list = searchResults.filter((m) => idSet.has(m.id));
+        } else {
+          list = await mediaListByCollection(collectionId, sortBy, descending);
+        }
       } else {
-        list = await mediaList(sortBy, descending);
+        if (query) {
+          list = await mediaSearch(query, sortBy, descending);
+        } else {
+          list = await mediaList(sortBy, descending);
+        }
       }
       setMedia(list);
     } catch (e) {
       console.error("Failed to load media:", e);
     }
-  }, [sortBy, descending, debouncedSearch]);
+  }, [sortBy, descending, debouncedSearch, collectionId]);
 
   useEffect(() => {
     loadMedia();
@@ -138,6 +168,7 @@ function AllMedia() {
         let totalImported = 0;
         let totalDuplicates = 0;
         let totalFailed = 0;
+        let newImageIds: string[] = [];
 
         // Import images
         if (images.length > 0) {
@@ -146,6 +177,9 @@ function AllMedia() {
           totalImported += results.filter((r) => r.success && !r.error?.includes("重复")).length;
           totalDuplicates += results.filter((r) => r.success && r.error?.includes("重复")).length;
           totalFailed += results.filter((r) => !r.success).length;
+          newImageIds = results
+            .filter((r) => r.success && !r.error?.includes("重复"))
+            .map((r) => r.id);
         }
 
         // Import ZIPs
@@ -166,6 +200,13 @@ function AllMedia() {
         if (totalFailed > 0) parts.push(`${totalFailed} 失败`);
         setImportMessage(`导入完成: ${parts.join(", ")}`);
         await loadMedia();
+
+        // In collection mode, auto-add newly imported images
+        if (collectionId && newImageIds.length > 0) {
+          await collectionAddBatch(collectionId, newImageIds);
+          window.dispatchEvent(new CustomEvent("collections-changed"));
+          await loadMedia(); // refresh to show new items in collection
+        }
         const pending = await aiPendingCount();
         setAiRemaining(pending);
       } catch (e) {
@@ -211,10 +252,9 @@ function AllMedia() {
     };
   }, [doImport, loadMedia]);
 
-  // Keyboard shortcuts + suppress browser context menu
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger shortcuts when typing in inputs
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
@@ -239,19 +279,8 @@ function AllMedia() {
         handleBatchDelete();
       }
     };
-    const handleContextMenu = (e: MouseEvent) => {
-      // Let custom context menu on thumbnails pass through
-      const target = e.target as HTMLElement;
-      if (target.closest("[data-media-card]")) return;
-      e.preventDefault();
-      setCtxMenu(null);
-    };
     window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("contextmenu", handleContextMenu);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("contextmenu", handleContextMenu);
-    };
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectionMode, selectedIds, media, setSelected, setSelectionMode, setSelectedIds]);
 
   const handleToggleSelect = (item: Media) => {
@@ -329,7 +358,16 @@ function AllMedia() {
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center justify-between border-b border-[var(--color-border)] px-6 py-3">
-        <h1 className="text-xl font-bold">全部媒体</h1>
+        <h1 className="text-xl font-bold">
+          {collectionId ? (
+            <span className="flex items-center gap-2">
+              <span className="text-[var(--color-text-muted)]">集合 /</span>
+              {collectionName ?? "..."}
+            </span>
+          ) : (
+            "全部媒体"
+          )}
+        </h1>
         <div className="flex items-center gap-3">
           <SearchBar
             value={searchQuery}
@@ -459,6 +497,18 @@ function AllMedia() {
               className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
             >
               全选
+            </button>
+            <button
+              onClick={async () => {
+                const all = await loadCollections();
+                setCollectionsForPicker(all);
+                setAddToCollectionMediaIds(Array.from(selectedIds));
+                setCollectionPickerSearch("");
+                setShowAddToCollection(true);
+              }}
+              className="rounded bg-purple-600 px-3 py-1 text-xs font-medium text-white hover:bg-purple-500"
+            >
+              添加到集合
             </button>
             <button
               onClick={() => setShowBatchTagDialog(true)}
@@ -759,6 +809,62 @@ function AllMedia() {
         </div>
       )}
 
+      {/* Add to collection dialog */}
+      {showAddToCollection && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShowAddToCollection(false)}
+        >
+          <div
+            className="w-80 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">
+              添加到集合 ({addToCollectionMediaIds.length} 张)
+            </h3>
+            <input
+              type="text"
+              value={collectionPickerSearch}
+              onChange={(e) => setCollectionPickerSearch(e.target.value)}
+              placeholder="搜索集合..."
+              autoFocus
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+            />
+            <div className="max-h-48 overflow-auto space-y-1">
+              {collectionsForPicker
+                .filter((c) => c.name.toLowerCase().includes(collectionPickerSearch.toLowerCase()))
+                .map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={async () => {
+                      await collectionAddBatch(c.id, addToCollectionMediaIds);
+                      setShowAddToCollection(false);
+                      setAddToCollectionMediaIds([]);
+                      window.dispatchEvent(new CustomEvent("collections-changed"));
+                    }}
+                    className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                  >
+                    {c.name} ({c.item_count ?? 0})
+                  </button>
+                ))}
+              {collectionsForPicker.filter((c) => c.name.toLowerCase().includes(collectionPickerSearch.toLowerCase())).length === 0 && (
+                <p className="py-2 text-center text-xs text-[var(--color-text-muted)]">
+                  未找到匹配的集合
+                </p>
+              )}
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={() => setShowAddToCollection(false)}
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Save filter dialog */}
       {showSaveDialog && (
         <div
@@ -916,6 +1022,33 @@ function AllMedia() {
           >
             添加标签
           </button>
+          <button
+            onClick={async () => {
+              const all = await loadCollections();
+              setCollectionsForPicker(all);
+              setAddToCollectionMediaIds([ctxMenu.media.id]);
+              setCollectionPickerSearch("");
+              setShowAddToCollection(true);
+              setCtxMenu(null);
+            }}
+            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+          >
+            添加到集合
+          </button>
+          {collectionId && (
+            <button
+              onClick={async () => {
+                await removeFromCollection(collectionId, ctxMenu.media.id);
+                setCtxMenu(null);
+                loadMedia();
+                window.dispatchEvent(new CustomEvent("collections-changed"));
+              }}
+              className="block w-full px-3 py-1.5 text-left text-xs text-orange-400 hover:bg-orange-900/20"
+            >
+              从集合移除
+            </button>
+          )}
+          <div className="my-1 border-t border-[var(--color-border)]" />
           <button
             onClick={async () => {
               if (confirm("确定要删除这张图片吗？\n可以在回收站中恢复。")) {

@@ -1,4 +1,5 @@
 mod caption;
+mod collection;
 mod export;
 mod media;
 mod model;
@@ -8,6 +9,7 @@ mod thumbnail;
 mod variant;
 
 pub use caption::*;
+pub use collection::*;
 pub use export::*;
 pub use media::*;
 pub use model::*;

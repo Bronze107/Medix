@@ -222,7 +222,231 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         )?;
     }
 
+    // 0012: collections
+    let has_collections: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='collections'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !has_collections {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0012_collections');
+             CREATE TABLE IF NOT EXISTS collections (
+                 id TEXT PRIMARY KEY,
+                 name TEXT NOT NULL,
+                 description TEXT,
+                 pinned_at TEXT,
+                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE TABLE IF NOT EXISTS collection_items (
+                 collection_id TEXT NOT NULL,
+                 media_id TEXT NOT NULL,
+                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                 PRIMARY KEY (collection_id, media_id),
+                 FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+                 FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+             );
+             CREATE INDEX IF NOT EXISTS idx_collection_items_cid ON collection_items(collection_id);
+             CREATE INDEX IF NOT EXISTS idx_collection_items_mid ON collection_items(media_id);",
+        )?;
+    }
+
     Ok(())
+}
+
+// --- Collection operations ---
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Collection {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub pinned_at: Option<String>,
+    pub created_at: String,
+    pub item_count: Option<i64>,
+}
+
+pub fn collection_list(app: &AppHandle) -> Result<Vec<Collection>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT c.id, c.name, c.description, c.pinned_at, c.created_at,
+                (SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = c.id) as item_count
+         FROM collections c ORDER BY c.pinned_at IS NULL, c.pinned_at, c.created_at DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(Collection {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
+            pinned_at: row.get(3)?,
+            created_at: row.get(4)?,
+            item_count: row.get(5)?,
+        })
+    })?;
+    let mut results = Vec::new();
+    for r in rows { results.push(r?); }
+    Ok(results)
+}
+
+pub fn collection_get(app: &AppHandle, id: &str) -> Result<Option<Collection>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare(
+        "SELECT c.id, c.name, c.description, c.pinned_at, c.created_at,
+                (SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = c.id) as item_count
+         FROM collections c WHERE c.id = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![id], |row| {
+        Ok(Collection {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
+            pinned_at: row.get(3)?,
+            created_at: row.get(4)?,
+            item_count: row.get(5)?,
+        })
+    })?;
+    if let Some(r) = rows.next() { return Ok(Some(r?)); }
+    Ok(None)
+}
+
+pub fn collection_create(app: &AppHandle, name: &str, description: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let id = ulid::Ulid::new().to_string();
+    let desc = if description.is_empty() { None } else { Some(description.to_string()) };
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "INSERT INTO collections (id, name, description) VALUES (?1, ?2, ?3)",
+        params![&id, name, desc],
+    )?;
+    Ok(id)
+}
+
+pub fn collection_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn collection_rename(app: &AppHandle, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute("UPDATE collections SET name = ?2 WHERE id = ?1", params![id, name])?;
+    Ok(())
+}
+
+pub fn collection_pin(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute("UPDATE collections SET pinned_at = datetime('now') WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn collection_unpin(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute("UPDATE collections SET pinned_at = NULL WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn collection_add_item(app: &AppHandle, collection_id: &str, media_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "INSERT OR IGNORE INTO collection_items (collection_id, media_id) VALUES (?1, ?2)",
+        params![collection_id, media_id],
+    )?;
+    Ok(())
+}
+
+pub fn collection_add_batch(app: &AppHandle, collection_id: &str, media_ids: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    for mid in media_ids {
+        conn.execute(
+            "INSERT OR IGNORE INTO collection_items (collection_id, media_id) VALUES (?1, ?2)",
+            params![collection_id, mid],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn collection_remove_item(app: &AppHandle, collection_id: &str, media_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "DELETE FROM collection_items WHERE collection_id = ?1 AND media_id = ?2",
+        params![collection_id, media_id],
+    )?;
+    Ok(())
+}
+
+pub fn media_list_by_collection(
+    app: &AppHandle,
+    collection_id: &str,
+    sort_by: &str,
+    descending: bool,
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let order = if descending { "DESC" } else { "ASC" };
+    let sort_column = match sort_by {
+        "created_at" => "m.created_at",
+        "modified_at" => "m.modified_at",
+        "file_size" => "m.file_size",
+        "width" => "m.width",
+        "height" => "m.height",
+        _ => "m.imported_at",
+    };
+    let sql = format!(
+        "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
+                m.created_at, m.modified_at, m.imported_at,
+                m.source_url, m.page_url, m.source, m.sha256, m.deleted_at
+         FROM media m
+         JOIN collection_items ci ON ci.media_id = m.id
+         WHERE ci.collection_id = ?1 AND m.deleted_at IS NULL
+         ORDER BY {} {}",
+        sort_column, order
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params![collection_id], |row| {
+        Ok(Media {
+            id: row.get(0)?,
+            source_path: row.get(1)?,
+            phash: None,
+            width: row.get(2)?,
+            height: row.get(3)?,
+            file_size: row.get(4)?,
+            created_at: row.get(5)?,
+            modified_at: row.get(6)?,
+            imported_at: row.get(7)?,
+            source_url: row.get(8)?,
+            page_url: row.get(9)?,
+            source: row.get(10)?,
+            sha256: row.get(11)?,
+            deleted_at: row.get(12)?,
+            thumb_256: None,
+            thumb_512: None,
+        })
+    })?;
+    let mut results = Vec::new();
+    for r in rows { results.push(r?); }
+    Ok(results)
+}
+
+pub fn collection_get_item_ids(app: &AppHandle, collection_id: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare("SELECT media_id FROM collection_items WHERE collection_id = ?1")?;
+    let rows = stmt.query_map(params![collection_id], |row| row.get::<_, String>(0))?;
+    let mut results = Vec::new();
+    for r in rows { results.push(r?); }
+    Ok(results)
 }
 
 pub fn media_get_by_sha256(

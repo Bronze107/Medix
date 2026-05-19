@@ -3,6 +3,7 @@ import type { Media, MediaImportResult } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
 import type { Caption } from "@/types/caption";
+import type { Collection } from "@/types/collection";
 import type { LlamaServerStatus, GgufModelList, AutoDetect, EmbeddingInfo } from "@/types/ai";
 import type { SavedFilter } from "@/types/search";
 import type { ExportOptions } from "@/types/export";
@@ -107,6 +108,60 @@ export function mediaTagRemoveBatch(mediaIds: string[], tagId: string): Promise<
 
 export function mediaTagsIntersect(mediaIds: string[]): Promise<Tag[]> {
   return invoke("media_tags_intersect", { mediaIds });
+}
+
+// --- Collections ---
+
+export function collectionList(): Promise<Collection[]> {
+  return invoke("collection_list");
+}
+
+export function collectionGet(id: string): Promise<Collection | null> {
+  return invoke("collection_get", { id });
+}
+
+export function collectionCreate(name: string, description: string): Promise<string> {
+  return invoke("collection_create", { name, description });
+}
+
+export function collectionDelete(id: string): Promise<void> {
+  return invoke("collection_delete", { id });
+}
+
+export function collectionRename(id: string, name: string): Promise<void> {
+  return invoke("collection_rename", { id, name });
+}
+
+export function collectionPin(id: string): Promise<void> {
+  return invoke("collection_pin", { id });
+}
+
+export function collectionUnpin(id: string): Promise<void> {
+  return invoke("collection_unpin", { id });
+}
+
+export function collectionAddItem(collectionId: string, mediaId: string): Promise<void> {
+  return invoke("collection_add_item", { collectionId, mediaId });
+}
+
+export function collectionAddBatch(collectionId: string, mediaIds: string[]): Promise<void> {
+  return invoke("collection_add_batch", { collectionId, mediaIds });
+}
+
+export function collectionRemoveItem(collectionId: string, mediaId: string): Promise<void> {
+  return invoke("collection_remove_item", { collectionId, mediaId });
+}
+
+export function mediaListByCollection(
+  collectionId: string,
+  sortBy: string,
+  descending: boolean,
+): Promise<Media[]> {
+  return invoke("media_list_by_collection", { collectionId, sortBy, descending });
+}
+
+export function collectionGetItemIds(collectionId: string): Promise<string[]> {
+  return invoke("collection_get_item_ids", { collectionId });
 }
 
 // --- Search ---
