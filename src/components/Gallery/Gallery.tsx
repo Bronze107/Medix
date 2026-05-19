@@ -9,6 +9,7 @@ interface GalleryProps {
   selectedId: string | null;
   onSelect: (media: Media) => void;
   onDoubleClick?: (media: Media) => void;
+  onContextMenu?: (e: React.MouseEvent, media: Media) => void;
   selectedIds: string[];
   selectionMode: boolean;
   onToggleSelect: (media: Media) => void;
@@ -76,6 +77,7 @@ function Gallery({
   selectedId,
   onSelect,
   onDoubleClick,
+  onContextMenu,
   selectedIds,
   selectionMode,
   onToggleSelect,
@@ -133,6 +135,7 @@ function Gallery({
                   selectionMode={selectionMode}
                   onClick={() => onSelect(item)}
                   onDoubleClick={onDoubleClick ? () => onDoubleClick(item) : undefined}
+                  onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
                   onToggleSelect={() => onToggleSelect(item)}
                 />
               ))}
@@ -151,6 +154,7 @@ function ThumbnailCard({
   selectionMode,
   onClick,
   onDoubleClick,
+  onContextMenu,
   onToggleSelect,
 }: {
   item: Media;
@@ -159,6 +163,7 @@ function ThumbnailCard({
   selectionMode: boolean;
   onClick: () => void;
   onDoubleClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   onToggleSelect: () => void;
 }) {
   const thumbUrl = useThumbnail(item.id);
@@ -173,12 +178,17 @@ function ThumbnailCard({
 
   return (
     <div
+      data-media-card
       onClick={handleCardClick}
       onDoubleClick={(e) => {
         if (!selectionMode && onDoubleClick) {
           e.stopPropagation();
           onDoubleClick();
         }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContextMenu?.(e);
       }}
       className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border transition-all ${
         isSelected

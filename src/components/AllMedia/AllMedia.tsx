@@ -61,6 +61,9 @@ function AllMedia() {
   const [aiRemaining, setAiRemaining] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
+  // Context menu
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; media: Media } | null>(null);
+
   // Batch selection
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -207,6 +210,49 @@ function AllMedia() {
       unlistenAiDone.then((f) => f());
     };
   }, [doImport, loadMedia]);
+
+  // Keyboard shortcuts + suppress browser context menu
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger shortcuts when typing in inputs
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (e.key === "Escape") {
+        if (selectionMode && selectedIds.size > 0) {
+          setSelectedIds(new Set());
+        } else {
+          setSelectionMode(false);
+          setSelectedIds(new Set());
+          setSelected(null);
+        }
+      }
+      if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        if (media.length > 0) {
+          setSelectionMode(true);
+          setSelectedIds(new Set(media.map((m) => m.id)));
+        }
+      }
+      if (e.key === "Delete" && selectionMode && selectedIds.size > 0) {
+        e.preventDefault();
+        handleBatchDelete();
+      }
+    };
+    const handleContextMenu = (e: MouseEvent) => {
+      // Let custom context menu on thumbnails pass through
+      const target = e.target as HTMLElement;
+      if (target.closest("[data-media-card]")) return;
+      e.preventDefault();
+      setCtxMenu(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("contextmenu", handleContextMenu);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("contextmenu", handleContextMenu);
+    };
+  }, [selectionMode, selectedIds, media, setSelected, setSelectionMode, setSelectedIds]);
 
   const handleToggleSelect = (item: Media) => {
     setSelectedIds((prev) => {
@@ -494,6 +540,10 @@ function AllMedia() {
                 const idx = media.findIndex((m) => m.id === item.id);
                 if (idx >= 0) setLightboxIndex(idx);
               }}
+              onContextMenu={(e, item) => {
+                e.preventDefault();
+                setCtxMenu({ x: e.clientX, y: e.clientY, media: item });
+              }}
               selectedIds={Array.from(selectedIds)}
               selectionMode={selectionMode}
               onToggleSelect={handleToggleSelect}
@@ -506,6 +556,10 @@ function AllMedia() {
               onDoubleClick={(item) => {
                 const idx = media.findIndex((m) => m.id === item.id);
                 if (idx >= 0) setLightboxIndex(idx);
+              }}
+              onContextMenu={(e, item) => {
+                e.preventDefault();
+                setCtxMenu({ x: e.clientX, y: e.clientY, media: item });
               }}
               selectedIds={Array.from(selectedIds)}
               selectionMode={selectionMode}
@@ -821,6 +875,69 @@ function AllMedia() {
           mediaIds={Array.from(selectedIds)}
           totalCount={media.length}
           onClose={() => setShowExportDialog(false)}
+        />
+      )}
+
+      {/* Context menu */}
+      {ctxMenu && (
+        <div
+          className="fixed z-[60] min-w-[120px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] py-1 shadow-xl"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              const idx = media.findIndex((m) => m.id === ctxMenu.media.id);
+              if (idx >= 0) setLightboxIndex(idx);
+              setCtxMenu(null);
+            }}
+            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+          >
+            查看原图
+          </button>
+          <button
+            onClick={() => {
+              setSelected(ctxMenu.media);
+              setCtxMenu(null);
+            }}
+            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+          >
+            查看详情
+          </button>
+          <div className="my-1 border-t border-[var(--color-border)]" />
+          <button
+            onClick={() => {
+              setShowBatchTagDialog(true);
+              setSelectedIds(new Set([ctxMenu.media.id]));
+              setSelectionMode(true);
+              setCtxMenu(null);
+            }}
+            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+          >
+            添加标签
+          </button>
+          <button
+            onClick={async () => {
+              if (confirm("确定要删除这张图片吗？\n可以在回收站中恢复。")) {
+                await mediaSoftDelete(ctxMenu.media.id);
+                setCtxMenu(null);
+                setSelected(null);
+                loadMedia();
+              }
+            }}
+            className="block w-full px-3 py-1.5 text-left text-xs text-red-400 hover:bg-red-900/20"
+          >
+            删除
+          </button>
+        </div>
+      )}
+
+      {/* Click-away to close context menu */}
+      {ctxMenu && (
+        <div
+          className="fixed inset-0 z-[59]"
+          onClick={() => setCtxMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
         />
       )}
 

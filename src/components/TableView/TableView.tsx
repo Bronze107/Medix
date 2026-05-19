@@ -9,6 +9,7 @@ interface TableViewProps {
   selectedId: string | null;
   onSelect: (media: Media) => void;
   onDoubleClick?: (media: Media) => void;
+  onContextMenu?: (e: React.MouseEvent, media: Media) => void;
   selectedIds: string[];
   selectionMode: boolean;
   onToggleSelect: (media: Media) => void;
@@ -49,6 +50,7 @@ function TableView({
   selectedId,
   onSelect,
   onDoubleClick,
+  onContextMenu,
   selectedIds,
   selectionMode,
   onToggleSelect,
@@ -106,6 +108,7 @@ function TableView({
               onDoubleClick={
                 onDoubleClick ? () => onDoubleClick(item) : undefined
               }
+              onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
               onToggleSelect={() => onToggleSelect(item)}
               style={{
                 position: "absolute",
@@ -130,6 +133,7 @@ function TableRow({
   selectionMode,
   onClick,
   onDoubleClick,
+  onContextMenu,
   onToggleSelect,
   style,
 }: {
@@ -139,6 +143,7 @@ function TableRow({
   selectionMode: boolean;
   onClick: () => void;
   onDoubleClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   onToggleSelect: () => void;
   style: React.CSSProperties;
 }) {
@@ -146,12 +151,17 @@ function TableRow({
 
   return (
     <div
+      data-media-card
       onClick={onClick}
       onDoubleClick={(e) => {
         if (!selectionMode && onDoubleClick) {
           e.stopPropagation();
           onDoubleClick();
         }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onContextMenu?.(e);
       }}
       style={style}
       className={`flex items-center gap-2 border-b border-[var(--color-border-light)] px-3 transition-colors ${
