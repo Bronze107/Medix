@@ -320,6 +320,39 @@
 
 ---
 
+## Phase 10: 集合系统 (Collections)
+
+**目标**: 图片按集合分组管理，支持置顶、快速访问、批量操作
+
+### 任务
+1. [x] 数据库：`collections` + `collection_items` 表 + migration 0012
+   - [x] `pinned_at` 字段支持置顶
+2. [x] 后端命令（14 个）
+   - [x] CRUD：`collection_list/get/create/delete/rename`
+   - [x] 置顶：`collection_pin/unpin`
+   - [x] 成员：`collection_add_item/add_batch/remove_item/get_item_ids`
+   - [x] 查询：`media_list_by_collection`
+3. [x] 侧边栏集成
+   - [x] 置顶集合列表（最多 5 个）+ "全部集合" 入口
+   - [x] 集合/标签/设置之间用分隔线区隔
+4. [x] 集合管理页 (`/collections`)
+   - [x] 卡片网格：搜索、排序、右键菜单、新建
+5. [x] 集合详情页 (`/collections/:id`)
+   - [x] 复用 AllMedia，自动过滤集合成员
+   - [x] 集合内导入图片自动加入该集合
+6. [x] 右键菜单 + 批量操作
+   - [x] "添加到集合" / "从集合移除"
+   - [x] 批量选择 → "添加到集合"
+
+### 验证标准
+- [x] 新建集合 → 管理页显示卡片 → 侧边栏"全部集合"可见
+- [x] 置顶集合 → 侧边栏即时显示（最多 5 个）
+- [x] 右键菜单添加图片到集合 → 集合详情页显示成员 → 边栏计数更新
+- [x] 集合视图内拖入导入 → 图片自动归入该集合
+- [x] 删除集合 → 图片保留，仅移除关联
+
+---
+
 ## 目录结构
 
 ```
@@ -339,6 +372,8 @@ Medix/
 │   │   ├── SearchBar/
 │   │   ├── Settings/
 │   │   ├── ExportDialog/
+│   │   ├── TableView/
+│   │   ├── CollectionsPage/
 │   │   ├── Trash/
 │   │   └── TagManager/
 │   ├── hooks/                  # React hooks
@@ -362,6 +397,7 @@ Medix/
 │   │   ├── search/             # 搜索引擎
 │   │   ├── export/             # 数据集导出
 │   │   ├── server/             # 本地 HTTP 服务
+│   │   ├── collections/        # 集合 (通过 commands/collection.rs)
 │   │   └── tag/                # Tag 结构体
 │   └── Cargo.toml
 ├── extension/                  # 浏览器插件

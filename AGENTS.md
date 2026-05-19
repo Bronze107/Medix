@@ -125,6 +125,7 @@ Medix/
 | 筛选器 | `saved_filters_` | `saved_filters_list`, `saved_filters_save`, `saved_filters_delete` |
 | 导出 | `export_dataset`, `import_zip` | (无统一前缀) |
 | 文件路径 | `media_get_paths`, `media_thumbnail` | (无统一前缀) |
+| 集合 | `collection_` | `collection_list`, `collection_create`, `collection_delete`, `collection_pin`, `collection_add_item`, `collection_add_batch`, `media_list_by_collection` |
 | 系统 | `greet` | (测试用途) |
 
 ## 关键约束
@@ -132,7 +133,7 @@ Medix/
 - **本地优先**: 所有数据处理本地完成，不上传云端（llama-server 纯本地推理）
 - **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成，详情面板可手动重跑
 - **版本控制**: 同一原图支持多个衍生版本（内部生成 + 外部导入），带自定义标签和来源追踪
-- **原图查看**: 双击缩略图进入全屏 Lightbox，支持缩放/拖拽/变体对比
+- **集合**: 图片可按集合分组管理，支持置顶常用集合、外部导入自动归集
 - **内存安全**: 图片通过 `asset://` 协议直出，不经过 base64 编解码
 - **向后兼容**: 数据库 schema 变更采用 `pragma_table_info` 条件检查，不丢失用户数据
 
