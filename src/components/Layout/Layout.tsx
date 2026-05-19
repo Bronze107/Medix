@@ -59,6 +59,13 @@ function Layout() {
     return () => window.removeEventListener("collections-changed", handler);
   }, [loadCollections]);
 
+  // Listen for saved filter changes from other pages
+  useEffect(() => {
+    const handler = () => loadFilters();
+    window.addEventListener("saved-filters-changed", handler);
+    return () => window.removeEventListener("saved-filters-changed", handler);
+  }, [loadFilters]);
+
   const toggleTheme = async () => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
@@ -189,7 +196,11 @@ function Layout() {
               {filters.map((f) => (
                 <div key={f.name} className="group relative">
                   <button
-                    onClick={() => navigate(`/media?q=${encodeURIComponent(f.query)}`)}
+                    onClick={() => {
+                      const isInCollection = location.pathname.startsWith("/collections/") && location.pathname !== "/collections";
+                      const base = isInCollection ? location.pathname : "/media";
+                      navigate(`${base}?q=${encodeURIComponent(f.query)}`);
+                    }}
                     className="flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
                   >
                     <svg

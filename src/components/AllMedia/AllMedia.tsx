@@ -111,6 +111,13 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [batchRemoveTagSearch, setBatchRemoveTagSearch] = useState("");
   const [intersectTags, setIntersectTags] = useState<Tag[]>([]);
 
+  // Sync URL query param to search state (e.g., when clicking a saved filter)
+  useEffect(() => {
+    const q = searchParams.get("q") ?? "";
+    setSearchQuery(q);
+    setDebouncedSearch(q);
+  }, [searchParams]);
+
   // Debounce search input
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -966,6 +973,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               onKeyDown={async (e) => {
                 if (e.key === "Enter" && savedFilterName.trim()) {
                   await savedFiltersSave(savedFilterName.trim(), debouncedSearch);
+                  window.dispatchEvent(new CustomEvent("saved-filters-changed"));
                   setShowSaveDialog(false);
                   setSavedFilterName("");
                 }
@@ -988,6 +996,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 onClick={async () => {
                   if (!savedFilterName.trim()) return;
                   await savedFiltersSave(savedFilterName.trim(), debouncedSearch);
+                  window.dispatchEvent(new CustomEvent("saved-filters-changed"));
                   setShowSaveDialog(false);
                   setSavedFilterName("");
                 }}
