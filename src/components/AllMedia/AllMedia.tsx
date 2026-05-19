@@ -25,6 +25,7 @@ import DetailPanel from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import Lightbox from "@/components/Lightbox/Lightbox";
+import { showToast } from "@/components/Toast/Toast";
 import { aiPendingCount, collectionAddBatch, collectionGet, collectionGetItemIds, collectionList as loadCollections, collectionRemoveItem as removeFromCollection, mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
 
@@ -50,6 +51,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [descending, setDescending] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [dropHover, setDropHover] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
@@ -214,6 +216,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       } finally {
         setIsImporting(false);
         setDropHover(false);
+        setImportProgress(null);
         setTimeout(() => setImportMessage(""), 5000);
       }
     },
@@ -242,6 +245,9 @@ function AllMedia({ collectionId }: AllMediaProps) {
         loadMedia(); // auto refresh when all AI tasks complete
       }
     });
+    const unlistenImportProgress = listen<{ current: number; total: number; filename: string }>("import-progress", (event) => {
+      setImportProgress(event.payload);
+    });
 
     return () => {
       unlistenEnter.then((f) => f());
@@ -249,6 +255,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       unlistenDrop.then((f) => f());
       unlistenRemote.then((f) => f());
       unlistenAiDone.then((f) => f());
+      unlistenImportProgress.then((f) => f());
     };
   }, [doImport, loadMedia]);
 
@@ -283,16 +290,31 @@ function AllMedia({ collectionId }: AllMediaProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectionMode, selectedIds, media, setSelected, setSelectionMode, setSelectedIds]);
 
-  const handleToggleSelect = (item: Media) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(item.id)) {
-        next.delete(item.id);
-      } else {
-        next.add(item.id);
-      }
-      return next;
-    });
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+
+  const handleToggleSelect = (item: Media, index: number, shiftKey: boolean) => {
+    if (shiftKey && lastSelectedIndex !== null) {
+      // Range select from lastSelectedIndex to index
+      const start = Math.min(lastSelectedIndex, index);
+      const end = Math.max(lastSelectedIndex, index);
+      const rangeIds = media.slice(start, end + 1).map((m) => m.id);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of rangeIds) next.add(id);
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(item.id)) {
+          next.delete(item.id);
+        } else {
+          next.add(item.id);
+        }
+        return next;
+      });
+      setLastSelectedIndex(index);
+    }
   };
 
   const handleSelectAll = () => {
@@ -327,6 +349,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
     setSelected(null);
     setSelectionMode(false);
     loadMedia();
+    showToast(`已删除 ${selectedIds.size} 张图片`);
   };
 
   const handleCreateAndBatchAdd = async () => {
@@ -481,7 +504,20 @@ function AllMedia({ collectionId }: AllMediaProps) {
               : "bg-green-900/30 text-green-400"
           }`}
         >
-          {importMessage}
+          <div className="flex items-center justify-between">
+            <span>{importMessage}</span>
+            {importProgress && isImporting && (
+              <span>{importProgress.current} / {importProgress.total}</span>
+            )}
+          </div>
+          {importProgress && isImporting && (
+            <div className="mt-1 h-1 w-full rounded-full bg-blue-900/50">
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all duration-150"
+                style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -594,9 +630,19 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 e.preventDefault();
                 setCtxMenu({ x: e.clientX, y: e.clientY, media: item });
               }}
+              sortBy={sortBy}
+              descending={descending}
+              onSortChange={(field) => {
+                if (sortBy === field) {
+                  setDescending((d) => !d);
+                } else {
+                  setSortBy(field);
+                  setDescending(true);
+                }
+              }}
               selectedIds={Array.from(selectedIds)}
               selectionMode={selectionMode}
-              onToggleSelect={handleToggleSelect}
+              onToggleSelect={(item, index, shiftKey) => handleToggleSelect(item, index, shiftKey)}
             />
           ) : (
             <Gallery
@@ -613,7 +659,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               }}
               selectedIds={Array.from(selectedIds)}
               selectionMode={selectionMode}
-              onToggleSelect={handleToggleSelect}
+              onToggleSelect={(item, index, shiftKey) => handleToggleSelect(item, index, shiftKey)}
             />
           )}
         </div>

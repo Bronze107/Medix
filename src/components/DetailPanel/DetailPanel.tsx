@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { showToast } from "@/components/Toast/Toast";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
@@ -204,6 +205,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
     try {
       await mediaTagRemove(media.id, tagId);
       await loadMediaTags(media.id);
+      showToast("已移除标签");
     } catch (e) {
       console.error("Failed to remove tag:", e);
     }
@@ -260,6 +262,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
       if (media) {
         await loadVariants(media.id);
       }
+      showToast("已删除版本");
     } catch (e) {
       console.error("Failed to delete variant:", e);
     }
@@ -310,6 +313,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
       if (media) {
         await loadCaptions(media.id);
       }
+      showToast("已删除描述");
     } catch (e) {
       console.error("Failed to delete caption:", e);
     }
@@ -327,8 +331,15 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
 
   if (!media) {
     return (
-      <div className="flex h-full w-72 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
-        <p className="text-sm text-[var(--color-text-muted)]">选择一张图片查看详情</p>
+      <div className="flex h-full w-10 flex-col items-center border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-4">
+        <div className="flex flex-col items-center gap-3">
+          <svg className="h-4 w-4 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+          </svg>
+        </div>
+        <p className="mt-4 text-[10px] text-[var(--color-text-muted)]" style={{ writingMode: "vertical-rl" }}>
+          点击图片查看详情
+        </p>
       </div>
     );
   }

@@ -12,7 +12,7 @@ interface GalleryProps {
   onContextMenu?: (e: React.MouseEvent, media: Media) => void;
   selectedIds: string[];
   selectionMode: boolean;
-  onToggleSelect: (media: Media) => void;
+  onToggleSelect: (media: Media, index: number, shiftKey: boolean) => void;
   columnCount?: number;
   gap?: number;
 }
@@ -126,7 +126,9 @@ function Gallery({
                 padding: `0 ${gap / 2}px`,
               }}
             >
-              {rowMedia.map((item) => (
+              {rowMedia.map((item, colIdx) => {
+                const absIndex = startIndex + colIdx;
+                return (
                 <ThumbnailCard
                   key={item.id}
                   item={item}
@@ -136,9 +138,9 @@ function Gallery({
                   onClick={() => onSelect(item)}
                   onDoubleClick={onDoubleClick ? () => onDoubleClick(item) : undefined}
                   onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
-                  onToggleSelect={() => onToggleSelect(item)}
+                  onToggleSelect={(shiftKey: boolean) => onToggleSelect(item, absIndex, shiftKey)}
                 />
-              ))}
+              )})}
             </div>
           );
         })}
@@ -164,13 +166,13 @@ function ThumbnailCard({
   onClick: () => void;
   onDoubleClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
-  onToggleSelect: () => void;
+  onToggleSelect: (shiftKey: boolean) => void;
 }) {
   const thumbUrl = useThumbnail(item.id);
 
-  const handleCardClick = () => {
+  const handleCardClick = (e: React.MouseEvent) => {
     if (selectionMode) {
-      onToggleSelect();
+      onToggleSelect(e.shiftKey);
     } else {
       onClick();
     }
@@ -205,9 +207,9 @@ function ThumbnailCard({
             ? "border-green-500 bg-green-500 text-white"
             : "border-[var(--color-border-light)] bg-[var(--color-bg-secondary)]/80 text-transparent group-hover:border-[var(--color-text-secondary)]"
         } ${selectionMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-        onClick={(e) => {
+        onClick={(e: React.MouseEvent) => {
           e.stopPropagation();
-          onToggleSelect();
+          onToggleSelect(e.shiftKey);
         }}
       >
         <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>

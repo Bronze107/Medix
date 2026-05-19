@@ -85,3 +85,11 @@ pub fn collection_get_item_ids(
 ) -> Result<Vec<String>, String> {
     db::collection_get_item_ids(&app, &collection_id).map_err(|e| e.to_string())
 }
+
+#[command]
+pub fn collection_first_media_id(
+    app: AppHandle,
+    collection_id: String,
+) -> Result<Option<String>, String> {
+    db::collection_first_media_id(&app, &collection_id).map_err(|e| e.to_string())
+}

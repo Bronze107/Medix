@@ -449,6 +449,15 @@ pub fn collection_get_item_ids(app: &AppHandle, collection_id: &str) -> Result<V
     Ok(results)
 }
 
+pub fn collection_first_media_id(app: &AppHandle, collection_id: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let mut stmt = conn.prepare("SELECT media_id FROM collection_items WHERE collection_id = ?1 ORDER BY created_at LIMIT 1")?;
+    let mut rows = stmt.query_map(params![collection_id], |row| row.get::<_, String>(0))?;
+    if let Some(r) = rows.next() { return Ok(Some(r?)); }
+    Ok(None)
+}
+
 pub fn media_get_by_sha256(
     app: &AppHandle,
     hash: &str,

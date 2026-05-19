@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router";
+import Toast from "./components/Toast/Toast";
 import Layout from "./components/Layout/Layout";
 import AllMedia from "./components/AllMedia/AllMedia";
 import CollectionView from "./components/AllMedia/CollectionView";
@@ -33,6 +34,7 @@ function App() {
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
+      <Toast />
     </HashRouter>
   );
 }

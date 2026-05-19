@@ -164,6 +164,10 @@ export function collectionGetItemIds(collectionId: string): Promise<string[]> {
   return invoke("collection_get_item_ids", { collectionId });
 }
 
+export function collectionFirstMediaId(collectionId: string): Promise<string | null> {
+  return invoke("collection_first_media_id", { collectionId });
+}
+
 // --- Search ---
 
 export function mediaSearch(

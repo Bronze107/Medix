@@ -2,7 +2,7 @@ use sha2::{Sha256, Digest};
 use std::fs;
 use std::io::Read;
 use std::path::Path;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use ulid::Ulid;
 
 use super::{Media, MediaImportResult};
@@ -40,12 +40,18 @@ pub fn import_files(
         }
     }
 
+    let total = file_paths.len();
     let mut results = Vec::new();
 
-    for path_str in file_paths {
-        let path = Path::new(&path_str);
+    for (i, path_str) in file_paths.iter().enumerate() {
+        let path = Path::new(path_str);
         let result = import_single_file(app, path, &library_dir);
         results.push(result);
+        let _ = app.emit("import-progress", serde_json::json!({
+            "current": i + 1,
+            "total": total,
+            "filename": path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        }));
     }
 
     Ok(results)

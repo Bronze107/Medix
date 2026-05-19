@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Collection } from "@/types/collection";
 import {
   collectionList,
@@ -8,6 +9,8 @@ import {
   collectionRename,
   collectionPin,
   collectionUnpin,
+  collectionFirstMediaId,
+  mediaThumbnail,
 } from "@/lib/tauri";
 
 type SortMode = "name" | "count" | "created";
@@ -30,9 +33,26 @@ function CollectionsPage() {
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; col: Collection } | null>(null);
 
+  const [covers, setCovers] = useState<Record<string, string>>({});
+
   const load = useCallback(async () => {
     try {
-      setCollections(await collectionList());
+      const all = await collectionList();
+      setCollections(all);
+      // Load covers for collections that have items
+      const coverMap: Record<string, string> = {};
+      for (const c of all) {
+        if ((c.item_count ?? 0) > 0) {
+          const mid = await collectionFirstMediaId(c.id);
+          if (mid) {
+            try {
+              const path = await mediaThumbnail(mid);
+              coverMap[c.id] = convertFileSrc(path);
+            } catch { /* ignore */ }
+          }
+        }
+      }
+      setCovers(coverMap);
     } catch (e) {
       console.error("Failed to load collections:", e);
     }
@@ -134,18 +154,29 @@ function CollectionsPage() {
                 e.preventDefault();
                 setCtxMenu({ x: e.clientX, y: e.clientY, col: c });
               }}
-              className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 transition-colors hover:bg-[var(--color-bg-tertiary)]"
+              className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] overflow-hidden transition-colors hover:bg-[var(--color-bg-tertiary)]"
             >
-              <div className="mb-2 flex items-center gap-2">
-                {c.pinned_at && (
-                  <span className="text-[10px] text-yellow-500" title="已置顶">📌</span>
-                )}
-                <h3 className="truncate text-sm font-medium text-[var(--color-text-primary)]">{c.name}</h3>
-              </div>
-              {c.description && (
-                <p className="mb-2 text-xs text-[var(--color-text-muted)] line-clamp-2">{c.description}</p>
+              {covers[c.id] ? (
+                <img src={covers[c.id]} alt="" className="w-full h-28 object-cover bg-[var(--color-bg-tertiary)]" draggable={false} />
+              ) : (
+                <div className="w-full h-28 flex items-center justify-center bg-[var(--color-bg-tertiary)]">
+                  <svg className="h-8 w-8 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0018 3H5.25A2.25 2.25 0 003 5.25v13.5A2.25 2.25 0 005.25 21z" />
+                  </svg>
+                </div>
               )}
-              <p className="text-[10px] text-[var(--color-text-muted)]">{c.item_count ?? 0} 张</p>
+              <div className="p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  {c.pinned_at && (
+                    <span className="text-[10px] text-yellow-500" title="已置顶">📌</span>
+                  )}
+                  <h3 className="truncate text-sm font-medium text-[var(--color-text-primary)]">{c.name}</h3>
+                </div>
+                {c.description && (
+                  <p className="mb-2 text-xs text-[var(--color-text-muted)] line-clamp-2">{c.description}</p>
+                )}
+                <p className="text-[10px] text-[var(--color-text-muted)]">{c.item_count ?? 0} 张</p>
+              </div>
             </div>
           ))}
         </div>
