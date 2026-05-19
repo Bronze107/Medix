@@ -31,6 +31,13 @@ import { importZip } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
 type ViewMode = "grid" | "table";
+type GroupMode = "none" | "date";
+
+interface GroupInfo {
+  label: string;
+  startIndex: number;
+  count: number;
+}
 
 interface DragDropPayload {
   paths: string[];
@@ -68,6 +75,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [aiRemaining, setAiRemaining] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [groupBy, setGroupBy] = useState<GroupMode>("none");
 
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; media: Media } | null>(null);
@@ -352,6 +360,20 @@ function AllMedia({ collectionId }: AllMediaProps) {
     showToast(`已删除 ${selectedIds.size} 张图片`);
   };
 
+  // Compute date groups from sorted media
+  const groups = groupBy === "date"
+    ? (() => {
+        const result: GroupInfo[] = [];
+        let cur = "";
+        for (let i = 0; i < media.length; i++) {
+          const d = media[i].imported_at?.slice(0, 10) ?? "未知日期";
+          if (d !== cur) { cur = d; result.push({ label: d, startIndex: i, count: 0 }); }
+          result[result.length - 1].count++;
+        }
+        return result;
+      })()
+    : [];
+
   const handleCreateAndBatchAdd = async () => {
     const name = batchTagSearch.trim().toLowerCase();
     if (!name) return;
@@ -412,6 +434,14 @@ function AllMedia({ collectionId }: AllMediaProps) {
               </svg>
             )}
           </button>
+          <select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as GroupMode)}
+            className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] outline-none"
+          >
+            <option value="none">平铺</option>
+            <option value="date">按日期分组</option>
+          </select>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortField)}
@@ -620,6 +650,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           ) : viewMode === "table" ? (
             <TableView
               media={media}
+              groups={groups}
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
               onDoubleClick={(item) => {
@@ -647,6 +678,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           ) : (
             <Gallery
               media={media}
+              groups={groups}
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
               onDoubleClick={(item) => {

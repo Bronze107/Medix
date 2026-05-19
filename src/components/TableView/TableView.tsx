@@ -6,12 +6,19 @@ import { mediaThumbnail } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
 
+interface GroupInfo {
+  label: string;
+  startIndex: number;
+  count: number;
+}
+
 interface TableViewProps {
   media: Media[];
   selectedId: string | null;
   onSelect: (media: Media) => void;
   onDoubleClick?: (media: Media) => void;
   onContextMenu?: (e: React.MouseEvent, media: Media) => void;
+  groups?: GroupInfo[];
   sortBy: SortField;
   descending: boolean;
   onSortChange: (field: SortField) => void;
@@ -56,6 +63,7 @@ function TableView({
   onSelect,
   onDoubleClick,
   onContextMenu,
+  groups,
   sortBy,
   descending,
   onSortChange,
@@ -69,13 +77,25 @@ function TableView({
     return descending ? " ↓" : " ↑";
   };
 
-  const parentRef = useRef<HTMLDivElement>(null);
+  // Build group row positions
+  const groupRows: { groupIndex: number; virtualRow: number }[] = [];
+  if (groups && groups.length > 0) {
+    let offset = 0;
+    for (let gi = 0; gi < groups.length; gi++) {
+      groupRows.push({ groupIndex: gi, virtualRow: groups[gi].startIndex + offset });
+      offset++;
+    }
+  }
+  const groupRowSet = new Set(groupRows.map((g) => g.virtualRow));
+  const totalCount = media.length + groupRows.length;
+
   const rowHeight = 48;
 
+  const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
-    count: media.length,
+    count: totalCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => rowHeight,
+    estimateSize: (index) => groupRowSet.has(index) ? 36 : rowHeight,
     overscan: 10,
   });
 
@@ -102,7 +122,33 @@ function TableView({
         }}
       >
         {virtualItems.map((virtualRow) => {
-          const item = media[virtualRow.index];
+          // Group header row
+          const groupEntry = groupRows.find((gr) => gr.virtualRow === virtualRow.index);
+          if (groupEntry && groups) {
+            const g = groups[groupEntry.groupIndex];
+            return (
+              <div
+                key={`group-${g.label}`}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+                className="flex items-end border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/90 backdrop-blur px-3 pb-2"
+              >
+                <span className="text-[11px] font-medium text-[var(--color-text-secondary)]">{g.label}</span>
+                <span className="ml-2 text-[10px] text-[var(--color-text-muted)]">{g.count} 张</span>
+              </div>
+            );
+          }
+
+          // Adjust index for media rows (skip group rows)
+          let mediaIndex = virtualRow.index;
+          for (const gr of groupRows) { if (gr.virtualRow < virtualRow.index) mediaIndex--; }
+          const item = media[mediaIndex];
           if (!item) return null;
 
           return (
@@ -114,7 +160,7 @@ function TableView({
               selectionMode={selectionMode}
               onClick={() => {
                 if (selectionMode) {
-                  onToggleSelect(item, virtualRow.index, false);
+                  onToggleSelect(item, mediaIndex, false);
                 } else {
                   onSelect(item);
                 }
@@ -123,7 +169,7 @@ function TableView({
                 onDoubleClick ? () => onDoubleClick(item) : undefined
               }
               onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
-              onToggleSelect={(shiftKey: boolean) => onToggleSelect(item, virtualRow.index, shiftKey)}
+              onToggleSelect={(shiftKey: boolean) => onToggleSelect(item, mediaIndex, shiftKey)}
               style={{
                 position: "absolute",
                 top: 0,

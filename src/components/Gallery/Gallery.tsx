@@ -4,12 +4,19 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Media } from "@/types/media";
 import { mediaThumbnail } from "@/lib/tauri";
 
+interface GroupInfo {
+  label: string;
+  startIndex: number;
+  count: number;
+}
+
 interface GalleryProps {
   media: Media[];
   selectedId: string | null;
   onSelect: (media: Media) => void;
   onDoubleClick?: (media: Media) => void;
   onContextMenu?: (e: React.MouseEvent, media: Media) => void;
+  groups?: GroupInfo[];
   selectedIds: string[];
   selectionMode: boolean;
   onToggleSelect: (media: Media, index: number, shiftKey: boolean) => void;
@@ -78,6 +85,7 @@ function Gallery({
   onSelect,
   onDoubleClick,
   onContextMenu,
+  groups,
   selectedIds,
   selectionMode,
   onToggleSelect,
@@ -87,10 +95,24 @@ function Gallery({
   const parentRef = useRef<HTMLDivElement>(null);
   const rowCount = Math.ceil(media.length / columnCount);
 
+  // Build group row positions for virtual scroll
+  const groupRows: { groupIndex: number; virtualRow: number }[] = [];
+  if (groups && groups.length > 0) {
+    let offset = 0;
+    for (let gi = 0; gi < groups.length; gi++) {
+      const g = groups[gi];
+      const mediaRow = Math.floor(g.startIndex / columnCount);
+      groupRows.push({ groupIndex: gi, virtualRow: mediaRow + offset });
+      offset++;
+    }
+  }
+  const totalRowCount = rowCount + groupRows.length;
+  const groupRowSet = new Set(groupRows.map((g) => g.virtualRow));
+
   const virtualizer = useVirtualizer({
-    count: rowCount,
+    count: totalRowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 220,
+    estimateSize: (index) => groupRowSet.has(index) ? 48 : 220,
     overscan: 3,
   });
 
@@ -106,7 +128,33 @@ function Gallery({
         }}
       >
         {virtualItems.map((virtualRow) => {
-          const rowIndex = virtualRow.index;
+          // Check if this is a group header row
+          const groupEntry = groupRows.find((gr) => gr.virtualRow === virtualRow.index);
+          if (groupEntry && groups) {
+            const g = groups[groupEntry.groupIndex];
+            return (
+              <div
+                key={`group-${g.label}`}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+                className="flex items-end border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/90 backdrop-blur px-4 pb-3"
+              >
+                <span className="text-[11px] font-medium text-[var(--color-text-secondary)]">{g.label}</span>
+                <span className="ml-2 text-[10px] text-[var(--color-text-muted)]">{g.count} 张</span>
+              </div>
+            );
+          }
+
+          // Regular media row — adjust rowIndex to skip group headers
+          let rowIndex = virtualRow.index;
+          for (const gr of groupRows) { if (gr.virtualRow < virtualRow.index) rowIndex--; }
+
           const startIndex = rowIndex * columnCount;
           const rowMedia = media.slice(startIndex, startIndex + columnCount);
 
