@@ -11,6 +11,48 @@ html, body, #root {
 body {
   margin: 0;
   font-family: var(--font-sans);
+  /* ── native-feel resets ── */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Allow text selection in editable elements */
+input, textarea, [contenteditable], .selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Disable browser image dragging */
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+/* Remove focus outlines on mouse clicks, keep for keyboard nav */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Windows-style thin scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-tertiary);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
 }
 
 /* Light theme (default when no .dark class) */

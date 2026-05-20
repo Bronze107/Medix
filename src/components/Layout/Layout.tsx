@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { Images, Tags, Settings } from "./icons";
+import { TitleBar } from "@/components/TitleBar/TitleBar";
 import {
   collectionList,
   savedFiltersList,
@@ -78,15 +79,13 @@ function Layout() {
   };
 
   return (
-    <div className="flex h-full bg-[var(--color-bg-primary)] text-[var(--color-text-primary)]">
+    <div className="flex h-full flex-col bg-[var(--color-bg-primary)] text-[var(--color-text-primary)]">
+      <TitleBar />
+      <div className="flex flex-1 overflow-hidden">
       {/* Sidebar */}
       <aside className="flex w-56 flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
-        <div className="flex items-center gap-2 px-4 py-4">
-          <div className="h-8 w-8 rounded bg-blue-600" />
-          <span className="text-lg font-bold">Medix</span>
-        </div>
 
-        <nav className="flex-1 space-y-1 px-2 py-2 overflow-auto">
+        <nav className="flex-1 space-y-1 px-2 py-2 overflow-auto pt-2">
           <NavLink
             to="/media"
             className={({ isActive }) =>
@@ -270,6 +269,7 @@ function Layout() {
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
+      </div>
     </div>
   );
 }
