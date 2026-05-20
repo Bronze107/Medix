@@ -127,12 +127,16 @@ pub fn execute_search_path(
     // Step 3: Combine candidates (no semantic in CLI mode)
     let candidate_ids: Option<Vec<String>> = tag_ids.map(|t| t.iter().cloned().collect());
 
-    // Step 4: If no filters at all, return all media
+    // Step 4: If no filters at all, return all media (unless pure semantic text — can't search without embedding)
     if candidate_ids.is_none()
         && parsed.dimensions.is_empty()
         && parsed.date_range.is_none()
         && parsed.file_size.is_none()
     {
+        if parsed.semantic_text.is_some() {
+            // Semantic query without embedding server — return empty rather than all
+            return Ok(vec![]);
+        }
         return crate::db::list_media_path(db_path, sort_by, descending)
             .map_err(|e| e.to_string());
     }
