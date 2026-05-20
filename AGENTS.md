@@ -119,6 +119,7 @@ Medix/
    - `chore:` 构建/工具
 3. **代码审查**: 关键模块 (db, ai, export) 的变更必须有 Rust 单元测试
 4. **ADR**: 架构决策记录在 `docs/decisions/YYYY-MM-DD-title.md`
+5. **回归测试**: 后端功能变更必须追加 CLI 回归用例到 `tests/*.sh`，提交前全量通过
 
 ## Tauri Command 命名约定
 

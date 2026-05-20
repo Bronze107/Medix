@@ -6,15 +6,7 @@
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 桌面框架 | Tauri v2 (Rust + Webview) |
-| 前端 | React 19 + TypeScript + Tailwind CSS |
-| 数据库 | SQLite + rusqlite |
-| 图像处理 | Rust `image` + `kamadak-exif` |
-| AI推理 | llama.cpp `llama-server` (OpenAI 兼容 HTTP API) |
-| 搜索索引 | SQLite FTS5 |
-| 浏览器插件 | Chrome Extension Manifest V3 |
+详见 [@AGENTS.md](./AGENTS.md)
 
 ---
 
@@ -355,78 +347,15 @@
 
 ## 目录结构
 
-```
-Medix/
-├── PLAN.md                     # 本文档
-├── AGENTS.md                   # 项目协作规范
-├── BUILD.md                    # 构建指南
-├── src/
-│   ├── main.tsx                # 前端入口
-│   ├── App.tsx                 # 根组件
-│   ├── components/             # UI 组件
-│   │   ├── AllMedia/           # 媒体浏览主视图
-│   │   ├── CollectionsPage/    # 集合管理页
-│   │   ├── DetailPanel/        # 右侧详情面板
-│   │   ├── DropZone/           # 拖拽导入区域
-│   │   ├── ExportDialog/       # 导出向导
-│   │   ├── Gallery/            # 网格视图
-│   │   ├── Layout/             # 全局布局
-│   │   ├── Lightbox/           # 原图查看器
-│   │   ├── SearchBar/          # 搜索栏
-│   │   ├── Settings/           # 设置页面
-│   │   ├── TableView/          # 列表视图
-│   │   ├── Tags/               # 标签管理页
-│   │   ├── Toast/              # Toast 通知
-│   │   └── Trash/              # 回收站
-│   ├── hooks/                  # React hooks
-│   ├── stores/                 # Zustand stores
-│   ├── types/                  # TypeScript 类型
-│   └── lib/                    # 工具函数
-├── src-tauri/
-│   ├── src/
-│   │   ├── main.rs             # Tauri 入口
-│   │   ├── lib.rs              # 库入口 (供 CLI 复用)
-│   │   ├── bin/
-│   │   │   └── cli.rs          # medix-cli 调试工具
-│   │   ├── commands/           # Tauri IPC 命令
-│   │   ├── db/                 # 数据库模块 (migrations + CRUD)
-│   │   ├── media/              # 媒体处理 (import + thumbnail + pHash)
-│   │   ├── ai/                 # AI 推理
-│   │   │   ├── mod.rs          # AiQueue 异步队列
-│   │   │   ├── llamacpp.rs     # OpenAI 兼容 HTTP 客户端
-│   │   │   └── server.rs       # llama-server 子进程管理
-│   │   ├── models/             # GGUF 模型扫描 + 自动检测
-│   │   ├── settings/           # 设置键定义 + get/set helper
-│   │   ├── variants/           # 版本控制 (生成 + 导入)
-│   │   ├── captions/           # Caption 结构体
-│   │   ├── search/             # 搜索引擎 (parser + semantic + execute_search)
-│   │   ├── export/             # 数据集导出
-│   │   ├── server/             # 本地 HTTP 服务
-│   │   └── tag/                # Tag 结构体
-│   └── Cargo.toml
-├── tests/                      # CLI 回归测试脚本
-│   ├── search.sh               # 搜索功能回归测试 (16 cases)
-│   ├── integrity.sh            # 数据完整性测试 (17 cases)
-│   ├── operations.sh           # 数据操作测试 (21 cases)
-│   ├── tags-collections.sh     # 标签与集合测试 (13 cases)
-│   └── cascade.sh              # 级联删除与高级操作测试 (20 cases)
-├── extension/                  # 浏览器插件
-│   ├── manifest.json
-│   ├── background.js
-│   ├── content.js
-│   └── popup.html
-└── models/                     # AI 模型文件 (gitignored)
-```
+详见 [@AGENTS.md](./AGENTS.md)
+
+---
 
 ---
 
 ## 开发流程
 
-1. 每个 Phase 独立开发，完成后打 tag (`v0.1.0`, `v0.2.0`...)
-2. 每 Phase 开始时更新本 PLAN.md，勾选已完成项
-3. 关键设计决策记录到 `docs/decisions/` (ADRs)
-4. Rust 核心模块必须写单元测试，前端组件写 Storybook
-5. **后端功能变更必须追加 CLI 回归测试**（`tests/*.sh`），提交前全量通过
+详见 [@AGENTS.md](./AGENTS.md)
 
 ---
 
