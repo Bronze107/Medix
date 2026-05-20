@@ -41,6 +41,12 @@ enum Command {
 
     /// Show statistics (media count, tag count, collection count)
     Stats,
+
+    /// Run a read-only SQL query (for testing / debugging)
+    Query {
+        /// SQL query (read-only, first column returned per row)
+        sql: String,
+    },
 }
 
 fn main() {
@@ -106,6 +112,31 @@ fn main() {
             println!("Tags:       {}", tags.len());
             if collection_count >= 0 {
                 println!("Collections: {}", collection_count);
+            }
+        }
+        Command::Query { sql } => {
+            let conn = match rusqlite::Connection::open(&db_path) {
+                Ok(c) => c,
+                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+            };
+            let mut stmt = match conn.prepare(&sql) {
+                Ok(s) => s,
+                Err(e) => { eprintln!("SQL error: {}", e); std::process::exit(1); }
+            };
+            let count = stmt.column_count();
+            let mut rows = stmt.query([]).expect("query failed");
+            while let Ok(Some(row)) = rows.next() {
+                let values: Vec<String> = (0..count)
+                    .map(|i| match row.get::<_, rusqlite::types::Value>(i) {
+                        Ok(rusqlite::types::Value::Null) => "NULL".to_string(),
+                        Ok(rusqlite::types::Value::Integer(v)) => v.to_string(),
+                        Ok(rusqlite::types::Value::Real(v)) => v.to_string(),
+                        Ok(rusqlite::types::Value::Text(v)) => v,
+                        Ok(rusqlite::types::Value::Blob(v)) => format!("<blob:{}b>", v.len()),
+                        Err(_) => "ERR".to_string(),
+                    })
+                    .collect();
+                println!("{}", values.join("\t"));
             }
         }
     }
