@@ -47,6 +47,7 @@ function Trash() {
       await mediaPermanentDelete(pendingPermanentId);
       setSelected(null);
       loadTrash();
+      window.dispatchEvent(new CustomEvent("collections-changed"));
     } catch (e) {
       console.error("Failed to permanently delete:", e);
     } finally {
@@ -64,6 +65,7 @@ function Trash() {
       await mediaEmptyTrash();
       setSelected(null);
       loadTrash();
+      window.dispatchEvent(new CustomEvent("collections-changed"));
     } catch (e) {
       console.error("Failed to empty trash:", e);
     } finally {
