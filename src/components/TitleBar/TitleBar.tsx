@@ -14,7 +14,7 @@ export function TitleBar() {
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       <div className="flex h-full flex-1 items-center gap-2 pl-4 cursor-default">
-        <div className="h-5 w-5 rounded bg-blue-600" />
+        <div className="h-5 w-5 rounded bg-[var(--color-accent)]" />
         <span className="text-sm font-semibold text-[var(--color-text-primary)]">
           Medix
         </span>

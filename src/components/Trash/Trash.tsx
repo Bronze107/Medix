@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Media } from "@/types/media";
+import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { mediaListTrash, mediaRecover, mediaPermanentDelete, mediaEmptyTrash } from "@/lib/tauri";
 import Gallery from "@/components/Gallery/Gallery";
 
 function Trash() {
   const [media, setMedia] = useState<Media[]>([]);
   const [selected, setSelected] = useState<Media | null>(null);
+  const [confirmType, setConfirmType] = useState<"permanent" | "empty" | null>(null);
 
   const loadTrash = useCallback(async () => {
     try {
@@ -30,25 +32,40 @@ function Trash() {
     }
   };
 
-  const handlePermanentDelete = async (id: string) => {
-    if (!confirm("确定要永久删除吗？此操作不可撤销。")) return;
+  const [pendingPermanentId, setPendingPermanentId] = useState<string | null>(null);
+
+  const handlePermanentDelete = (id: string) => {
+    setPendingPermanentId(id);
+    setConfirmType("permanent");
+  };
+
+  const confirmPermanentDelete = async () => {
+    if (!pendingPermanentId) return;
     try {
-      await mediaPermanentDelete(id);
+      await mediaPermanentDelete(pendingPermanentId);
       setSelected(null);
       loadTrash();
     } catch (e) {
       console.error("Failed to permanently delete:", e);
+    } finally {
+      setConfirmType(null);
+      setPendingPermanentId(null);
     }
   };
 
-  const handleEmptyTrash = async () => {
-    if (!confirm("确定要清空回收站吗？所有已删除的图片将被永久删除，此操作不可撤销。")) return;
+  const handleEmptyTrash = () => {
+    setConfirmType("empty");
+  };
+
+  const confirmEmptyTrash = async () => {
     try {
       await mediaEmptyTrash();
       setSelected(null);
       loadTrash();
     } catch (e) {
       console.error("Failed to empty trash:", e);
+    } finally {
+      setConfirmType(null);
     }
   };
 
@@ -105,7 +122,7 @@ function Trash() {
               <div className="space-y-2">
                 <button
                   onClick={() => handleRecover(selected.id)}
-                  className="w-full rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500"
+                  className="w-full rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)]"
                 >
                   恢复
                 </button>
@@ -122,6 +139,24 @@ function Trash() {
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmType === "permanent"}
+        title="永久删除"
+        message="确定要永久删除吗？此操作不可撤销。"
+        variant="danger"
+        confirmLabel="永久删除"
+        onConfirm={confirmPermanentDelete}
+        onCancel={() => { setConfirmType(null); setPendingPermanentId(null); }}
+      />
+      <ConfirmDialog
+        open={confirmType === "empty"}
+        title="清空回收站"
+        message="确定要清空回收站吗？所有已删除的图片将被永久删除，此操作不可撤销。"
+        variant="danger"
+        confirmLabel="全部清空"
+        onConfirm={confirmEmptyTrash}
+        onCancel={() => setConfirmType(null)}
+      />
     </div>
   );
 }

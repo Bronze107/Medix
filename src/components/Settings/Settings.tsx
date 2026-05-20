@@ -407,7 +407,7 @@ function Settings() {
                     </p>
                   </div>
                   {m.path === llamaModel && (
-                    <span className="rounded bg-blue-900/30 px-1.5 py-0.5 text-[10px] text-blue-400">
+                    <span className="rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--color-accent)]">
                       已选择
                     </span>
                   )}
@@ -470,7 +470,7 @@ function Settings() {
                 href="https://huggingface.co/openbmb/MiniCPM-V-2_6-gguf"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-400 hover:underline"
+                className="text-[var(--color-accent)] hover:underline"
               >
                 MiniCPM-V 2.6 (VLM, ~1GB Q4)
               </a>
@@ -479,7 +479,7 @@ function Settings() {
                 href="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-400 hover:underline"
+                className="text-[var(--color-accent)] hover:underline"
               >
                 nomic-embed-text v1.5 (~270MB Q4)
               </a>
@@ -523,7 +523,7 @@ function Settings() {
         <div className="flex items-center gap-3 pt-2">
           <button
             onClick={handleSave}
-            className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+            className="rounded bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)]"
           >
             保存设置
           </button>

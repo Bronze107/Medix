@@ -226,7 +226,7 @@ function TableRow({
       style={style}
       className={`flex items-center gap-2 border-b border-[var(--color-border-light)] px-3 transition-colors ${
         isSelected
-          ? "bg-blue-900/20"
+          ? "bg-[var(--color-accent-soft)]"
           : isMultiSelected
           ? "bg-green-900/20"
           : "hover:bg-[var(--color-bg-hover)]"

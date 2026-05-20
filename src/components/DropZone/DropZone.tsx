@@ -7,7 +7,7 @@ function DropZone({ dropHover }: DropZoneProps) {
     <div
       className={`flex flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 transition-colors ${
         dropHover
-          ? "border-blue-500 bg-blue-900/20"
+          ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
           : "border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)]/30"
       }`}
     >

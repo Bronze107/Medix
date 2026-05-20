@@ -45,7 +45,7 @@ function parsePills(query: string) {
 }
 
 const pillColors: Record<string, string> = {
-  blue: "bg-blue-900/30 text-blue-400 border-blue-800/50",
+  blue: "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border-[var(--color-accent)]/30",
   green: "bg-green-900/30 text-green-400 border-green-800/50",
   yellow: "bg-yellow-900/30 text-yellow-400 border-yellow-800/50",
   purple: "bg-purple-900/30 text-purple-400 border-purple-800/50",

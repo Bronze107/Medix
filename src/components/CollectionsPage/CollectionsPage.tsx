@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import type { Collection } from "@/types/collection";
 import {
   collectionList,
@@ -78,9 +79,16 @@ function CollectionsPage() {
     notify();
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("确定要删除这个集合吗？\n图片不会被删除。")) return;
-    await collectionDelete(id);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const handleDelete = (id: string) => {
+    setDeleteId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    await collectionDelete(deleteId);
+    setDeleteId(null);
     load();
     notify();
   };
@@ -130,7 +138,7 @@ function CollectionsPage() {
           </select>
           <button
             onClick={() => setShowCreate(true)}
-            className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500"
+            className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)]"
           >
             新建集合
           </button>
@@ -222,7 +230,7 @@ function CollectionsPage() {
               <button
                 onClick={handleCreate}
                 disabled={!newName.trim()}
-                className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                className="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
               >
                 创建
               </button>
@@ -261,7 +269,7 @@ function CollectionsPage() {
               <button
                 onClick={() => handleRename(renameId)}
                 disabled={!renameText.trim()}
-                className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                className="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
               >
                 确认
               </button>
@@ -323,6 +331,14 @@ function CollectionsPage() {
           </div>
         </>
       )}
+      <ConfirmDialog
+        open={deleteId !== null}
+        title="删除集合"
+        message="确定要删除这个集合吗？图片不会被删除。"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   );
 }

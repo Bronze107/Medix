@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { showToast } from "@/components/Toast/Toast";
+import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
@@ -51,6 +52,7 @@ function formatDate(dateStr: string | null): string {
 
 function DetailPanel({ media, onDeleted }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<"details" | "captions" | "variants">("details");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Tags state
   const [tags, setTags] = useState<Tag[]>([]);
@@ -345,14 +347,14 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
   }
 
   return (
-    <div className="flex h-full w-72 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+    <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
       {/* Tabs */}
       <div className="mb-4 flex border-b border-[var(--color-border)]">
         <button
           onClick={() => setActiveTab("details")}
           className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "details"
-              ? "border-b-2 border-blue-500 text-blue-400"
+              ? "border-b-2 border-[var(--color-accent)] text-[var(--color-accent)]"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
           }`}
         >
@@ -362,7 +364,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
           onClick={() => setActiveTab("captions")}
           className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "captions"
-              ? "border-b-2 border-blue-500 text-blue-400"
+              ? "border-b-2 border-[var(--color-accent)] text-[var(--color-accent)]"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
           }`}
         >
@@ -372,7 +374,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
           onClick={() => setActiveTab("variants")}
           className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             activeTab === "variants"
-              ? "border-b-2 border-blue-500 text-blue-400"
+              ? "border-b-2 border-[var(--color-accent)] text-[var(--color-accent)]"
               : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
           }`}
         >
@@ -431,7 +433,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                     href={media.source_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-400 hover:underline"
+                    className="text-[var(--color-accent)] hover:underline"
                   >
                     {media.source_url}
                   </a>
@@ -446,7 +448,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                     href={media.page_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-400 hover:underline"
+                    className="text-[var(--color-accent)] hover:underline"
                   >
                     {media.page_url}
                   </a>
@@ -479,16 +481,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
           {/* Delete button */}
           <div className="mt-6 border-t border-[var(--color-border)] pt-4">
             <button
-              onClick={async () => {
-                if (!media) return;
-                if (!confirm("确定要删除这张图片吗？\n可以在回收站中恢复。")) return;
-                try {
-                  await mediaSoftDelete(media.id);
-                  if (onDeleted) onDeleted();
-                } catch (e) {
-                  console.error("Failed to delete:", e);
-                }
-              }}
+              onClick={() => setShowDeleteConfirm(true)}
               className="w-full rounded border border-red-800/50 bg-red-900/20 px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/30 transition-colors"
             >
               删除
@@ -510,13 +503,13 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                     key={tag.id}
                     className={`group inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs ${
                       isAi
-                        ? "bg-blue-900/30 text-blue-300"
+                        ? "bg-[var(--color-accent-soft)] text-[var(--color-accent-hover)]"
                         : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
                     }`}
                   >
                     {tag.name}
                     {isAi && (
-                      <span className="rounded bg-blue-800/50 px-1 text-[9px] text-blue-400">
+                      <span className="rounded bg-[var(--color-accent-soft)] px-1 text-[11px] text-[var(--color-accent)]">
                         AI
                       </span>
                     )}
@@ -526,7 +519,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                       title="移除标签"
                     >
                       <svg
-                        className="h-3 w-3 text-[var(--color-text-muted)] hover:text-red-400"
+                        className="h-3 w-3 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -564,7 +557,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                   }
                 }}
                 placeholder="添加标签..."
-                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
               />
               {showSuggestions && suggestions.length > 0 && (
                 <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] shadow-lg">
@@ -624,7 +617,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                   console.error("Failed to trigger AI annotation:", e);
                 }
               }}
-              className="mt-2 w-full rounded border border-blue-800/50 bg-blue-900/20 px-2 py-1.5 text-xs text-blue-400 hover:bg-blue-900/30 transition-colors"
+              className="mt-2 w-full rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] px-2 py-1.5 text-xs text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] transition-colors"
             >
               AI 标注
             </button>
@@ -641,19 +634,19 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
               const aiCaption = captions.find((c) => c.source === "ai");
               if (aiCaption) {
                 return (
-                  <div className="mb-4 rounded border border-blue-900/30 bg-blue-900/10 p-2.5">
+                  <div className="mb-4 rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-2.5">
                     <div className="mb-1.5 flex items-center gap-2">
-                      <span className="rounded bg-blue-900/40 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+                      <span className="rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
                         AI 描述
                       </span>
                     </div>
-                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-blue-100/80">
+                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--color-accent-hover)]/80">
                       {aiCaption.text}
                     </p>
                     <div className="mt-2 flex gap-2">
                       <button
                         onClick={() => handleAdoptAiCaption(aiCaption.text)}
-                        className="text-[10px] text-blue-400 hover:text-blue-300"
+                        className="text-[10px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
                       >
                         采纳为手动描述
                       </button>
@@ -685,13 +678,13 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                             value={editingText}
                             onChange={(e) => setEditingText(e.target.value)}
                             rows={3}
-                            className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+                            className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
                             autoFocus
                           />
                           <div className="flex gap-2">
                             <button
                               onClick={handleSaveEdit}
-                              className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
+                              className="rounded bg-[var(--color-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--color-accent-hover)]"
                             >
                               保存
                             </button>
@@ -711,13 +704,13 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                           <div className="mt-2 flex gap-2">
                             <button
                               onClick={() => handleStartEdit(c)}
-                              className="text-[10px] text-[var(--color-text-muted)] hover:text-blue-400"
+                              className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
                             >
                               编辑
                             </button>
                             <button
                               onClick={() => handleDeleteCaption(c.id)}
-                              className="text-[10px] text-[var(--color-text-muted)] hover:text-red-400"
+                              className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)]"
                             >
                               删除
                             </button>
@@ -744,12 +737,12 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
               }}
               rows={3}
               placeholder="输入描述文本... (Ctrl+Enter 保存)"
-              className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+              className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
             />
             <button
               onClick={handleAddCaption}
               disabled={!newCaptionText.trim()}
-              className="mt-2 w-full rounded bg-blue-600 px-2 py-1.5 text-xs text-white transition-colors hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600"
+              className="mt-2 w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50 disabled:hover:bg-[var(--color-accent)]"
             >
               添加
             </button>
@@ -820,7 +813,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                         </span>
                         <button
                           onClick={() => handleDeleteVariant(v.id)}
-                          className="shrink-0 rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-red-900/30 hover:text-red-400"
+                          className="shrink-0 rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-red-900/30 hover:text-[var(--color-danger)]"
                           title="删除版本"
                         >
                           <svg
@@ -840,10 +833,10 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
                       </div>
                       <div className="mt-1 flex items-center gap-1.5">
                         {isImported && (
-                          <span className="rounded bg-green-900/30 px-1 text-[9px] text-green-400">导入</span>
+                          <span className="rounded bg-green-900/30 px-1 text-[11px] text-green-400">导入</span>
                         )}
                         {isGenerated && (
-                          <span className="rounded bg-blue-900/30 px-1 text-[9px] text-blue-400">生成</span>
+                          <span className="rounded bg-[var(--color-accent-soft)] px-1 text-[11px] text-[var(--color-accent)]">生成</span>
                         )}
                         <span className="text-[10px] text-[var(--color-text-muted)]">
                           {v.format.toUpperCase()} · {v.width ?? "?"}×{v.height ?? "?"} ·{" "}
@@ -922,7 +915,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
               <button
                 onClick={handleGenerateVersion}
                 disabled={versionGenerating}
-                className="w-full rounded bg-blue-600 px-2 py-1.5 text-xs text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
+                className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
               >
                 {versionGenerating ? "生成中..." : "生成版本"}
               </button>
@@ -930,6 +923,25 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="删除图片"
+        message="确定要删除这张图片吗？可以在回收站中恢复。"
+        variant="danger"
+        confirmLabel="删除"
+        onConfirm={async () => {
+          if (!media) return;
+          try {
+            await mediaSoftDelete(media.id);
+            if (onDeleted) onDeleted();
+          } catch (e) {
+            console.error("Failed to delete:", e);
+          } finally {
+            setShowDeleteConfirm(false);
+          }
+        }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }

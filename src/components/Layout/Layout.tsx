@@ -83,16 +83,16 @@ function Layout() {
       <TitleBar />
       <div className="flex flex-1 overflow-hidden">
       {/* Sidebar */}
-      <aside className="flex w-56 flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
+      <aside className="flex w-60 min-w-[200px] max-w-[320px] flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)] resize-x overflow-hidden">
 
         <nav className="flex-1 space-y-1 px-2 py-2 overflow-auto pt-2">
           <NavLink
             to="/media"
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-[var(--color-bg-tertiary)] text-blue-400"
-                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                  ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border-l-[3px] border-[var(--color-accent)]"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] border-l-[3px] border-transparent"
               }`
             }
           >
@@ -102,10 +102,10 @@ function Layout() {
           <NavLink
             to="/trash"
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-[var(--color-bg-tertiary)] text-blue-400"
-                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                  ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border-l-[3px] border-[var(--color-accent)]"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] border-l-[3px] border-transparent"
               }`
             }
           >
@@ -118,7 +118,7 @@ function Layout() {
 
           {/* Collections */}
           <>
-            <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            <div className="px-3 pt-5 pb-1.5 text-xs font-semibold uppercase tracking-[0.05em] text-[var(--color-text-muted)]">
               集合
             </div>
             {collections.slice(0, 5).map((c) => (
@@ -128,7 +128,7 @@ function Layout() {
                 className={({ isActive }) =>
                   `flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                     isActive
-                      ? "bg-[var(--color-bg-tertiary)] text-blue-400"
+                      ? "bg-[var(--color-bg-tertiary)] text-[var(--color-accent)]"
                       : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
                   }`
                 }
@@ -138,7 +138,7 @@ function Layout() {
                 </svg>
                 <span className="truncate text-xs">{c.name}</span>
                 {c.item_count != null && (
-                  <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">{c.item_count}</span>
+                  <span className="ml-auto text-[11px] text-[var(--color-text-muted)]">{c.item_count}</span>
                 )}
               </NavLink>
             ))}
@@ -147,7 +147,7 @@ function Layout() {
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-lg px-3 py-1.5 text-xs transition-colors ${
                   isActive
-                    ? "bg-[var(--color-bg-tertiary)] text-blue-400"
+                    ? "bg-[var(--color-bg-tertiary)] text-[var(--color-accent)]"
                     : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
                 }`
               }
@@ -162,10 +162,10 @@ function Layout() {
           <NavLink
             to="/tags"
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-[var(--color-bg-tertiary)] text-blue-400"
-                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                  ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border-l-[3px] border-[var(--color-accent)]"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] border-l-[3px] border-transparent"
               }`
             }
           >
@@ -175,10 +175,10 @@ function Layout() {
           <NavLink
             to="/settings"
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-[var(--color-bg-tertiary)] text-blue-400"
-                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                  ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border-l-[3px] border-[var(--color-accent)]"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] border-l-[3px] border-transparent"
               }`
             }
           >
@@ -189,7 +189,7 @@ function Layout() {
           {/* Saved Filters */}
           {filters.length > 0 && (
             <>
-              <div className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+              <div className="px-3 pt-5 pb-1.5 text-xs font-semibold uppercase tracking-[0.05em] text-[var(--color-text-muted)]">
                 已保存的筛选器
               </div>
               {filters.map((f) => (
@@ -223,7 +223,7 @@ function Layout() {
                       await savedFiltersDelete(f.name);
                       loadFilters();
                     }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:text-[var(--color-danger)] group-hover:opacity-100"
                     title="删除筛选器"
                   >
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

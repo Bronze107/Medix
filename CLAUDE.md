@@ -4,6 +4,12 @@
 
 **[@AGENTS.md](./AGENTS.md)**
 
+## 设计规范
+
+前端 UI 遵循设计语言文档：**[@docs/design-language.md](./docs/design-language.md)**
+
+所有组件必须使用 CSS 变量（`var(--color-*)`）而非硬编码颜色。禁止使用 `window.confirm()`，统一用 `ConfirmDialog` 组件。
+
 ## 当前状态
 
 查看 [@PLAN.md](./PLAN.md) 了解已完成阶段和当前进度。

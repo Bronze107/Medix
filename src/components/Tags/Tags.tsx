@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Tag } from "@/types/tag";
+import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { tagList, tagCreate, tagDelete, tagRename } from "@/lib/tauri";
 
 function Tags() {
@@ -37,15 +38,21 @@ function Tags() {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`确定要删除标签 "${name}" 吗？关联的图片将不再显示此标签。`)) {
-      return;
-    }
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+
+  const handleDelete = (id: string, name: string) => {
+    setDeleteTarget({ id, name });
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await tagDelete(id);
+      await tagDelete(deleteTarget.id);
       await loadTags();
     } catch (e) {
       console.error("Failed to delete tag:", e);
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -88,12 +95,12 @@ function Tags() {
             if (e.key === "Enter") handleCreate();
           }}
           placeholder="新建标签..."
-          className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+          className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
         />
         <button
           onClick={handleCreate}
           disabled={loading || !newTagName.trim()}
-          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600"
+          className="rounded bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50 disabled:hover:bg-[var(--color-accent)]"
         >
           创建
         </button>
@@ -121,11 +128,11 @@ function Tags() {
                         if (e.key === "Escape") cancelEdit();
                       }}
                       autoFocus
-                      className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1 text-sm text-[var(--color-text-primary)] outline-none focus:border-blue-500"
+                      className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
                     />
                     <button
                       onClick={() => handleRename(tag.id)}
-                      className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500"
+                      className="rounded bg-[var(--color-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--color-accent-hover)]"
                     >
                       保存
                     </button>
@@ -170,6 +177,15 @@ function Tags() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除标签"
+        message={deleteTarget ? `确定要删除标签 "${deleteTarget.name}" 吗？关联的图片将不再显示此标签。` : ""}
+        variant="danger"
+        confirmLabel="删除"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

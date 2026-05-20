@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import type { Collection } from "@/types/collection";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
@@ -53,6 +54,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const initialQuery = searchParams.get("q") ?? "";
 
   const [media, setMedia] = useState<Media[]>([]);
+  const [deleteConfirm, setDeleteConfirm] = useState<"batch" | "single" | null>(null);
   const [selected, setSelected] = useState<Media | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("imported_at");
   const [descending, setDescending] = useState(true);
@@ -354,9 +356,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
     }
   };
 
-  const handleBatchDelete = async () => {
+  const handleBatchDelete = () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`确定要删除 ${selectedIds.size} 张图片吗？\n可以在回收站中恢复。`)) return;
+    setDeleteConfirm("batch");
+  };
+
+  const confirmBatchDelete = async () => {
     for (const id of selectedIds) {
       try {
         await mediaSoftDelete(id);
@@ -367,6 +372,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
     setSelectedIds(new Set());
     setSelected(null);
     setSelectionMode(false);
+    setDeleteConfirm(null);
     loadMedia();
     showToast(`已删除 ${selectedIds.size} 张图片`);
   };
@@ -527,7 +533,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           )}
           <span className="text-xs text-[var(--color-text-muted)]">{media.length} 项</span>
           {aiRemaining > 0 && (
-            <span className="rounded-full bg-blue-900/30 px-2 py-0.5 text-[11px] text-blue-400">
+            <span className="rounded-full bg-[var(--color-accent-soft)] px-2 py-0.5 text-[11px] text-[var(--color-accent)]">
               AI 处理中 · {aiRemaining} 剩余
             </span>
           )}
@@ -539,7 +545,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
         <div
           className={`px-6 py-2 text-xs ${
             isImporting
-              ? "bg-blue-900/30 text-blue-400"
+              ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
               : importMessage.includes("失败")
               ? "bg-red-900/30 text-red-400"
               : "bg-green-900/30 text-green-400"
@@ -552,9 +558,9 @@ function AllMedia({ collectionId }: AllMediaProps) {
             )}
           </div>
           {importProgress && isImporting && (
-            <div className="mt-1 h-1 w-full rounded-full bg-blue-900/50">
+            <div className="mt-1 h-1 w-full rounded-full bg-[var(--color-accent-soft)]">
               <div
-                className="h-full rounded-full bg-blue-500 transition-all duration-150"
+                className="h-full rounded-full bg-[var(--color-accent)] transition-all duration-150"
                 style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
               />
             </div>
@@ -589,7 +595,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
             </button>
             <button
               onClick={() => setShowBatchTagDialog(true)}
-              className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500"
+              className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)]"
             >
               添加标签
             </button>
@@ -652,7 +658,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 试试修改搜索条件，或
                 <button
                   onClick={() => { setSearchQuery(""); setSearchParams({}); }}
-                  className="ml-1 text-blue-400 hover:text-blue-300"
+                  className="ml-1 text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
                 >
                   重置搜索
                 </button>
@@ -733,7 +739,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               }}
               placeholder="搜索或新建标签..."
               autoFocus
-              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
             />
             <div className="max-h-48 overflow-auto space-y-1">
               {filteredBatchTags.length === 0 && !batchTagSearch.trim() && (
@@ -751,7 +757,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               {batchTagSearch.trim() && !hasExactMatch && (
                 <button
                   onClick={handleCreateAndBatchAdd}
-                  className="block w-full rounded bg-blue-600/20 px-2 py-1.5 text-left text-xs text-blue-400 hover:bg-blue-600/30"
+                  className="block w-full rounded bg-[var(--color-accent-soft)] px-2 py-1.5 text-left text-xs text-[var(--color-accent)] hover:bg-[var(--color-accent-soft-hover)]"
                 >
                   创建标签 "{batchTagSearch.trim()}" 并添加
                 </button>
@@ -804,7 +810,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               placeholder="输入描述文本... (Ctrl+Enter 保存)"
               rows={4}
               autoFocus
-              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -826,7 +832,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                   setSelectionMode(false);
                 }}
                 disabled={!batchCaptionText.trim()}
-                className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
               >
                 添加
               </button>
@@ -854,7 +860,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               onChange={(e) => setBatchRemoveTagSearch(e.target.value)}
               placeholder="搜索标签..."
               autoFocus
-              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
             />
             <div className="max-h-48 overflow-auto space-y-1">
               {intersectTags.length === 0 ? (
@@ -984,7 +990,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               }}
               placeholder="输入筛选器名称..."
               autoFocus
-              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-blue-500"
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
             />
             <div className="flex justify-end gap-2">
               <button
@@ -1005,7 +1011,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                   setSavedFilterName("");
                 }}
                 disabled={!savedFilterName.trim()}
-                className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
               >
                 保存
               </button>
@@ -1141,15 +1147,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
           )}
           <div className="my-1 border-t border-[var(--color-border)]" />
           <button
-            onClick={async () => {
-              if (confirm("确定要删除这张图片吗？\n可以在回收站中恢复。")) {
-                await mediaSoftDelete(ctxMenu.media.id);
-                setCtxMenu(null);
-                setSelected(null);
-                loadMedia();
-              }
+            onClick={() => {
+              setCtxMenu(null);
+              setDeleteConfirm("single");
             }}
-            className="block w-full px-3 py-1.5 text-left text-xs text-red-400 hover:bg-red-900/20"
+            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)]"
           >
             删除
           </button>
@@ -1263,7 +1265,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                       }
                     }}
                     disabled={!importZipPath.trim() || importing}
-                    className="rounded bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                    className="rounded bg-[var(--color-accent)] px-4 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
                   >
                     {importing ? "导入中..." : "开始导入"}
                   </button>
@@ -1273,6 +1275,35 @@ function AllMedia({ collectionId }: AllMediaProps) {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={deleteConfirm === "batch"}
+        title="批量删除"
+        message={`确定要删除 ${selectedIds.size} 张图片吗？可以在回收站中恢复。`}
+        variant="danger"
+        confirmLabel="删除"
+        onConfirm={confirmBatchDelete}
+        onCancel={() => setDeleteConfirm(null)}
+      />
+      <ConfirmDialog
+        open={deleteConfirm === "single"}
+        title="删除图片"
+        message="确定要删除这张图片吗？可以在回收站中恢复。"
+        variant="danger"
+        confirmLabel="删除"
+        onConfirm={async () => {
+          if (!ctxMenu?.media) return;
+          try {
+            await mediaSoftDelete(ctxMenu.media.id);
+            setSelected(null);
+            loadMedia();
+          } catch (e) {
+            console.error("Failed to delete:", e);
+          } finally {
+            setDeleteConfirm(null);
+          }
+        }}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }

@@ -24,13 +24,6 @@ interface GalleryProps {
   gap?: number;
 }
 
-function formatFileSize(bytes: number | null): string {
-  if (bytes === null) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 const thumbCache = new Map<string, string>();
 
 function useThumbnail(id: string | null) {
@@ -89,7 +82,7 @@ function Gallery({
   selectedIds,
   selectionMode,
   onToggleSelect,
-  columnCount = 4,
+  columnCount = 5,
   gap = 12,
 }: GalleryProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -112,7 +105,7 @@ function Gallery({
   const virtualizer = useVirtualizer({
     count: totalRowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => groupRowSet.has(index) ? 48 : 220,
+    estimateSize: (index) => groupRowSet.has(index) ? 48 : 240,
     overscan: 3,
   });
 
@@ -217,6 +210,7 @@ function ThumbnailCard({
   onToggleSelect: (shiftKey: boolean) => void;
 }) {
   const thumbUrl = useThumbnail(item.id);
+  const [loaded, setLoaded] = useState(false);
 
   const handleCardClick = (e: React.MouseEvent) => {
     if (selectionMode) {
@@ -240,72 +234,65 @@ function ThumbnailCard({
         e.preventDefault();
         onContextMenu?.(e);
       }}
-      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border transition-all ${
+      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl transition-all duration-200 ease-out ${
         isSelected
-          ? "border-blue-500 bg-[var(--color-bg-tertiary)]"
+          ? "ring-2 ring-[var(--color-accent)] ring-offset-2 ring-offset-[var(--color-bg-primary)] bg-[var(--color-bg-elevated)]"
           : isMultiSelected
-          ? "border-green-500 bg-[var(--color-bg-tertiary)]/70"
-          : "border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)]/50 hover:border-[var(--color-text-muted)]"
+          ? "ring-2 ring-[var(--color-success)] ring-offset-2 ring-offset-[var(--color-bg-primary)] bg-[var(--color-bg-elevated)]"
+          : "bg-[var(--color-bg-elevated)] shadow-sm hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5"
       }`}
     >
-      {/* Checkbox overlay */}
+      {/* Checkbox – top-right, blurred frosted glass */}
       <div
-        className={`absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded border transition-all ${
-          isMultiSelected
-            ? "border-green-500 bg-green-500 text-white"
-            : "border-[var(--color-border-light)] bg-[var(--color-bg-secondary)]/80 text-transparent group-hover:border-[var(--color-text-secondary)]"
-        } ${selectionMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+        className={`absolute right-2 top-2 z-10 transition-all duration-150 ${
+          selectionMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
         onClick={(e: React.MouseEvent) => {
           e.stopPropagation();
           onToggleSelect(e.shiftKey);
         }}
       >
-        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-        </svg>
+        <div
+          className={`flex h-6 w-6 items-center justify-center rounded-md border-2 backdrop-blur-sm transition-all ${
+            isMultiSelected
+              ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
+              : "border-white/70 bg-white/15 text-transparent hover:border-white"
+          }`}
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+          </svg>
+        </div>
       </div>
 
-      <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-[var(--color-bg-secondary)]/50">
+      {/* Image area */}
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-[var(--color-bg-tertiary)]/30">
         {thumbUrl ? (
           <img
             src={thumbUrl}
             alt=""
             loading="lazy"
-            className="h-full w-full object-cover"
+            className={`h-full w-full object-cover transition-all duration-500 ease-out group-hover:scale-105 ${
+              loaded ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-95 blur-sm"
+            }`}
             draggable={false}
+            onLoad={() => setLoaded(true)}
           />
         ) : (
           <div className="flex flex-col items-center gap-1 p-2 text-[var(--color-text-muted)]">
-            <svg
-              className="h-8 w-8"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 0 0 2.25-2.25V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
-              />
+            <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 0 0 2.25-2.25V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
             </svg>
-            <span className="text-[10px]">
-              {item.width ?? "?"} × {item.height ?? "?"}
-            </span>
+            <span className="text-[11px]">{item.width ?? "?"} × {item.height ?? "?"}</span>
           </div>
         )}
+        {/* Hover info overlay – file name at bottom */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/50 to-transparent pb-2 pt-8 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+          <p className="truncate px-3 text-[11px] font-medium text-white/90">
+            {item.id.slice(0, 8)}…
+          </p>
+        </div>
       </div>
-      <div className="border-t border-[var(--color-border-light)] p-2 text-left">
-        <p className="truncate text-xs font-medium text-[var(--color-text-secondary)]">
-          {item.id.slice(0, 8)}…
-        </p>
-        <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
-          {formatFileSize(item.file_size)}
-        </p>
-      </div>
-      {isSelected && !selectionMode && (
-        <div className="absolute inset-y-0 left-0 w-0.5 bg-blue-500" />
-      )}
     </div>
   );
 }

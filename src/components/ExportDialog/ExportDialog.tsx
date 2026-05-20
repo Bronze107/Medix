@@ -89,7 +89,7 @@ function ExportDialog({ mediaIds, totalCount, onClose }: ExportDialogProps) {
               <>
                 <div className="h-2 w-full rounded-full bg-[var(--color-bg-secondary)]">
                   <div
-                    className="h-2 rounded-full bg-blue-500 transition-all"
+                    className="h-2 rounded-full bg-[var(--color-accent)] transition-all"
                     style={{
                       width: `${(progress.current / progress.total) * 100}%`,
                     }}
@@ -276,7 +276,7 @@ function ExportDialog({ mediaIds, totalCount, onClose }: ExportDialogProps) {
               <button
                 onClick={handleExport}
                 disabled={!outputDir.trim()}
-                className="rounded bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                className="rounded bg-[var(--color-accent)] px-4 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
               >
                 开始导出
               </button>
