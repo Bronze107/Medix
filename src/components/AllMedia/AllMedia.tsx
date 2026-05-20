@@ -55,6 +55,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
 
   const [media, setMedia] = useState<Media[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<"batch" | "single" | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Media | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("imported_at");
   const [descending, setDescending] = useState(true);
@@ -374,6 +375,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
     setSelectionMode(false);
     setDeleteConfirm(null);
     loadMedia();
+    window.dispatchEvent(new CustomEvent("collections-changed"));
     showToast(`已删除 ${selectedIds.size} 张图片`);
   };
 
@@ -1148,6 +1150,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           <div className="my-1 border-t border-[var(--color-border)]" />
           <button
             onClick={() => {
+              setPendingDeleteId(ctxMenu.media.id);
               setCtxMenu(null);
               setDeleteConfirm("single");
             }}
@@ -1291,18 +1294,20 @@ function AllMedia({ collectionId }: AllMediaProps) {
         variant="danger"
         confirmLabel="删除"
         onConfirm={async () => {
-          if (!ctxMenu?.media) return;
+          if (!pendingDeleteId) return;
           try {
-            await mediaSoftDelete(ctxMenu.media.id);
+            await mediaSoftDelete(pendingDeleteId);
             setSelected(null);
             loadMedia();
+            window.dispatchEvent(new CustomEvent("collections-changed"));
           } catch (e) {
             console.error("Failed to delete:", e);
           } finally {
             setDeleteConfirm(null);
+            setPendingDeleteId(null);
           }
         }}
-        onCancel={() => setDeleteConfirm(null)}
+        onCancel={() => { setDeleteConfirm(null); setPendingDeleteId(null); }}
       />
     </div>
   );

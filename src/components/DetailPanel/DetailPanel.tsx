@@ -933,6 +933,7 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
           if (!media) return;
           try {
             await mediaSoftDelete(media.id);
+            window.dispatchEvent(new CustomEvent("collections-changed"));
             if (onDeleted) onDeleted();
           } catch (e) {
             console.error("Failed to delete:", e);

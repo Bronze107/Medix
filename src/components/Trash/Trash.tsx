@@ -27,6 +27,7 @@ function Trash() {
       await mediaRecover(id);
       setSelected(null);
       loadTrash();
+      window.dispatchEvent(new CustomEvent("collections-changed"));
     } catch (e) {
       console.error("Failed to recover:", e);
     }

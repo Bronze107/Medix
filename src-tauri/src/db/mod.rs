@@ -287,7 +287,9 @@ pub fn collection_list(app: &AppHandle) -> Result<Vec<Collection>, Box<dyn std::
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
         "SELECT c.id, c.name, c.description, c.pinned_at, c.created_at,
-                (SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = c.id) as item_count
+                (SELECT COUNT(*) FROM collection_items ci
+                 JOIN media m ON ci.media_id = m.id
+                 WHERE ci.collection_id = c.id AND m.deleted_at IS NULL) as item_count
          FROM collections c ORDER BY c.pinned_at IS NULL, c.pinned_at, c.created_at DESC",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -310,7 +312,9 @@ pub fn collection_get(app: &AppHandle, id: &str) -> Result<Option<Collection>, B
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
         "SELECT c.id, c.name, c.description, c.pinned_at, c.created_at,
-                (SELECT COUNT(*) FROM collection_items ci WHERE ci.collection_id = c.id) as item_count
+                (SELECT COUNT(*) FROM collection_items ci
+                 JOIN media m ON ci.media_id = m.id
+                 WHERE ci.collection_id = c.id AND m.deleted_at IS NULL) as item_count
          FROM collections c WHERE c.id = ?1",
     )?;
     let mut rows = stmt.query_map(params![id], |row| {
