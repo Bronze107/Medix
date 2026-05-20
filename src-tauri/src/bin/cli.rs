@@ -47,6 +47,12 @@ enum Command {
         /// SQL query (read-only, first column returned per row)
         sql: String,
     },
+
+    /// Execute a write SQL statement (for testing only — use with caution)
+    Exec {
+        /// SQL statement (INSERT / UPDATE / DELETE)
+        sql: String,
+    },
 }
 
 fn main() {
@@ -137,6 +143,16 @@ fn main() {
                     })
                     .collect();
                 println!("{}", values.join("\t"));
+            }
+        }
+        Command::Exec { sql } => {
+            let conn = match rusqlite::Connection::open(&db_path) {
+                Ok(c) => c,
+                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+            };
+            match conn.execute(&sql, []) {
+                Ok(n) => println!("{} rows affected", n),
+                Err(e) => { eprintln!("SQL error: {}", e); std::process::exit(1); }
             }
         }
     }
