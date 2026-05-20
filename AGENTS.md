@@ -30,6 +30,20 @@
 Medix/
 ├── src/                    # 前端代码 (React + TS)
 │   ├── components/         # UI 组件，按功能分子目录
+│   │   ├── AllMedia/       # 媒体浏览主视图 (网格/表格 + 搜索/排序/分组)
+│   │   ├── CollectionsPage/ # 集合管理页
+│   │   ├── DetailPanel/    # 右侧详情面板 (详情/描述/版本)
+│   │   ├── DropZone/       # 拖拽导入区域
+│   │   ├── ExportDialog/   # 导出向导对话框
+│   │   ├── Gallery/        # 网格视图 (虚拟滚动)
+│   │   ├── Layout/         # 全局布局 (侧边栏 + 主内容区)
+│   │   ├── Lightbox/       # 原图查看 + 版本对比
+│   │   ├── SearchBar/      # 搜索栏 (语法高亮 pill)
+│   │   ├── Settings/       # 设置页面
+│   │   ├── TableView/      # 列表视图 (虚拟滚动)
+│   │   ├── Tags/           # 标签管理页
+│   │   ├── Toast/          # Toast 通知组件
+│   │   └── Trash/          # 回收站页面
 │   ├── hooks/              # React hooks
 │   ├── stores/             # Zustand stores
 │   ├── types/              # 全局 TypeScript 类型
@@ -38,7 +52,7 @@ Medix/
 │   ├── src/
 │   │   ├── commands/       # Tauri IPC 命令 (前端可调用的 Rust 函数)
 │   │   ├── db/             # 数据库: schema, migrations, queries
-│   │   ├── media/          # 媒体处理: 导入, 缩略图, 元数据提取
+│   │   ├── media/          # 媒体处理: 导入, 缩略图, 元数据提取, pHash 去重
 │   │   ├── ai/             # AI 推理
 │   │   │   ├── mod.rs      # AiQueue 异步队列 + 任务处理
 │   │   │   ├── llamacpp.rs # OpenAI 兼容 HTTP 客户端
@@ -115,9 +129,9 @@ Medix/
 | 媒体 | `media_` | `media_import`, `media_list`, `media_search` |
 | 删除/回收站 | `media_` | `media_soft_delete`, `media_recover`, `media_permanent_delete`, `media_empty_trash`, `media_list_trash` |
 | 去重 | `media_` | `media_find_duplicates` |
-| 标签 | `tag_` / `media_tag_` | `tag_list`, `tag_create`, `media_tag_add`, `media_tag_add_batch` |
+| 标签 | `tag_` / `media_tag_` | `tag_list`, `tag_create`, `media_tag_add`, `media_tag_add_batch`, `media_tag_remove`, `media_tag_remove_batch`, `media_tags_intersect` |
 | 版本 | `variant_` | `variant_generate`, `variant_import`, `variant_list`, `variant_delete`, `variant_presets` |
-| 描述 | `caption_` | `caption_create`, `caption_list`, `caption_update`, `caption_delete` |
+| 描述 | `caption_` | `caption_create`, `caption_create_batch`, `caption_list`, `caption_update`, `caption_delete` |
 | AI 服务 | `llama_server_` | `llama_server_start`, `llama_server_stop`, `llama_server_status` |
 | AI 标注 | `media_ai_annotate`, `ai_pending_count` | 手动触发 AI 标注 + 查询排队数 |
 | AI 模型 | `model_list`, `auto_detect`, `embedding_info` | (无统一前缀) |
@@ -133,7 +147,9 @@ Medix/
 - **本地优先**: 所有数据处理本地完成，不上传云端（llama-server 纯本地推理）
 - **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成，详情面板可手动重跑
 - **版本控制**: 同一原图支持多个衍生版本（内部生成 + 外部导入），带自定义标签和来源追踪
-- **集合**: 图片可按集合分组管理，支持置顶常用集合、外部导入自动归集
+- **集合**: 图片可按集合分组管理，支持置顶常用集合、导入自动归集、集合内搜索
+- **视图分组**: 网格和列表视图可按日期分组显示，带分组标题和计数
+- **导入进度**: 批量导入时前端实时显示进度条（Tauri event `import-progress`）
 - **内存安全**: 图片通过 `asset://` 协议直出，不经过 base64 编解码
 - **向后兼容**: 数据库 schema 变更采用 `pragma_table_info` 条件检查，不丢失用户数据
 

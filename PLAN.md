@@ -294,7 +294,7 @@
 ### 任务
 1. [ ] 性能优化
    - [ ] 缩略图预生成改为 Worker 线程 / 后台任务
-   - [x] 大型网格使用虚拟滚动 + 回收 DOM（@tanstack/react-virtual）
+   - [x] 大型网格使用虚拟滚动 + 回收 DOM（@tanstack/react-virtual）— 已应用于 Grid、Table 两种视图
    - [ ] SQLite 索引优化 (覆盖索引、查询计划分析)
    - [ ] 图片解码使用流式/分块处理
 2. [x] 数据安全
@@ -364,18 +364,20 @@ Medix/
 │   ├── main.tsx                # 前端入口
 │   ├── App.tsx                 # 根组件
 │   ├── components/             # UI 组件
-│   │   ├── Layout/
-│   │   ├── Gallery/
-│   │   ├── DetailPanel/
-│   │   ├── DropZone/
-│   │   ├── Lightbox/
-│   │   ├── SearchBar/
-│   │   ├── Settings/
-│   │   ├── ExportDialog/
-│   │   ├── TableView/
-│   │   ├── CollectionsPage/
-│   │   ├── Trash/
-│   │   └── TagManager/
+│   │   ├── AllMedia/           # 媒体浏览主视图
+│   │   ├── CollectionsPage/    # 集合管理页
+│   │   ├── DetailPanel/        # 右侧详情面板
+│   │   ├── DropZone/           # 拖拽导入区域
+│   │   ├── ExportDialog/       # 导出向导
+│   │   ├── Gallery/            # 网格视图
+│   │   ├── Layout/             # 全局布局
+│   │   ├── Lightbox/           # 原图查看器
+│   │   ├── SearchBar/          # 搜索栏
+│   │   ├── Settings/           # 设置页面
+│   │   ├── TableView/          # 列表视图
+│   │   ├── Tags/               # 标签管理页
+│   │   ├── Toast/              # Toast 通知
+│   │   └── Trash/              # 回收站
 │   ├── hooks/                  # React hooks
 │   ├── stores/                 # Zustand stores
 │   ├── types/                  # TypeScript 类型
@@ -385,7 +387,7 @@ Medix/
 │   │   ├── main.rs             # 入口
 │   │   ├── commands/           # Tauri IPC 命令
 │   │   ├── db/                 # 数据库模块 (migrations + CRUD)
-│   │   ├── media/              # 媒体处理 (import + thumbnail)
+│   │   ├── media/              # 媒体处理 (import + thumbnail + pHash)
 │   │   ├── ai/                 # AI 推理
 │   │   │   ├── mod.rs          # AiQueue 异步队列
 │   │   │   ├── llamacpp.rs     # OpenAI 兼容 HTTP 客户端
@@ -394,10 +396,9 @@ Medix/
 │   │   ├── settings/           # 设置键定义 + get/set helper
 │   │   ├── variants/           # 版本控制 (生成 + 导入)
 │   │   ├── captions/           # Caption 结构体
-│   │   ├── search/             # 搜索引擎
+│   │   ├── search/             # 搜索引擎 (parser + semantic + execute_search)
 │   │   ├── export/             # 数据集导出
 │   │   ├── server/             # 本地 HTTP 服务
-│   │   ├── collections/        # 集合 (通过 commands/collection.rs)
 │   │   └── tag/                # Tag 结构体
 │   └── Cargo.toml
 ├── extension/                  # 浏览器插件
