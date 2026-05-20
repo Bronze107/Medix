@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use ulid::Ulid;
 
@@ -11,6 +11,19 @@ use crate::variants::Variant;
 
 pub fn db_path(app: &AppHandle) -> PathBuf {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
+    app_dir.join("medix.db")
+}
+
+/// Standalone DB path for CLI / testing (no Tauri AppHandle required).
+pub fn db_path_standalone() -> PathBuf {
+    let base = if cfg!(windows) {
+        PathBuf::from(std::env::var("APPDATA").unwrap_or_default())
+    } else {
+        let home = std::env::var("HOME").unwrap_or_default();
+        PathBuf::from(home).join(".local").join("share")
+    };
+    let app_dir = base.join("com.bronze107.medix");
     fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
     app_dir.join("medix.db")
 }
@@ -535,13 +548,12 @@ pub(crate) fn resolve_thumb_paths(app: &AppHandle, media_list: &mut [Media]) {
     }
 }
 
-pub fn list_media(
-    app: &AppHandle,
+pub fn list_media_path(
+    db_path: &Path,
     sort_by: &str,
     descending: bool,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = Connection::open(db_path)?;
 
     let order = if descending { "DESC" } else { "ASC" };
     let sort_column = match sort_by {
@@ -588,8 +600,17 @@ pub fn list_media(
         results.push(media?);
     }
 
-    resolve_thumb_paths(app, &mut results);
+    Ok(results)
+}
 
+pub fn list_media(
+    app: &AppHandle,
+    sort_by: &str,
+    descending: bool,
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let mut results = list_media_path(&path, sort_by, descending)?;
+    resolve_thumb_paths(app, &mut results);
     Ok(results)
 }
 
@@ -640,9 +661,8 @@ pub fn media_get_batch(
 
 // --- Tag operations ---
 
-pub fn tag_list(app: &AppHandle) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+pub fn tag_list_path(db_path: &Path) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
+    let conn = Connection::open(db_path)?;
     let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY name")?;
     let tag_iter = stmt.query_map([], |row| {
         Ok(Tag {
@@ -657,6 +677,10 @@ pub fn tag_list(app: &AppHandle) -> Result<Vec<Tag>, Box<dyn std::error::Error>>
         results.push(tag?);
     }
     Ok(results)
+}
+
+pub fn tag_list(app: &AppHandle) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
+    tag_list_path(&db_path(app))
 }
 
 pub fn tag_create(
@@ -820,19 +844,18 @@ pub enum TagSearchMode {
     Union,
 }
 
-pub fn media_search_by_tags(
-    app: &AppHandle,
+pub fn media_search_by_tags_path(
+    db_path: &Path,
     tag_names: &[String],
     sort_by: &str,
     descending: bool,
     mode: TagSearchMode,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     if tag_names.is_empty() {
-        return list_media(app, sort_by, descending);
+        return list_media_path(db_path, sort_by, descending);
     }
 
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = Connection::open(db_path)?;
 
     let order = if descending { "DESC" } else { "ASC" };
     let sort_column = match sort_by {
@@ -858,7 +881,7 @@ pub fn media_search_by_tags(
             placeholders, tag_names.len(), sort_column, order
         ),
         TagSearchMode::Union => format!(
-            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.deleted_at
+            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
@@ -899,12 +922,27 @@ pub fn media_search_by_tags(
         results.push(media?);
     }
 
+    Ok(results)
+}
+
+pub fn media_search_by_tags(
+    app: &AppHandle,
+    tag_names: &[String],
+    sort_by: &str,
+    descending: bool,
+    mode: TagSearchMode,
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    if tag_names.is_empty() {
+        return list_media(app, sort_by, descending);
+    }
+    let path = db_path(app);
+    let mut results = media_search_by_tags_path(&path, tag_names, sort_by, descending, mode)?;
     resolve_thumb_paths(app, &mut results);
     Ok(results)
 }
 
-pub fn media_query_filtered(
-    app: &AppHandle,
+pub fn media_query_filtered_path(
+    db_path: &Path,
     media_ids: Option<&[String]>,
     dimensions: &[crate::search::parser::DimFilter],
     date_range: &Option<crate::search::parser::DateRange>,
@@ -914,8 +952,7 @@ pub fn media_query_filtered(
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     use crate::search::parser::{Comparison, DimFilter, SizeOp};
 
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = Connection::open(db_path)?;
 
     let order = if descending { "DESC" } else { "ASC" };
     let sort_column = match sort_by {
@@ -1041,6 +1078,18 @@ pub fn media_query_filtered(
         results.push(r?);
     }
     Ok(results)
+}
+
+pub fn media_query_filtered(
+    app: &AppHandle,
+    media_ids: Option<&[String]>,
+    dimensions: &[crate::search::parser::DimFilter],
+    date_range: &Option<crate::search::parser::DateRange>,
+    file_size: &Option<crate::search::parser::SizeFilter>,
+    sort_by: &str,
+    descending: bool,
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    media_query_filtered_path(&db_path(app), media_ids, dimensions, date_range, file_size, sort_by, descending)
 }
 
 // --- Variant operations ---

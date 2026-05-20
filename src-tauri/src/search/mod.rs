@@ -98,3 +98,54 @@ pub fn execute_search(
 
     Ok(results)
 }
+
+/// Standalone search entry point for CLI / testing (no Tauri AppHandle).
+/// Does NOT perform semantic search (requires embedding DB) or thumbnail path resolution.
+pub fn execute_search_path(
+    db_path: &std::path::Path,
+    query: &str,
+    sort_by: &str,
+    descending: bool,
+) -> Result<Vec<Media>, String> {
+    let parsed = parser::parse(query);
+
+    // Step 2: Tag filter
+    let tag_ids: Option<HashSet<String>> = parsed
+        .tag_group
+        .as_ref()
+        .map(|tg| {
+            let mode = match tg.mode {
+                TagMatchMode::All => TagSearchMode::Intersection,
+                TagMatchMode::Any => TagSearchMode::Union,
+            };
+            crate::db::media_search_by_tags_path(db_path, &tg.tags, sort_by, descending, mode)
+                .map(|list| list.into_iter().map(|m| m.id).collect())
+        })
+        .transpose()
+        .map_err(|e| e.to_string())?;
+
+    // Step 3: Combine candidates (no semantic in CLI mode)
+    let candidate_ids: Option<Vec<String>> = tag_ids.map(|t| t.iter().cloned().collect());
+
+    // Step 4: If no filters at all, return all media
+    if candidate_ids.is_none()
+        && parsed.dimensions.is_empty()
+        && parsed.date_range.is_none()
+        && parsed.file_size.is_none()
+    {
+        return crate::db::list_media_path(db_path, sort_by, descending)
+            .map_err(|e| e.to_string());
+    }
+
+    // Step 5: Apply metadata filters via SQL
+    crate::db::media_query_filtered_path(
+        db_path,
+        candidate_ids.as_deref(),
+        &parsed.dimensions,
+        &parsed.date_range,
+        &parsed.file_size,
+        sort_by,
+        descending,
+    )
+    .map_err(|e| e.to_string())
+}

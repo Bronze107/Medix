@@ -5,6 +5,7 @@ description = "Media Dataset Manager"
 authors = ["bronze107"]
 edition = "2021"
 rust-version = "1.78"
+default-run = "medix"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -28,8 +29,13 @@ tiny_http = "0.12"
 which = "7"
 zip = "2"
 sha2 = "0.10"
+clap = { version = "4", features = ["derive"] }
 
 [profile.release]
 opt-level = 3
 lto = true
 strip = true
+
+[[bin]]
+name = "medix-cli"
+path = "src/bin/cli.rs"
