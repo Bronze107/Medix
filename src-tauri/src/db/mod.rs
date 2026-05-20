@@ -847,7 +847,7 @@ pub fn media_search_by_tags(
     let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = match mode {
         TagSearchMode::Intersection => format!(
-            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.deleted_at
+            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
@@ -1005,7 +1005,8 @@ pub fn media_query_filtered(
 
     let sql = format!(
         "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
-                m.created_at, m.modified_at, m.imported_at
+                m.created_at, m.modified_at, m.imported_at,
+                m.source_url, m.page_url, m.source, m.sha256, m.deleted_at
          FROM media m {} ORDER BY {} {}",
         where_clause, sort_column, order
     );

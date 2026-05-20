@@ -112,11 +112,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [intersectTags, setIntersectTags] = useState<Tag[]>([]);
 
   // Sync URL query param to search state (e.g., when clicking a saved filter)
+  const urlQuery = searchParams.get("q") ?? "";
   useEffect(() => {
-    const q = searchParams.get("q") ?? "";
-    setSearchQuery(q);
-    setDebouncedSearch(q);
-  }, [searchParams]);
+    setSearchQuery(urlQuery);
+    setDebouncedSearch(urlQuery);
+  }, [urlQuery]);
 
   // Debounce search input
   useEffect(() => {
