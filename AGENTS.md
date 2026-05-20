@@ -155,10 +155,41 @@ Medix/
 
 ## 测试策略
 
+### CLI 后端回归测试（优先级最高）
+
+`medix-cli` 可直接操作生产 DB 验证后端功能，无需启动 GUI。测试脚本在 `tests/` 目录。
+
+```
+cd src-tauri && bash ../tests/<name>.sh
+```
+
+| 脚本 | 用例 | 覆盖范围 |
+|------|------|----------|
+| `tests/search.sh` | 16 | 标签过滤(交集/并集/不存在)、尺寸(>/</范围)、文件大小、混合查询、纯文本回归、边缘情况 |
+| `tests/integrity.sh` | 17 | 6 表孤儿记录检测、计数一致性、schema 版本、活跃媒体字段完整性 |
+| `tests/operations.sh` | 21 | 软删除→恢复、搜索排除已删除、集合增删成员、SHA256 去重、schema 全表存在、设置读写 |
+| `tests/tags-collections.sh` | 13 | 标签 CRUD、批量标签、交集查询、集合置顶/取消置顶、集合内搜索 |
+| `tests/cascade.sh` | 20 | FK 级联删除(5 表: captions/embeddings/variants/media_tags/collection_items)、caption/variant CRUD、筛选器保存/删除、pHash 数据 |
+
+**开发规范**：任何后端功能变更（搜索语法、DB schema、CRUD 操作）必须在对应测试脚本追加用例，提交前 `bash tests/*.sh` 全量通过。
+
+### CLI 命令速查
+
+```bash
+cargo run --bin medix-cli -- search "tag:cat"           # 搜索测试
+cargo run --bin medix-cli -- query "SELECT ..."         # 只读查询
+cargo run --bin medix-cli -- exec "UPDATE/DELETE ..."   # 写操作（仅测试用）
+cargo run --bin medix-cli -- list                       # 列出全部媒体
+cargo run --bin medix-cli -- list-tags                  # 列出全部标签
+cargo run --bin medix-cli -- stats                      # 统计概览
+```
+
+### 层级策略
+
 | 层级 | 类型 | 工具 |
 |------|------|------|
+| 后端 CLI | 回归测试 | `medix-cli` + `tests/*.sh` |
 | Rust 核心 | 单元测试 | `cargo test` |
-| Rust IPC | 集成测试 | `cargo test` + mock |
 | 前端组件 | 视觉测试 | Storybook |
 | 端到端 | 场景测试 | Playwright (Tauri 模式) |
 
@@ -175,8 +206,26 @@ Medix/
 
 1. 在 `src-tauri/src/db/mod.rs` 的 `run_migrations()` 末尾追加 `INSERT OR IGNORE` + `CREATE TABLE IF NOT EXISTS`
 2. 在同一文件添加对应的 CRUD 函数，参数模式 `fn xxx(app: &AppHandle, ...)`
-3. 在 `src-tauri/src/` 对应的业务模块添加 Rust 结构体（如 `captions/mod.rs`）
-4. `cargo check` 验证编译
+3. 同时在对应 `_path` 变体函数中使用 `&Path` 替代 `&AppHandle`（供 CLI 调用）
+4. 在 `src-tauri/src/` 对应的业务模块添加 Rust 结构体（如 `captions/mod.rs`）
+5. `cargo check` 验证编译
+
+### 编写 CLI 后端回归测试
+
+CLI 测试无需启动 GUI，直接操作生产 DB（共享同一数据库路径 `%APPDATA%/com.bronze107.medix/medix.db`）。
+
+```
+tests/<name>.sh
+├── cli()    → cargo run --bin medix-cli -- <command>
+├── q()      → cli query "<SQL>"       (只读查询)
+├── exec_sql() → cli exec "<SQL>"      (写操作，测试后必须还原)
+└── check()  → 断言 expected == actual
+```
+
+测试模式：
+- **查询验证**：`q "SELECT COUNT(*) FROM ..."` 获取数据，与 CLI 命令结果交叉验证
+- **操作还原**：写操作前保存原始值，测试后通过 SQL 还原（如软删除→恢复）
+- **数据清洁**：创建的测试记录使用 `_test_` 或 `_cli_` 前缀 ID，测试末尾清理
 
 ### 添加 AI 模型
 

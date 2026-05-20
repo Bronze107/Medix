@@ -384,7 +384,10 @@ Medix/
 │   └── lib/                    # 工具函数
 ├── src-tauri/
 │   ├── src/
-│   │   ├── main.rs             # 入口
+│   │   ├── main.rs             # Tauri 入口
+│   │   ├── lib.rs              # 库入口 (供 CLI 复用)
+│   │   ├── bin/
+│   │   │   └── cli.rs          # medix-cli 调试工具
 │   │   ├── commands/           # Tauri IPC 命令
 │   │   ├── db/                 # 数据库模块 (migrations + CRUD)
 │   │   ├── media/              # 媒体处理 (import + thumbnail + pHash)
@@ -401,6 +404,12 @@ Medix/
 │   │   ├── server/             # 本地 HTTP 服务
 │   │   └── tag/                # Tag 结构体
 │   └── Cargo.toml
+├── tests/                      # CLI 回归测试脚本
+│   ├── search.sh               # 搜索功能回归测试 (16 cases)
+│   ├── integrity.sh            # 数据完整性测试 (17 cases)
+│   ├── operations.sh           # 数据操作测试 (21 cases)
+│   ├── tags-collections.sh     # 标签与集合测试 (13 cases)
+│   └── cascade.sh              # 级联删除与高级操作测试 (20 cases)
 ├── extension/                  # 浏览器插件
 │   ├── manifest.json
 │   ├── background.js
@@ -417,6 +426,7 @@ Medix/
 2. 每 Phase 开始时更新本 PLAN.md，勾选已完成项
 3. 关键设计决策记录到 `docs/decisions/` (ADRs)
 4. Rust 核心模块必须写单元测试，前端组件写 Storybook
+5. **后端功能变更必须追加 CLI 回归测试**（`tests/*.sh`），提交前全量通过
 
 ---
 
