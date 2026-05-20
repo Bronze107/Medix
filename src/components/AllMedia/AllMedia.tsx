@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -49,7 +49,7 @@ interface AllMediaProps {
 }
 
 function AllMedia({ collectionId }: AllMediaProps) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get("q") ?? "";
 
   const [media, setMedia] = useState<Media[]>([]);
@@ -126,7 +126,10 @@ function AllMedia({ collectionId }: AllMediaProps) {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  const loadSeqRef = useRef(0);
+
   const loadMedia = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     try {
       const query = debouncedSearch.trim();
       let list: Media[];
@@ -146,6 +149,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           list = await mediaList(sortBy, descending);
         }
       }
+      if (seq !== loadSeqRef.current) return; // Stale response
       setMedia(list);
     } catch (e) {
       console.error("Failed to load media:", e);
@@ -424,7 +428,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           <SearchBar
             value={searchQuery}
             onChange={setSearchQuery}
-            onClear={() => setSearchQuery("")}
+            onClear={() => { setSearchQuery(""); setSearchParams({}); }}
           />
           <button
             onClick={() => setViewMode((m) => (m === "grid" ? "table" : "grid"))}
@@ -647,7 +651,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                 试试修改搜索条件，或
                 <button
-                  onClick={() => setSearchQuery("")}
+                  onClick={() => { setSearchQuery(""); setSearchParams({}); }}
                   className="ml-1 text-blue-400 hover:text-blue-300"
                 >
                   重置搜索
