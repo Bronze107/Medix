@@ -107,7 +107,6 @@ function Trash() {
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
               selectedIds={[]}
-              selectionMode={false}
               onToggleSelect={() => {}}
               onContextMenu={(e, item) => {
                 e.preventDefault();

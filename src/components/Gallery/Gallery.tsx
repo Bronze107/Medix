@@ -17,7 +17,6 @@ interface GalleryProps {
   onContextMenu?: (e: React.MouseEvent, media: Media) => void;
   groups?: GroupInfo[];
   selectedIds: string[];
-  selectionMode: boolean;
   onToggleSelect: (media: Media, index: number, shiftKey: boolean) => void;
   gap?: number;
 }
@@ -88,7 +87,6 @@ function Gallery({
   onContextMenu,
   groups,
   selectedIds,
-  selectionMode,
   onToggleSelect,
   gap = 12,
 }: GalleryProps) {
@@ -189,7 +187,6 @@ function Gallery({
                         item={item}
                         isSelected={item.id === selectedId}
                         isMultiSelected={selectedIds.includes(item.id)}
-                        selectionMode={selectionMode}
                         onClick={() => onSelect(item)}
                         onDoubleClick={onDoubleClick ? () => onDoubleClick(item) : undefined}
                         onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
@@ -213,7 +210,6 @@ function ThumbnailCard({
   item,
   isSelected,
   isMultiSelected,
-  selectionMode,
   onClick,
   onDoubleClick,
   onContextMenu,
@@ -222,7 +218,6 @@ function ThumbnailCard({
   item: Media;
   isSelected: boolean;
   isMultiSelected: boolean;
-  selectionMode: boolean;
   onClick: () => void;
   onDoubleClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
@@ -231,20 +226,18 @@ function ThumbnailCard({
   const thumbUrl = useThumbnail(item.id);
   const [loaded, setLoaded] = useState(false);
 
-  const handleCardClick = (e: React.MouseEvent) => {
-    if (selectionMode) {
-      onToggleSelect(e.shiftKey);
-    } else {
-      onClick();
-    }
-  };
-
   return (
     <div
       data-media-card
-      onClick={handleCardClick}
+      onClick={(e) => {
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+          onToggleSelect(e.shiftKey);
+        } else {
+          onClick();
+        }
+      }}
       onDoubleClick={(e) => {
-        if (!selectionMode && onDoubleClick) {
+        if (onDoubleClick) {
           e.stopPropagation();
           onDoubleClick();
         }
@@ -261,11 +254,9 @@ function ThumbnailCard({
           : "bg-[var(--color-bg-elevated)] shadow-sm hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5"
       }`}
     >
-      {/* Checkbox – top-right, blurred frosted glass */}
+      {/* Checkbox – top-right, hover to show */}
       <div
-        className={`absolute right-2 top-2 z-10 transition-all duration-150 ${
-          selectionMode ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
+        className="absolute right-2 top-2 z-10 opacity-0 group-hover:opacity-100 transition-all duration-150"
         onClick={(e: React.MouseEvent) => {
           e.stopPropagation();
           onToggleSelect(e.shiftKey);

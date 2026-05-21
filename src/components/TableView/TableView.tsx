@@ -23,7 +23,6 @@ interface TableViewProps {
   descending: boolean;
   onSortChange: (field: SortField) => void;
   selectedIds: string[];
-  selectionMode: boolean;
   onToggleSelect: (media: Media, index: number, shiftKey: boolean) => void;
   onAddToCollection?: (media: Media) => void;
   onDelete?: (media: Media) => void;
@@ -70,7 +69,6 @@ function TableView({
   descending,
   onSortChange,
   selectedIds,
-  selectionMode,
   onToggleSelect,
   onAddToCollection,
   onDelete,
@@ -162,14 +160,7 @@ function TableView({
               item={item}
               isSelected={item.id === selectedId}
               isMultiSelected={selectedIds.includes(item.id)}
-              selectionMode={selectionMode}
-              onClick={() => {
-                if (selectionMode) {
-                  onToggleSelect(item, mediaIndex, false);
-                } else {
-                  onSelect(item);
-                }
-              }}
+              onClick={() => onSelect(item)}
               onDoubleClick={
                 onDoubleClick ? () => onDoubleClick(item) : undefined
               }
@@ -197,7 +188,6 @@ function TableRow({
   item,
   isSelected,
   isMultiSelected,
-  selectionMode,
   onClick,
   onDoubleClick,
   onContextMenu,
@@ -209,7 +199,6 @@ function TableRow({
   item: Media;
   isSelected: boolean;
   isMultiSelected: boolean;
-  selectionMode: boolean;
   onClick: () => void;
   onDoubleClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
@@ -223,9 +212,15 @@ function TableRow({
   return (
     <div
       data-media-card
-      onClick={onClick}
+      onClick={(e) => {
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+          onToggleSelect(e.shiftKey);
+        } else {
+          onClick();
+        }
+      }}
       onDoubleClick={(e) => {
-        if (!selectionMode && onDoubleClick) {
+        if (onDoubleClick) {
           e.stopPropagation();
           onDoubleClick();
         }
@@ -253,11 +248,11 @@ function TableRow({
           )}
         </div>
         <div
-          className={`absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded border transition-all ${
+          className={`absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded border transition-all opacity-0 group-hover:opacity-100 ${
             isMultiSelected
-              ? "border-green-500 bg-green-500 text-white opacity-100"
-              : "border-[var(--color-border-light)] bg-[var(--color-bg-secondary)]/80 text-transparent opacity-0 hover:opacity-100"
-          } ${selectionMode ? "opacity-100" : ""}`}
+              ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white opacity-100"
+              : "border-[var(--color-text-muted)]/40 bg-[var(--color-bg-secondary)]/80 text-transparent hover:border-[var(--color-text-secondary)]"
+          }`}
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); onToggleSelect(e.shiftKey); }}
         >
           {isMultiSelected && (

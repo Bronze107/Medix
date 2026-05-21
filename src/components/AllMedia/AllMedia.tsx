@@ -15,7 +15,6 @@ import {
   mediaSearch,
   mediaTagAddBatch,
   mediaTagRemoveBatch,
-  mediaTagsIntersect,
   savedFiltersSave,
   tagCreate,
   tagList,
@@ -93,8 +92,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [collectionPickerSearch, setCollectionPickerSearch] = useState("");
   const [collectionsForPicker, setCollectionsForPicker] = useState<Collection[]>([]);
 
-  // Batch selection
-  const [selectionMode, setSelectionMode] = useState(false);
+  // Multi-select
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Batch tag dialog
@@ -110,6 +108,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [showBatchRemoveTagDialog, setShowBatchRemoveTagDialog] = useState(false);
   const [batchRemoveTagSearch, setBatchRemoveTagSearch] = useState("");
   const [intersectTags, setIntersectTags] = useState<Tag[]>([]);
+
+  // Keep for future use
+  void setShowBatchRemoveTagDialog;
+  void setBatchRemoveTagSearch;
+  void setIntersectTags;
 
   // Sync URL query param to search state (e.g., when clicking a saved filter)
   const urlQuery = searchParams.get("q") ?? "";
@@ -285,31 +288,36 @@ function AllMedia({ collectionId }: AllMediaProps) {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
       if (e.key === "Escape") {
-        if (selectionMode && selectedIds.size > 0) {
+        if (selectedIds.size > 0) {
           setSelectedIds(new Set());
         } else {
-          setSelectionMode(false);
-          setSelectedIds(new Set());
           setSelected(null);
         }
       }
       if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         if (media.length > 0) {
-          setSelectionMode(true);
           setSelectedIds(new Set(media.map((m) => m.id)));
         }
       }
-      if (e.key === "Delete" && selectionMode && selectedIds.size > 0) {
+      if (e.key === "Delete" && selectedIds.size > 0) {
         e.preventDefault();
         handleBatchDelete();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectionMode, selectedIds, media, setSelected, setSelectionMode, setSelectedIds]);
+  }, [selectedIds, media, setSelected]);
 
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+
+  // Keep lastSelectedIndex in sync with single-select (card click without modifiers)
+  useEffect(() => {
+    if (selected) {
+      const idx = media.findIndex((m) => m.id === selected.id);
+      if (idx >= 0) setLastSelectedIndex(idx);
+    }
+  }, [selected?.id, media]);
 
   const handleToggleSelect = (item: Media, index: number, shiftKey: boolean) => {
     if (shiftKey && lastSelectedIndex !== null) {
@@ -346,7 +354,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
       await mediaTagAddBatch(Array.from(selectedIds), tagId);
       setShowBatchTagDialog(false);
       setBatchTagSearch("");
-      setSelectionMode(false);
       setSelectedIds(new Set());
       setSelected(null);
     } catch (e) {
@@ -369,8 +376,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
     }
     setSelectedIds(new Set());
     setSelected(null);
-    setSelectionMode(false);
-    setDeleteConfirm(null);
+        setDeleteConfirm(null);
     loadMedia();
     window.dispatchEvent(new CustomEvent("collections-changed"));
     showToast(`已删除 ${selectedIds.size} 张图片`);
@@ -472,25 +478,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
           )}
         </button>
 
-        {/* Selection mode */}
-        <button
-          onClick={() => {
-            setSelectionMode((m) => !m);
-            setSelectedIds(new Set());
-            if (selectionMode) setSelected(null);
-          }}
-          className={`flex-shrink-0 rounded-lg p-1.5 transition-colors ${
-            selectionMode
-              ? "bg-[var(--color-success-soft)] text-[var(--color-success)]"
-              : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-          }`}
-          title={selectionMode ? "退出选择" : "批量选择"}
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-          </svg>
-        </button>
-
         {/* More menu */}
         <div className="relative">
           <button
@@ -583,71 +570,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
         </div>
       )}
 
-      {/* Batch action bar */}
-      {selectionMode && selectedIds.size > 0 && (
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/80 px-6 py-2">
-          <span className="text-sm text-[var(--color-text-secondary)]">
-            已选择 <span className="font-bold text-green-400">{selectedIds.size}</span> 项
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleSelectAll}
-              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-            >
-              全选
-            </button>
-            <button
-              onClick={async () => {
-                const all = await loadCollections();
-                setCollectionsForPicker(all);
-                setAddToCollectionMediaIds(Array.from(selectedIds));
-                setCollectionPickerSearch("");
-                setShowAddToCollection(true);
-              }}
-              className="rounded bg-purple-600 px-3 py-1 text-xs font-medium text-white hover:bg-purple-500"
-            >
-              添加到集合
-            </button>
-            <button
-              onClick={() => setShowBatchTagDialog(true)}
-              className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)]"
-            >
-              添加标签
-            </button>
-            <button
-              onClick={async () => {
-                setBatchRemoveTagSearch("");
-                setIntersectTags([]);
-                setShowBatchRemoveTagDialog(true);
-                const tags = await mediaTagsIntersect(Array.from(selectedIds));
-                setIntersectTags(tags);
-              }}
-              className="rounded border border-orange-800/50 bg-orange-900/20 px-3 py-1 text-xs text-orange-400 hover:bg-orange-900/30"
-            >
-              移除标签
-            </button>
-            <button
-              onClick={() => setShowBatchCaptionDialog(true)}
-              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-            >
-              添加描述
-            </button>
-            <button
-              onClick={handleBatchDelete}
-              className="rounded border border-red-800/50 bg-red-900/20 px-3 py-1 text-xs text-red-400 hover:bg-red-900/30"
-            >
-              删除
-            </button>
-            <button
-              onClick={() => setSelectedIds(new Set())}
-              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-            >
-              取消全选
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Content */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col p-4">
@@ -704,7 +626,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 }
               }}
               selectedIds={Array.from(selectedIds)}
-              selectionMode={selectionMode}
               onToggleSelect={(item, index, shiftKey) => handleToggleSelect(item, index, shiftKey)}
               onAddToCollection={(item) => {
                 setAddToCollectionMediaIds([item.id]);
@@ -730,7 +651,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 setCtxMenu({ x: e.clientX, y: e.clientY, media: item });
               }}
               selectedIds={Array.from(selectedIds)}
-              selectionMode={selectionMode}
               onToggleSelect={(item, index, shiftKey) => handleToggleSelect(item, index, shiftKey)}
             />
           )}
@@ -742,6 +662,60 @@ function AllMedia({ collectionId }: AllMediaProps) {
           onDeleted={() => { setSelected(null); setDetailCollapsed(false); loadMedia(); }}
         />
       </div>
+
+      {/* Floating batch bar */}
+      {selectedIds.size > 0 && (
+        <div className="absolute bottom-0 left-0 right-0 z-30 flex items-center justify-between border-t border-[var(--color-border)] bg-[var(--color-bg-elevated)]/90 backdrop-blur-xl px-5 py-2.5 animate-fade-in-up">
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            已选 <span className="font-semibold text-[var(--color-accent)]">{selectedIds.size}</span> 项 · 取消
+          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleSelectAll}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
+            >
+              全选
+            </button>
+            <button
+              onClick={async () => {
+                const all = await loadCollections();
+                setCollectionsForPicker(all);
+                setAddToCollectionMediaIds(Array.from(selectedIds));
+                setCollectionPickerSearch("");
+                setShowAddToCollection(true);
+              }}
+              className="rounded-lg p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+              title="添加到集合"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setShowBatchTagDialog(true)}
+              className="rounded-lg p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+              title="添加标签"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
+              </svg>
+            </button>
+            <button
+              onClick={handleBatchDelete}
+              className="rounded-lg p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
+              title="删除"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Batch tag dialog */}
       {showBatchTagDialog && (
@@ -830,8 +804,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                       setShowBatchCaptionDialog(false);
                       setBatchCaptionText("");
                       setSelectedIds(new Set());
-                      setSelectionMode(false);
-                    });
+                                          });
                   }
                 }
               }}
@@ -857,8 +830,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                   setShowBatchCaptionDialog(false);
                   setBatchCaptionText("");
                   setSelectedIds(new Set());
-                  setSelectionMode(false);
-                }}
+                                  }}
                 disabled={!batchCaptionText.trim()}
                 className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
               >
@@ -908,8 +880,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                         setShowBatchRemoveTagDialog(false);
                         setBatchRemoveTagSearch("");
                         setSelectedIds(new Set());
-                        setSelectionMode(false);
-                      }}
+                                              }}
                       className="block w-full rounded px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-red-900/20 hover:text-red-400"
                     >
                       移除 "{tag.name}"
@@ -1140,7 +1111,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
             onClick={() => {
               setShowBatchTagDialog(true);
               setSelectedIds(new Set([ctxMenu.media.id]));
-              setSelectionMode(true);
               setCtxMenu(null);
             }}
             className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
