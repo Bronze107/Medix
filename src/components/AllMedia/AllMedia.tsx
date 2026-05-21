@@ -16,6 +16,8 @@ import {
   mediaTagAddBatch,
   mediaTagRemoveBatch,
   savedFiltersSave,
+  settingsGet,
+  settingsSet,
   tagCreate,
   tagList,
 } from "@/lib/tauri";
@@ -81,6 +83,18 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [aiRemaining, setAiRemaining] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [groupBy, setGroupBy] = useState<GroupMode>("none");
+
+  // Load saved groupBy preference
+  useEffect(() => {
+    settingsGet("group_by").then((v) => {
+      if (v === "date" || v === "none") setGroupBy(v);
+    }).catch(() => {});
+  }, []);
+
+  // Persist groupBy changes
+  useEffect(() => {
+    settingsSet("group_by", groupBy).catch(() => {});
+  }, [groupBy]);
 
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; media: Media } | null>(null);
@@ -317,10 +331,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
         };
 
         for (let i = 0; i < displayMedia.length; i++) {
-          const d = displayMedia[i].imported_at?.slice(0, 10) ?? "未知日期";
-          if (d !== cur) {
-            cur = d;
-            result.push({ label: fmtLabel(d), startIndex: i, count: 0 });
+          const raw = displayMedia[i].imported_at?.slice(0, 10) ?? "未知日期";
+          const label = fmtLabel(raw);
+          if (label !== cur) {
+            cur = label;
+            result.push({ label, startIndex: i, count: 0 });
           }
           result[result.length - 1].count++;
         }

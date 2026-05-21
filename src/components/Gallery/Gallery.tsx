@@ -49,6 +49,9 @@ function computeRows(
     let totalRatio = 0;
 
     for (; i < media.length; i++) {
+      // Break before starting a new group
+      if (rowItems.length > 0 && groups?.some((g) => g.startIndex === i)) break;
+
       const w = media[i].width ?? 300;
       const h = media[i].height ?? 300;
       const ratio = w / h;
