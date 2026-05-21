@@ -61,8 +61,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [selected, setSelected] = useState<Media | null>(null);
   const detailCollapsed = useAppStore((s) => s.detailCollapsed);
   const setDetailCollapsed = useAppStore((s) => s.setDetailCollapsed);
-  const [sortBy, setSortBy] = useState<SortField>("imported_at");
-  const [descending, setDescending] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
@@ -82,19 +80,42 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [aiRemaining, setAiRemaining] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
-  const [groupBy, setGroupBy] = useState<GroupMode>("none");
+  const [sortBy, setSortBy] = useState<SortField>(
+    () => (sessionStorage.getItem("sort_by") as SortField) || "imported_at"
+  );
+  const [descending, setDescending] = useState(
+    () => sessionStorage.getItem("sort_desc") !== "false"
+  );
+  const [groupBy, setGroupBy] = useState<GroupMode>(
+    () => (sessionStorage.getItem("group_by") as GroupMode) || "none"
+  );
 
-  // Load saved groupBy preference
+  // Load saved preferences
   useEffect(() => {
     settingsGet("group_by").then((v) => {
       if (v === "date" || v === "none") setGroupBy(v);
     }).catch(() => {});
+    settingsGet("sort_by").then((v) => {
+      if (v) setSortBy(v as SortField);
+    }).catch(() => {});
+    settingsGet("sort_desc").then((v) => {
+      setDescending(v !== "false");
+    }).catch(() => {});
   }, []);
 
-  // Persist groupBy changes
+  // Persist preferences
   useEffect(() => {
+    sessionStorage.setItem("group_by", groupBy);
     settingsSet("group_by", groupBy).catch(() => {});
   }, [groupBy]);
+  useEffect(() => {
+    sessionStorage.setItem("sort_by", sortBy);
+    settingsSet("sort_by", sortBy).catch(() => {});
+  }, [sortBy]);
+  useEffect(() => {
+    sessionStorage.setItem("sort_desc", String(descending));
+    settingsSet("sort_desc", String(descending)).catch(() => {});
+  }, [descending]);
 
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; media: Media } | null>(null);
