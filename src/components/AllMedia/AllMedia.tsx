@@ -572,7 +572,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
 
       {/* Content */}
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex flex-1 flex-col p-4">
+        <div className="flex flex-1 flex-col overflow-hidden p-4">
           {media.length === 0 && !debouncedSearch ? (
             <DropZone dropHover={dropHover} />
           ) : media.length === 0 && debouncedSearch ? (

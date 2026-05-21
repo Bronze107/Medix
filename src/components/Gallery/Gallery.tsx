@@ -122,7 +122,7 @@ function Gallery({
   const virtualItems = virtualizer.getVirtualItems();
 
   return (
-    <div ref={parentRef} className="h-full overflow-auto">
+    <div ref={parentRef} className="h-full overflow-y-auto overflow-x-hidden">
       <div
         style={{
           height: `${virtualizer.getTotalSize()}px`,
@@ -174,7 +174,6 @@ function Gallery({
                   display: "flex",
                   gap: `${gap}px`,
                   height: `${rowHeight}px`,
-                  padding: `0 ${gap / 2}px`,
                 }}
               >
                 {row.items.map((item) => {

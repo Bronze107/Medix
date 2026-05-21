@@ -104,7 +104,7 @@ function TableView({
   const virtualItems = virtualizer.getVirtualItems();
 
   return (
-    <div ref={parentRef} className="h-full overflow-auto">
+    <div ref={parentRef} className="h-full overflow-y-auto overflow-x-hidden">
       {/* Header */}
       <div
         className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-[10px] font-medium uppercase"
