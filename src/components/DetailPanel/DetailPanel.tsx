@@ -31,6 +31,8 @@ import type { EmbeddingInfo } from "@/types/ai";
 
 interface DetailPanelProps {
   media: Media | null;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   onDeleted?: () => void;
 }
 
@@ -50,7 +52,7 @@ function formatDate(dateStr: string | null): string {
   }
 }
 
-function DetailPanel({ media, onDeleted }: DetailPanelProps) {
+function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<"details" | "captions" | "variants">("details");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -331,25 +333,38 @@ function DetailPanel({ media, onDeleted }: DetailPanelProps) {
     }
   };
 
-  if (!media) {
+  if (!media || collapsed) {
     return (
-      <div className="flex h-full w-10 flex-col items-center border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-4">
-        <div className="flex flex-col items-center gap-3">
-          <svg className="h-4 w-4 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+      <div className="flex h-full w-10 flex-col items-center border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-3 transition-all duration-300">
+        <button
+          onClick={onToggleCollapse}
+          className="mb-2 rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+          title={collapsed ? "展开详情" : undefined}
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
           </svg>
-        </div>
-        <p className="mt-4 text-[10px] text-[var(--color-text-muted)]" style={{ writingMode: "vertical-rl" }}>
-          点击图片查看详情
+        </button>
+        <p className="text-[10px] text-[var(--color-text-muted)]" style={{ writingMode: "vertical-rl" }}>
+          {media ? "详情" : "点击图片查看详情"}
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+    <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 transition-all duration-300">
       {/* Tabs */}
-      <div className="mb-4 flex border-b border-[var(--color-border)]">
+      <div className="mb-4 flex items-center border-b border-[var(--color-border)]">
+        <button
+          onClick={onToggleCollapse}
+          className="mr-1 rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+          title="收起详情"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
         <button
           onClick={() => setActiveTab("details")}
           className={`px-3 py-1.5 text-xs font-medium transition-colors ${

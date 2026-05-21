@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Media } from "@/types/media";
-import { mediaThumbnail } from "@/lib/tauri";
+import { useThumbnail } from "@/hooks/useThumbnail";
 
 interface GroupInfo {
   label: string;
@@ -22,54 +21,6 @@ interface GalleryProps {
   onToggleSelect: (media: Media, index: number, shiftKey: boolean) => void;
   columnCount?: number;
   gap?: number;
-}
-
-const thumbCache = new Map<string, string>();
-
-function useThumbnail(id: string | null) {
-  const [url, setUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!id) return;
-    if (thumbCache.has(id)) {
-      setUrl(thumbCache.get(id)!);
-      return;
-    }
-
-    let cancelled = false;
-    let retryCount = 0;
-    const maxRetries = 15;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const load = () => {
-      mediaThumbnail(id)
-        .then((path) => {
-          if (!cancelled) {
-            const src = convertFileSrc(path);
-            thumbCache.set(id, src);
-            setUrl(src);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setUrl(null);
-            retryCount++;
-            if (retryCount <= maxRetries) {
-              retryTimer = setTimeout(load, 2000);
-            }
-          }
-        });
-    };
-
-    load();
-
-    return () => {
-      cancelled = true;
-      if (retryTimer) clearTimeout(retryTimer);
-    };
-  }, [id]);
-
-  return url;
 }
 
 function Gallery({

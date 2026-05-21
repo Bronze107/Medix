@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
+import { useAppStore } from "@/stores/appStore";
 import type { Collection } from "@/types/collection";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
@@ -57,6 +58,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [deleteConfirm, setDeleteConfirm] = useState<"batch" | "single" | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Media | null>(null);
+  const detailCollapsed = useAppStore((s) => s.detailCollapsed);
+  const setDetailCollapsed = useAppStore((s) => s.setDetailCollapsed);
   const [sortBy, setSortBy] = useState<SortField>("imported_at");
   const [descending, setDescending] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
@@ -714,7 +717,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
             />
           )}
         </div>
-        <DetailPanel media={selected} onDeleted={() => { setSelected(null); loadMedia(); }} />
+        <DetailPanel
+          media={selected}
+          collapsed={detailCollapsed}
+          onToggleCollapse={() => setDetailCollapsed(!detailCollapsed)}
+          onDeleted={() => { setSelected(null); setDetailCollapsed(false); loadMedia(); }}
+        />
       </div>
 
       {/* Batch tag dialog */}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { mediaGetPaths, variantList } from "@/lib/tauri";
+import { useThumbnail } from "@/hooks/useThumbnail";
 import type { Media } from "@/types/media";
 import type { Variant } from "@/types/variant";
 
@@ -12,6 +13,63 @@ interface LightboxProps {
 }
 
 type CompareMode = "side-by-side" | "slider" | null;
+
+function FilmstripThumb({
+  item,
+  isActive,
+  onClick,
+}: {
+  item: Media;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const url = useThumbnail(item.id);
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={`flex-shrink-0 overflow-hidden rounded transition-all duration-200 ${
+        isActive
+          ? "ring-2 ring-[var(--color-accent)] scale-100"
+          : "opacity-50 hover:opacity-100"
+      }`}
+    >
+      {url ? (
+        <img src={url} alt="" className="h-16 w-16 object-cover" draggable={false} />
+      ) : (
+        <div className="h-16 w-16 bg-white/10" />
+      )}
+    </button>
+  );
+}
+
+function Filmstrip({
+  media,
+  currentIndex,
+  onNavigate,
+}: {
+  media: Media[];
+  currentIndex: number;
+  onNavigate: (index: number) => void;
+}) {
+  const stripRef = useRef<HTMLDivElement>(null);
+
+  const start = Math.max(0, currentIndex - 3);
+  const end = Math.min(media.length, currentIndex + 4);
+  const visible = media.slice(start, end);
+
+  return (
+    <div ref={stripRef} className="flex items-center justify-center gap-1 px-3 py-2">
+      {visible.map((m, i) => (
+        <FilmstripThumb
+          key={m.id}
+          item={m}
+          isActive={start + i === currentIndex}
+          onClick={() => onNavigate(start + i)}
+        />
+      ))}
+    </div>
+  );
+}
 
 function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
   const item = media[currentIndex];
@@ -363,6 +421,17 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
           </div>
         )}
       </div>
+
+      {/* Filmstrip */}
+      {!compareMode && media.length > 1 && (
+        <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/60 backdrop-blur-sm">
+          <Filmstrip
+            media={media}
+            currentIndex={currentIndex}
+            onNavigate={onNavigate}
+          />
+        </div>
+      )}
 
       {/* Prev/Next buttons */}
       {!compareMode && (
