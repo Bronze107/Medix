@@ -41,7 +41,7 @@ function computeRows(
     if (groups) {
       const g = groups.find((g) => g.startIndex === i);
       if (g) {
-        rows.push({ type: "group", label: g.label, count: g.count, height: 40 });
+        rows.push({ type: "group", label: g.label, count: g.count, height: 32 });
       }
     }
 
@@ -146,10 +146,11 @@ function Gallery({
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
-                className="flex items-end border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/90 backdrop-blur px-4 pb-3"
+                className="flex items-center gap-3 px-3"
               >
-                <span className="text-[11px] font-medium text-[var(--color-text-secondary)]">{row.label}</span>
-                <span className="ml-2 text-[10px] text-[var(--color-text-muted)]">{row.count} 张</span>
+                <span className="text-xs font-semibold text-[var(--color-text-secondary)] select-none">{row.label}</span>
+                <div className="flex-1 h-px bg-[var(--color-border)]" />
+                <span className="text-[11px] text-[var(--color-text-muted)] tabular-nums">{row.count}</span>
               </div>
             );
           }

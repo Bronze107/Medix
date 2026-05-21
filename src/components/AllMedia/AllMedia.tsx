@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -281,6 +281,53 @@ function AllMedia({ collectionId }: AllMediaProps) {
     };
   }, [doImport, loadMedia]);
 
+  // When grouping by date, sort media by imported_at descending for correct grouping
+  const displayMedia = useMemo(() => {
+    if (groupBy !== "date") return media;
+    return [...media].sort((a, b) => {
+      const da = a.imported_at ?? "";
+      const db = b.imported_at ?? "";
+      return db.localeCompare(da);
+    });
+  }, [media, groupBy]);
+
+  // Compute date groups from displayMedia (humanized labels)
+  const groups = groupBy === "date"
+    ? (() => {
+        const result: GroupInfo[] = [];
+        let cur = "";
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const weekAgo = new Date(today.getTime() - 7 * 86400000);
+
+        const fmtLabel = (dateStr: string) => {
+          if (dateStr === "未知日期") return dateStr;
+          const d = new Date(dateStr);
+          if (isNaN(d.getTime())) return dateStr;
+          const dDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+          const diff = Math.round((today.getTime() - dDay.getTime()) / 86400000);
+          if (diff === 0) return "今天";
+          if (diff === 1) return "昨天";
+          if (diff < 7 && dDay > weekAgo) return "本周";
+          if (diff < 14) return "上周";
+          if (d.getFullYear() === now.getFullYear()) {
+            return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+          }
+          return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+        };
+
+        for (let i = 0; i < displayMedia.length; i++) {
+          const d = displayMedia[i].imported_at?.slice(0, 10) ?? "未知日期";
+          if (d !== cur) {
+            cur = d;
+            result.push({ label: fmtLabel(d), startIndex: i, count: 0 });
+          }
+          result[result.length - 1].count++;
+        }
+        return result;
+      })()
+    : [];
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -296,8 +343,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
       }
       if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        if (media.length > 0) {
-          setSelectedIds(new Set(media.map((m) => m.id)));
+        if (displayMedia.length > 0) {
+          setSelectedIds(new Set(displayMedia.map((m) => m.id)));
         }
       }
       if (e.key === "Delete" && selectedIds.size > 0) {
@@ -307,24 +354,24 @@ function AllMedia({ collectionId }: AllMediaProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, media, setSelected]);
+  }, [selectedIds, displayMedia, setSelected]);
 
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
   // Keep lastSelectedIndex in sync with single-select (card click without modifiers)
   useEffect(() => {
     if (selected) {
-      const idx = media.findIndex((m) => m.id === selected.id);
+      const idx = displayMedia.findIndex((m) => m.id === selected.id);
       if (idx >= 0) setLastSelectedIndex(idx);
     }
-  }, [selected?.id, media]);
+  }, [selected?.id, displayMedia]);
 
   const handleToggleSelect = (item: Media, index: number, shiftKey: boolean) => {
     if (shiftKey && lastSelectedIndex !== null) {
       // Range select from lastSelectedIndex to index
       const start = Math.min(lastSelectedIndex, index);
       const end = Math.max(lastSelectedIndex, index);
-      const rangeIds = media.slice(start, end + 1).map((m) => m.id);
+      const rangeIds = displayMedia.slice(start, end + 1).map((m) => m.id);
       setSelectedIds((prev) => {
         const next = new Set(prev);
         for (const id of rangeIds) next.add(id);
@@ -345,7 +392,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   };
 
   const handleSelectAll = () => {
-    setSelectedIds(new Set(media.map((m) => m.id)));
+    setSelectedIds(new Set(displayMedia.map((m) => m.id)));
   };
 
   const handleBatchTagAdd = async (tagId: string) => {
@@ -381,20 +428,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
     window.dispatchEvent(new CustomEvent("collections-changed"));
     showToast(`已删除 ${selectedIds.size} 张图片`);
   };
-
-  // Compute date groups from sorted media
-  const groups = groupBy === "date"
-    ? (() => {
-        const result: GroupInfo[] = [];
-        let cur = "";
-        for (let i = 0; i < media.length; i++) {
-          const d = media[i].imported_at?.slice(0, 10) ?? "未知日期";
-          if (d !== cur) { cur = d; result.push({ label: d, startIndex: i, count: 0 }); }
-          result[result.length - 1].count++;
-        }
-        return result;
-      })()
-    : [];
 
   const handleCreateAndBatchAdd = async () => {
     const name = batchTagSearch.trim().toLowerCase();
@@ -514,7 +547,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 <div className="my-1 border-t border-[var(--color-border)]" />
 
                 {/* Actions */}
-                <button onClick={() => { setShowExportDialog(true); setShowMoreMenu(false); }} disabled={media.length === 0} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50">
+                <button onClick={() => { setShowExportDialog(true); setShowMoreMenu(false); }} disabled={displayMedia.length === 0} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50">
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                   导出
                 </button>
@@ -573,9 +606,9 @@ function AllMedia({ collectionId }: AllMediaProps) {
       {/* Content */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col overflow-hidden p-4">
-          {media.length === 0 && !debouncedSearch ? (
+          {displayMedia.length === 0 && !debouncedSearch ? (
             <DropZone dropHover={dropHover} />
-          ) : media.length === 0 && debouncedSearch ? (
+          ) : displayMedia.length === 0 && debouncedSearch ? (
             <div className="flex flex-col items-center justify-center py-20">
               <svg
                 className="mb-4 h-10 w-10 text-[var(--color-text-muted)]"
@@ -603,12 +636,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
             </div>
           ) : viewMode === "table" ? (
             <TableView
-              media={media}
+              media={displayMedia}
               groups={groups}
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
               onDoubleClick={(item) => {
-                const idx = media.findIndex((m) => m.id === item.id);
+                const idx = displayMedia.findIndex((m) => m.id === item.id);
                 if (idx >= 0) setLightboxIndex(idx);
               }}
               onContextMenu={(e, item) => {
@@ -638,12 +671,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
             />
           ) : (
             <Gallery
-              media={media}
+              media={displayMedia}
               groups={groups}
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
               onDoubleClick={(item) => {
-                const idx = media.findIndex((m) => m.id === item.id);
+                const idx = displayMedia.findIndex((m) => m.id === item.id);
                 if (idx >= 0) setLightboxIndex(idx);
               }}
               onContextMenu={(e, item) => {
@@ -1075,7 +1108,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       {showExportDialog && (
         <ExportDialog
           mediaIds={Array.from(selectedIds)}
-          totalCount={media.length}
+          totalCount={displayMedia.length}
           onClose={() => setShowExportDialog(false)}
         />
       )}
@@ -1169,7 +1202,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       {/* Lightbox */}
       {lightboxIndex !== null && (
         <Lightbox
-          media={media}
+          media={displayMedia}
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={(idx) => setLightboxIndex(idx)}

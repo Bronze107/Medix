@@ -97,7 +97,7 @@ function TableView({
   const virtualizer = useVirtualizer({
     count: totalCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => groupRowSet.has(index) ? 36 : rowHeight,
+    estimateSize: (index) => groupRowSet.has(index) ? 28 : rowHeight,
     overscan: 10,
   });
 
@@ -140,10 +140,11 @@ function TableView({
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
-                className="flex items-end border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/90 backdrop-blur px-3 pb-2"
+                className="flex items-center gap-3 px-3"
               >
-                <span className="text-[11px] font-medium text-[var(--color-text-secondary)]">{g.label}</span>
-                <span className="ml-2 text-[10px] text-[var(--color-text-muted)]">{g.count} 张</span>
+                <span className="text-xs font-semibold text-[var(--color-text-secondary)]">{g.label}</span>
+                <div className="flex-1 h-px bg-[var(--color-border)]" />
+                <span className="text-[11px] text-[var(--color-text-muted)] tabular-nums">{g.count}</span>
               </div>
             );
           }
