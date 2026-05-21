@@ -706,6 +706,14 @@ function AllMedia({ collectionId }: AllMediaProps) {
               selectedIds={Array.from(selectedIds)}
               selectionMode={selectionMode}
               onToggleSelect={(item, index, shiftKey) => handleToggleSelect(item, index, shiftKey)}
+              onAddToCollection={(item) => {
+                setAddToCollectionMediaIds([item.id]);
+                setShowAddToCollection(true);
+              }}
+              onDelete={(item) => {
+                setPendingDeleteId(item.id);
+                setDeleteConfirm("single");
+              }}
             />
           ) : (
             <Gallery

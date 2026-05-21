@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Media } from "@/types/media";
 import { useThumbnail } from "@/hooks/useThumbnail";
@@ -19,8 +19,65 @@ interface GalleryProps {
   selectedIds: string[];
   selectionMode: boolean;
   onToggleSelect: (media: Media, index: number, shiftKey: boolean) => void;
-  columnCount?: number;
   gap?: number;
+}
+
+type MediaRow = { type: "media"; items: Media[]; height: number; startIndex: number };
+type GroupRow = { type: "group"; label: string; count: number; height: number };
+type Row = MediaRow | GroupRow;
+
+function computeRows(
+  media: Media[],
+  containerWidth: number,
+  gap: number,
+  groups?: GroupInfo[],
+): Row[] {
+  if (containerWidth <= 0) return [];
+  const targetHeight = 220;
+  const rows: Row[] = [];
+  let i = 0;
+
+  while (i < media.length) {
+    // Check if a group header should be inserted before this row
+    if (groups) {
+      const g = groups.find((g) => g.startIndex === i);
+      if (g) {
+        rows.push({ type: "group", label: g.label, count: g.count, height: 40 });
+      }
+    }
+
+    const rowItems: Media[] = [];
+    let totalRatio = 0;
+
+    for (; i < media.length; i++) {
+      const w = media[i].width ?? 300;
+      const h = media[i].height ?? 300;
+      const ratio = w / h;
+      const trialWidth = (totalRatio + ratio) * targetHeight;
+      const approxGaps = gap * rowItems.length;
+      if (rowItems.length > 0 && trialWidth + approxGaps > containerWidth) break;
+      rowItems.push(media[i]);
+      totalRatio += ratio;
+    }
+
+    if (rowItems.length === 0) { i++; continue; }
+
+    const gapTotal = gap * (rowItems.length - 1);
+    const availableWidth = containerWidth - gapTotal;
+    let rowHeight = availableWidth / totalRatio;
+    if (rowItems.length === 1) {
+      rowHeight = Math.min(targetHeight * 1.5, Math.max(targetHeight * 0.6, rowHeight));
+    }
+
+    rows.push({
+      type: "media",
+      items: rowItems,
+      height: Math.round(rowHeight),
+      startIndex: i - rowItems.length,
+    });
+  }
+
+  return rows;
 }
 
 function Gallery({
@@ -33,30 +90,34 @@ function Gallery({
   selectedIds,
   selectionMode,
   onToggleSelect,
-  columnCount = 5,
   gap = 12,
 }: GalleryProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const rowCount = Math.ceil(media.length / columnCount);
+  const [containerWidth, setContainerWidth] = useState(800);
 
-  // Build group row positions for virtual scroll
-  const groupRows: { groupIndex: number; virtualRow: number }[] = [];
-  if (groups && groups.length > 0) {
-    let offset = 0;
-    for (let gi = 0; gi < groups.length; gi++) {
-      const g = groups[gi];
-      const mediaRow = Math.floor(g.startIndex / columnCount);
-      groupRows.push({ groupIndex: gi, virtualRow: mediaRow + offset });
-      offset++;
-    }
-  }
-  const totalRowCount = rowCount + groupRows.length;
-  const groupRowSet = new Set(groupRows.map((g) => g.virtualRow));
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setContainerWidth(entry.contentRect.width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const rows = useMemo(
+    () => computeRows(media, containerWidth, gap, groups),
+    [media, containerWidth, gap, groups],
+  );
 
   const virtualizer = useVirtualizer({
-    count: totalRowCount,
+    count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => groupRowSet.has(index) ? 48 : 240,
+    estimateSize: (index) => {
+      const r = rows[index];
+      if (!r) return 240;
+      return r.height + gap;
+    },
     overscan: 3,
   });
 
@@ -72,13 +133,13 @@ function Gallery({
         }}
       >
         {virtualItems.map((virtualRow) => {
-          // Check if this is a group header row
-          const groupEntry = groupRows.find((gr) => gr.virtualRow === virtualRow.index);
-          if (groupEntry && groups) {
-            const g = groups[groupEntry.groupIndex];
+          const row = rows[virtualRow.index];
+          if (!row) return null;
+
+          if (row.type === "group") {
             return (
               <div
-                key={`group-${g.label}`}
+                key={`group-${row.label}`}
                 style={{
                   position: "absolute",
                   top: 0,
@@ -89,18 +150,14 @@ function Gallery({
                 }}
                 className="flex items-end border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]/90 backdrop-blur px-4 pb-3"
               >
-                <span className="text-[11px] font-medium text-[var(--color-text-secondary)]">{g.label}</span>
-                <span className="ml-2 text-[10px] text-[var(--color-text-muted)]">{g.count} 张</span>
+                <span className="text-[11px] font-medium text-[var(--color-text-secondary)]">{row.label}</span>
+                <span className="ml-2 text-[10px] text-[var(--color-text-muted)]">{row.count} 张</span>
               </div>
             );
           }
 
-          // Regular media row — adjust rowIndex to skip group headers
-          let rowIndex = virtualRow.index;
-          for (const gr of groupRows) { if (gr.virtualRow < virtualRow.index) rowIndex--; }
-
-          const startIndex = rowIndex * columnCount;
-          const rowMedia = media.slice(startIndex, startIndex + columnCount);
+          // Media row – flex layout with per-item aspect-ratio widths
+          const rowHeight = row.height;
 
           return (
             <div
@@ -112,27 +169,38 @@ function Gallery({
                 width: "100%",
                 height: `${virtualRow.size}px`,
                 transform: `translateY(${virtualRow.start}px)`,
-                display: "grid",
-                gridTemplateColumns: `repeat(${columnCount}, 1fr)`,
-                gap: `${gap}px`,
-                padding: `0 ${gap / 2}px`,
               }}
             >
-              {rowMedia.map((item, colIdx) => {
-                const absIndex = startIndex + colIdx;
-                return (
-                <ThumbnailCard
-                  key={item.id}
-                  item={item}
-                  isSelected={item.id === selectedId}
-                  isMultiSelected={selectedIds.includes(item.id)}
-                  selectionMode={selectionMode}
-                  onClick={() => onSelect(item)}
-                  onDoubleClick={onDoubleClick ? () => onDoubleClick(item) : undefined}
-                  onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
-                  onToggleSelect={(shiftKey: boolean) => onToggleSelect(item, absIndex, shiftKey)}
-                />
-              )})}
+              <div
+                style={{
+                  display: "flex",
+                  gap: `${gap}px`,
+                  height: `${rowHeight}px`,
+                  padding: `0 ${gap / 2}px`,
+                }}
+              >
+                {row.items.map((item) => {
+                  const ratio = (item.width ?? 300) / (item.height ?? 300);
+                  const itemWidth = rowHeight * ratio;
+                  const absIndex = row.startIndex + row.items.indexOf(item);
+                  return (
+                    <div key={item.id} style={{ width: `${itemWidth}px`, flexShrink: 0 }}>
+                      <ThumbnailCard
+                        item={item}
+                        isSelected={item.id === selectedId}
+                        isMultiSelected={selectedIds.includes(item.id)}
+                        selectionMode={selectionMode}
+                        onClick={() => onSelect(item)}
+                        onDoubleClick={onDoubleClick ? () => onDoubleClick(item) : undefined}
+                        onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
+                        onToggleSelect={(shiftKey: boolean) => onToggleSelect(item, absIndex, shiftKey)}
+                      />
+                    </div>
+                  );
+                })}
+                {/* Spacer to fill remaining width when a single image is constrained */}
+                <div style={{ flex: 1, minWidth: 0 }} />
+              </div>
             </div>
           );
         })}
@@ -185,7 +253,7 @@ function ThumbnailCard({
         e.preventDefault();
         onContextMenu?.(e);
       }}
-      className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-xl transition-all duration-200 ease-out ${
+      className={`group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-xl transition-all duration-200 ease-out ${
         isSelected
           ? "ring-2 ring-[var(--color-accent)] ring-offset-2 ring-offset-[var(--color-bg-primary)] bg-[var(--color-bg-elevated)]"
           : isMultiSelected
@@ -223,7 +291,7 @@ function ThumbnailCard({
             src={thumbUrl}
             alt=""
             loading="lazy"
-            className={`h-full w-full object-cover transition-all duration-500 ease-out group-hover:scale-105 ${
+            className={`h-full w-full object-contain transition-all duration-500 ease-out group-hover:scale-105 ${
               loaded ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-95 blur-sm"
             }`}
             draggable={false}
@@ -237,7 +305,7 @@ function ThumbnailCard({
             <span className="text-[11px]">{item.width ?? "?"} × {item.height ?? "?"}</span>
           </div>
         )}
-        {/* Hover info overlay – file name at bottom */}
+        {/* Hover info overlay */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/50 to-transparent pb-2 pt-8 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <p className="truncate px-3 text-[11px] font-medium text-white/90">
             {item.id.slice(0, 8)}…
