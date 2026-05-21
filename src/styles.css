@@ -34,7 +34,11 @@
 
 /* ── Smooth theme toggle ── */
 html {
-  transition: background-color 0.3s ease;
+  transition: background-color 0.3s ease, color-scheme 0.3s ease;
+  color-scheme: light;
+}
+.dark {
+  color-scheme: dark;
 }
 
 html, body, #root {
