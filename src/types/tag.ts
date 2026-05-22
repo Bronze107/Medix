@@ -3,4 +3,5 @@ export interface Tag {
   name: string;
   source?: string;
   confidence?: number;
+  item_count?: number;
 }

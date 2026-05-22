@@ -667,13 +667,21 @@ pub fn media_get_batch(
 
 pub fn tag_list_path(db_path: &Path) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
     let conn = Connection::open(db_path)?;
-    let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY name")?;
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.name, COUNT(m.id) as item_count
+         FROM tags t
+         LEFT JOIN media_tags mt ON t.id = mt.tag_id
+         LEFT JOIN media m ON mt.media_id = m.id AND m.deleted_at IS NULL
+         GROUP BY t.id
+         ORDER BY t.name"
+    )?;
     let tag_iter = stmt.query_map([], |row| {
         Ok(Tag {
             id: row.get(0)?,
             name: row.get(1)?,
             source: None,
             confidence: None,
+            item_count: Some(row.get(2)?),
         })
     })?;
     let mut results = Vec::new();
@@ -742,6 +750,7 @@ pub fn media_tags_get(
             name: row.get(1)?,
             source: row.get(2)?,
             confidence: row.get(3)?,
+            item_count: None,
         })
     })?;
     let mut results = Vec::new();
@@ -833,6 +842,7 @@ pub fn media_tags_intersect(
             name: row.get(1)?,
             source: row.get(2)?,
             confidence: row.get(3)?,
+            item_count: None,
         })
     })?;
     let mut results = Vec::new();

@@ -6,4 +6,5 @@ pub struct Tag {
     pub name: String,
     pub source: Option<String>,
     pub confidence: Option<f64>,
+    pub item_count: Option<i64>,
 }
