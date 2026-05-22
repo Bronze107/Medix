@@ -1567,7 +1567,9 @@ pub fn media_list_trash(
     let sort_column = match sort_by {
         "created_at" => "created_at",
         "modified_at" => "modified_at",
-        _ => "imported_at",
+        "deleted_at" => "deleted_at",
+        "file_size" => "file_size",
+        _ => "deleted_at",
     };
 
     let sql = format!(

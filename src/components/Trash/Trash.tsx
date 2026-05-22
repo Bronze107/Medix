@@ -14,14 +14,17 @@ function Trash() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
+  const [trashSort, setTrashSort] = useState("deleted_at");
+  const [trashDesc, setTrashDesc] = useState(true);
+
   const loadTrash = useCallback(async () => {
     try {
-      const list = await mediaListTrash("imported_at", true);
+      const list = await mediaListTrash(trashSort, trashDesc);
       setMedia(list);
     } catch (e) {
       console.error("Failed to load trash:", e);
     }
-  }, []);
+  }, [trashSort, trashDesc]);
 
   useEffect(() => {
     loadTrash();
@@ -160,6 +163,31 @@ function Trash() {
       <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2.5">
         <h1 className="text-xl font-bold">回收站</h1>
         <div className="flex items-center gap-3">
+          <select
+            value={trashSort}
+            onChange={(e) => setTrashSort(e.target.value)}
+            className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] outline-none"
+          >
+            <option value="deleted_at">删除时间</option>
+            <option value="imported_at">导入时间</option>
+            <option value="created_at">创建时间</option>
+            <option value="file_size">文件大小</option>
+          </select>
+          <button
+            onClick={() => setTrashDesc((d) => !d)}
+            className="rounded-lg p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+            title={trashDesc ? "降序" : "升序"}
+          >
+            {trashDesc ? (
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h9.75m4.5-4.5v12m0 0-3.75-3.75M17.25 21 21 17.25" />
+              </svg>
+            )}
+          </button>
           {media.length > 0 && (
             <button
               onClick={handleEmptyTrash}
