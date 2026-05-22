@@ -36,9 +36,6 @@ function CloseIcon() {
   );
 }
 
-const btnBase =
-  "flex h-full w-[46px] items-center justify-center text-[var(--color-text-secondary)] transition-colors";
-
 export function WindowControls() {
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -65,24 +62,24 @@ export function WindowControls() {
   }, []);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full items-center gap-0 pr-1">
       <button
         onClick={() => win.minimize()}
-        className={`${btnBase} hover:bg-[var(--color-bg-tertiary)]`}
+        className="flex h-8 w-10 items-center justify-center rounded-lg text-[var(--color-text-secondary)] hover:bg-white/10 transition-colors duration-150"
         aria-label="最小化"
       >
         <MinimizeIcon />
       </button>
       <button
         onClick={() => win.toggleMaximize()}
-        className={`${btnBase} hover:bg-[var(--color-bg-tertiary)]`}
+        className="flex h-8 w-10 items-center justify-center rounded-lg text-[var(--color-text-secondary)] hover:bg-white/10 transition-colors duration-150"
         aria-label={isMaximized ? "还原" : "最大化"}
       >
         {isMaximized ? <RestoreIcon /> : <MaximizeIcon />}
       </button>
       <button
         onClick={() => win.close()}
-        className={`${btnBase} hover:bg-[#c42b1c] hover:text-white`}
+        className="flex h-8 w-10 items-center justify-center rounded-lg text-[var(--color-text-secondary)] hover:bg-[#c42b1c] hover:text-white transition-colors duration-150"
         aria-label="关闭"
       >
         <CloseIcon />
