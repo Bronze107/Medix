@@ -253,7 +253,10 @@ function Tags() {
                     <div className="flex items-center justify-between">
                       {(tag.item_count ?? 0) > 0 ? (
                         <button
-                          onClick={() => navigate(`/media?q=${encodeURIComponent(`tag:${tag.name}`)}`)}
+                          onClick={() => {
+                            const q = tag.name.includes(" ") ? `tag:"${tag.name}"` : `tag:${tag.name}`;
+                            navigate(`/media?q=${encodeURIComponent(q)}`);
+                          }}
                           className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors tabular-nums"
                           title="查看此标签的图片"
                         >

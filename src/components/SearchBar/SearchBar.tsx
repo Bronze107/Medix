@@ -8,11 +8,18 @@ function parsePills(query: string) {
   const pills: { prefix: string; label: string; color: string; raw: string }[] = [];
   const lower = query.toLowerCase();
 
-  const tagMatch = lower.match(/tag:([^a-z]*[a-z\s|]+?)(?=\s+(?:width|height|date|size):|$)/);
-  if (tagMatch) {
-    const content = tagMatch[1].trim();
-    if (content) {
-      pills.push({ prefix: "tag", label: content, color: "blue", raw: tagMatch[0] });
+  // tag: with quotes: tag:"black cat"
+  const quotedTagMatch = lower.match(/tag:"([^"]+)"/);
+  if (quotedTagMatch) {
+    pills.push({ prefix: "tag", label: quotedTagMatch[1], color: "blue", raw: quotedTagMatch[0] });
+  } else {
+    // tag: without quotes: tag:cat dog
+    const tagMatch = lower.match(/tag:([^a-z]*[a-z\s|]+?)(?=\s+(?:width|height|date|size):|$)/);
+    if (tagMatch) {
+      const content = tagMatch[1].trim();
+      if (content) {
+        pills.push({ prefix: "tag", label: content, color: "blue", raw: tagMatch[0] });
+      }
     }
   }
 

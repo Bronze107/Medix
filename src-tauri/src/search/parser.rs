@@ -181,15 +181,46 @@ pub fn parse(input: &str) -> ParsedQuery {
 
 /// Returns (tag_words, leftover_semantic) where tag_words are ASCII-only (valid tag names)
 /// and leftover_semantic contains non-ASCII words that should be treated as semantic query text.
+/// Quoted strings like "black cat" are treated as single tag tokens.
 fn split_tag_words(content: &str) -> (Vec<String>, Vec<String>) {
     let mut tags = Vec::new();
     let mut semantic = Vec::new();
-    for word in content.split_whitespace() {
+    let mut i = 0;
+    let chars: Vec<char> = content.chars().collect();
+
+    while i < chars.len() {
+        // Skip whitespace and commas
+        if chars[i].is_whitespace() || chars[i] == ',' {
+            i += 1;
+            continue;
+        }
+
+        // Quoted string → single token
+        if chars[i] == '"' {
+            i += 1;
+            let start = i;
+            while i < chars.len() && chars[i] != '"' {
+                i += 1;
+            }
+            let word: String = chars[start..i].iter().collect();
+            let word = word.trim().to_lowercase();
+            if !word.is_empty() {
+                tags.push(word);
+            }
+            if i < chars.len() { i += 1; } // skip closing quote
+            continue;
+        }
+
+        // Unquoted word
+        let start = i;
+        while i < chars.len() && !chars[i].is_whitespace() && chars[i] != ',' {
+            i += 1;
+        }
+        let word: String = chars[start..i].iter().collect();
         let word = word.trim_matches(',').to_lowercase();
         if word.is_empty() {
             continue;
         }
-        // Chinese/non-ASCII words → semantic, ASCII → tag
         if word.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
             tags.push(word);
         } else {
@@ -432,6 +463,13 @@ mod tests {
         let dr = r.date_range.unwrap();
         assert_eq!(dr.start, "2024-01-01");
         assert_eq!(dr.end, "2024-12-31");
+    }
+
+    #[test]
+    fn test_tag_quoted() {
+        let r = parse("tag:\"black cat\"");
+        let tg = r.tag_group.unwrap();
+        assert_eq!(tg.tags, vec!["black cat"]);
     }
 
     #[test]
