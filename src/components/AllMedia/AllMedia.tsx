@@ -384,13 +384,18 @@ function AllMedia({ collectionId }: AllMediaProps) {
     : [];
 
   // Keyboard shortcuts
+  const selectedIdsRef2 = useRef(selectedIds);
+  selectedIdsRef2.current = selectedIds;
+  const displayMediaRef2 = useRef(displayMedia);
+  displayMediaRef2.current = displayMedia;
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
       if (e.key === "Escape") {
-        if (selectedIds.size > 0) {
+        if (selectedIdsRef2.current.size > 0) {
           setSelectedIds(new Set());
         } else {
           setSelected(null);
@@ -398,18 +403,19 @@ function AllMedia({ collectionId }: AllMediaProps) {
       }
       if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        if (displayMedia.length > 0) {
-          setSelectedIds(new Set(displayMedia.map((m) => m.id)));
+        const m = displayMediaRef2.current;
+        if (m.length > 0) {
+          setSelectedIds(new Set(m.map((x) => x.id)));
         }
       }
-      if (e.key === "Delete" && selectedIds.size > 0) {
+      if (e.key === "Delete" && selectedIdsRef2.current.size > 0) {
         e.preventDefault();
-        handleBatchDelete();
+        setDeleteConfirm("batch");
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, displayMedia, setSelected]);
+  }, []);
 
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
@@ -510,7 +516,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   );
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       {/* Toolbar */}
       <div className="relative flex items-center gap-3 border-b border-[var(--color-border)] px-4 py-2.5">
         <SearchBar
@@ -785,59 +791,57 @@ function AllMedia({ collectionId }: AllMediaProps) {
         />
       </div>
 
-      {/* Floating batch bar */}
-      {selectedIds.size > 0 && (
-        <div className="absolute bottom-0 left-0 right-0 z-30 flex items-center justify-between border-t border-[var(--color-border)] bg-[var(--color-bg-elevated)]/90 backdrop-blur-xl px-5 py-2.5 animate-fade-in-up">
+      {/* Floating batch bar — always rendered to avoid layout shift */}
+      <div className={`absolute bottom-0 left-0 right-0 z-30 flex items-center justify-between border-t border-[var(--color-border)] bg-[var(--color-bg-elevated)] px-5 py-2.5 transition-opacity duration-150 ${selectedIds.size > 0 ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
+        <button
+          onClick={() => setSelectedIds(new Set())}
+          className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+        >
+          已选 <span className="font-semibold text-[var(--color-accent)]">{selectedIds.size}</span> 项 · 取消
+        </button>
+        <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setSelectedIds(new Set())}
-            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+            onClick={handleSelectAll}
+            className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
           >
-            已选 <span className="font-semibold text-[var(--color-accent)]">{selectedIds.size}</span> 项 · 取消
+            全选
           </button>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleSelectAll}
-              className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
-            >
-              全选
-            </button>
-            <button
-              onClick={async () => {
-                const all = await loadCollections();
-                setCollectionsForPicker(all);
-                setAddToCollectionMediaIds(Array.from(selectedIds));
-                setCollectionPickerSearch("");
-                setShowAddToCollection(true);
-              }}
-              className="rounded-lg p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-              title="添加到集合"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
-              </svg>
-            </button>
-            <button
-              onClick={() => setShowBatchTagDialog(true)}
-              className="rounded-lg p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-              title="添加标签"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
-              </svg>
-            </button>
-            <button
-              onClick={handleBatchDelete}
-              className="rounded-lg p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
-              title="删除"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-              </svg>
-            </button>
-          </div>
+          <button
+            onClick={async () => {
+              const all = await loadCollections();
+              setCollectionsForPicker(all);
+              setAddToCollectionMediaIds(Array.from(selectedIds));
+              setCollectionPickerSearch("");
+              setShowAddToCollection(true);
+            }}
+            className="rounded-lg p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+            title="添加到集合"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setShowBatchTagDialog(true)}
+            className="rounded-lg p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+            title="添加标签"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
+            </svg>
+          </button>
+          <button
+            onClick={handleBatchDelete}
+            className="rounded-lg p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
+            title="删除"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+            </svg>
+          </button>
         </div>
-      )}
+      </div>
 
       {/* Batch tag dialog */}
       {showBatchTagDialog && (

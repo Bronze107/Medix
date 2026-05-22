@@ -252,11 +252,11 @@ function ThumbnailCard({
         e.preventDefault();
         onContextMenu?.(e);
       }}
-      className={`group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-xl transition-all duration-200 ease-out ${
+      className={`group relative flex h-full cursor-pointer flex-col overflow-hidden rounded-xl transition-shadow duration-200 ease-out ${
         isSelected
-          ? "ring-2 ring-[var(--color-accent)] ring-offset-2 ring-offset-[var(--color-bg-primary)] bg-[var(--color-bg-elevated)]"
+          ? "outline outline-[var(--color-accent)] outline-2 outline-offset-2 bg-[var(--color-bg-elevated)]"
           : isMultiSelected
-          ? "ring-2 ring-[var(--color-success)] ring-offset-2 ring-offset-[var(--color-bg-primary)] bg-[var(--color-bg-elevated)]"
+          ? "outline outline-[var(--color-success)] outline-2 outline-offset-2 bg-[var(--color-bg-elevated)]"
           : "bg-[var(--color-bg-elevated)] shadow-sm hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5"
       }`}
     >
