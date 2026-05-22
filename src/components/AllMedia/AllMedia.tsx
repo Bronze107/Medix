@@ -79,12 +79,17 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [importResult, setImportResult] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [aiRemaining, setAiRemaining] = useState(0);
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => (sessionStorage.getItem("view_mode") as ViewMode) || "grid"
+  );
   const [sortBy, setSortBy] = useState<SortField>(
     () => (sessionStorage.getItem("sort_by") as SortField) || "imported_at"
   );
   const [descending, setDescending] = useState(
     () => sessionStorage.getItem("sort_desc") !== "false"
+  );
+  const [gridScale, setGridScale] = useState(
+    () => Number(sessionStorage.getItem("grid_scale")) || 1
   );
   const [groupBy, setGroupBy] = useState<GroupMode>(
     () => (sessionStorage.getItem("group_by") as GroupMode) || "none"
@@ -101,6 +106,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
     settingsGet("sort_desc").then((v) => {
       setDescending(v !== "false");
     }).catch(() => {});
+    settingsGet("grid_scale").then((v) => {
+      if (v) setGridScale(Number(v));
+    }).catch(() => {});
+    settingsGet("view_mode").then((v) => {
+      if (v === "grid" || v === "table") setViewMode(v);
+    }).catch(() => {});
   }, []);
 
   // Persist preferences
@@ -116,6 +127,14 @@ function AllMedia({ collectionId }: AllMediaProps) {
     sessionStorage.setItem("sort_desc", String(descending));
     settingsSet("sort_desc", String(descending)).catch(() => {});
   }, [descending]);
+  useEffect(() => {
+    sessionStorage.setItem("view_mode", viewMode);
+    settingsSet("view_mode", viewMode).catch(() => {});
+  }, [viewMode]);
+  useEffect(() => {
+    sessionStorage.setItem("grid_scale", String(gridScale));
+    settingsSet("grid_scale", String(gridScale)).catch(() => {});
+  }, [gridScale]);
 
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; media: Media } | null>(null);
@@ -530,6 +549,39 @@ function AllMedia({ collectionId }: AllMediaProps) {
           )}
         </button>
 
+        {/* Grid zoom (only in grid mode) */}
+        {viewMode === "grid" && (
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => setGridScale((s) => Math.max(0.5, s - 0.1))}
+              className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-30"
+              disabled={gridScale <= 0.5}
+              title="缩小"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setGridScale(1)}
+              className="rounded px-1 py-0.5 text-[11px] tabular-nums text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+              title="重置缩放"
+            >
+              {Math.round(gridScale * 100)}%
+            </button>
+            <button
+              onClick={() => setGridScale((s) => Math.min(2, s + 0.1))}
+              className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-30"
+              disabled={gridScale >= 2}
+              title="放大"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m7-7H5" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Sort direction */}
         <button
           onClick={() => setDescending((d) => !d)}
@@ -709,6 +761,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
             <Gallery
               media={displayMedia}
               groups={groups}
+              scale={gridScale}
               selectedId={selected?.id ?? null}
               onSelect={setSelected}
               onDoubleClick={(item) => {

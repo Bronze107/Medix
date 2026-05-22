@@ -19,6 +19,7 @@ interface GalleryProps {
   selectedIds: string[];
   onToggleSelect: (media: Media, index: number, shiftKey: boolean) => void;
   gap?: number;
+  scale?: number;
 }
 
 type MediaRow = { type: "media"; items: Media[]; height: number; startIndex: number };
@@ -29,10 +30,11 @@ function computeRows(
   media: Media[],
   containerWidth: number,
   gap: number,
+  scale: number,
   groups?: GroupInfo[],
 ): Row[] {
   if (containerWidth <= 0) return [];
-  const targetHeight = 220;
+  const targetHeight = Math.round(220 * scale);
   const rows: Row[] = [];
   let i = 0;
 
@@ -92,6 +94,7 @@ function Gallery({
   selectedIds,
   onToggleSelect,
   gap = 12,
+  scale = 1,
 }: GalleryProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
@@ -107,8 +110,8 @@ function Gallery({
   }, []);
 
   const rows = useMemo(
-    () => computeRows(media, containerWidth, gap, groups),
-    [media, containerWidth, gap, groups],
+    () => computeRows(media, containerWidth, gap, scale, groups),
+    [media, containerWidth, gap, scale, groups],
   );
 
   const virtualizer = useVirtualizer({
