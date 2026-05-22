@@ -1209,52 +1209,78 @@ function AllMedia({ collectionId }: AllMediaProps) {
       {/* Context menu */}
       {ctxMenu && (
         <div
-          className="fixed z-[60] min-w-[120px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] py-1 shadow-xl"
+          className="fixed z-[60] min-w-[150px] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/95 backdrop-blur-xl py-1.5 shadow-2xl shadow-black/30 animate-scale-in"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            onClick={() => {
-              const idx = media.findIndex((m) => m.id === ctxMenu.media.id);
-              if (idx >= 0) setLightboxIndex(idx);
-              setCtxMenu(null);
-            }}
-            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-          >
-            查看原图
-          </button>
-          <button
-            onClick={() => {
-              setSelected(ctxMenu.media);
-              setCtxMenu(null);
-            }}
-            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-          >
-            查看详情
-          </button>
-          <div className="my-1 border-t border-[var(--color-border)]" />
+          {/* Single-item actions */}
+          {!selectedIds.has(ctxMenu.media.id) || selectedIds.size <= 1 ? (
+            <>
+              <button
+                onClick={() => {
+                  const idx = displayMedia.findIndex((m) => m.id === ctxMenu.media.id);
+                  if (idx >= 0) setLightboxIndex(idx);
+                  setCtxMenu(null);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                </svg>
+                查看原图
+              </button>
+              <button
+                onClick={() => { setSelected(ctxMenu.media); setCtxMenu(null); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                </svg>
+                查看详情
+              </button>
+              <div className="my-1 border-t border-[var(--color-border)]" />
+            </>
+          ) : (
+            <>
+              <div className="px-3 py-1.5 text-[11px] text-[var(--color-text-muted)]">
+                已选中 {selectedIds.size} 张图片
+              </div>
+              <div className="my-1 border-t border-[var(--color-border)]" />
+            </>
+          )}
           <button
             onClick={() => {
               setShowBatchTagDialog(true);
-              setSelectedIds(new Set([ctxMenu.media.id]));
+              if (!selectedIds.has(ctxMenu.media.id)) setSelectedIds(new Set([ctxMenu.media.id]));
               setCtxMenu(null);
             }}
-            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
           >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
+            </svg>
             添加标签
+            {selectedIds.has(ctxMenu.media.id) && selectedIds.size > 1 ? `（${selectedIds.size} 张）` : ""}
           </button>
           <button
             onClick={async () => {
+              const ids = selectedIds.has(ctxMenu.media.id) ? Array.from(selectedIds) : [ctxMenu.media.id];
               const all = await loadCollections();
               setCollectionsForPicker(all);
-              setAddToCollectionMediaIds([ctxMenu.media.id]);
+              setAddToCollectionMediaIds(ids);
               setCollectionPickerSearch("");
               setShowAddToCollection(true);
               setCtxMenu(null);
             }}
-            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
           >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+            </svg>
             添加到集合
+            {selectedIds.has(ctxMenu.media.id) && selectedIds.size > 1 ? `（${selectedIds.size} 张）` : ""}
           </button>
           {collectionId && (
             <button
@@ -1264,22 +1290,48 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 loadMedia();
                 window.dispatchEvent(new CustomEvent("collections-changed"));
               }}
-              className="block w-full px-3 py-1.5 text-left text-xs text-orange-400 hover:bg-orange-900/20"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-orange-400 transition-colors hover:bg-orange-900/20"
             >
               从集合移除
             </button>
           )}
           <div className="my-1 border-t border-[var(--color-border)]" />
-          <button
-            onClick={() => {
-              setPendingDeleteId(ctxMenu.media.id);
-              setCtxMenu(null);
-              setDeleteConfirm("single");
-            }}
-            className="block w-full px-3 py-1.5 text-left text-xs text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)]"
-          >
-            删除
-          </button>
+          {selectedIds.has(ctxMenu.media.id) && selectedIds.size > 1 ? (
+            <>
+              <button
+                onClick={() => { setSelectedIds(new Set()); setCtxMenu(null); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+              >
+                取消选中
+              </button>
+              <button
+                onClick={() => {
+                  setDeleteConfirm("batch");
+                  setCtxMenu(null);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger-soft)]"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+                删除 {selectedIds.size} 张图片
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => {
+                setPendingDeleteId(ctxMenu.media.id);
+                setCtxMenu(null);
+                setDeleteConfirm("single");
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger-soft)]"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+              </svg>
+              删除
+            </button>
+          )}
         </div>
       )}
 
