@@ -35,6 +35,7 @@ function Settings() {
   const [llamaAutoStart, setLlamaAutoStart] = useState(false);
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [httpPort, setHttpPort] = useState(8765);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [detected, setDetected] = useState<AutoDetect | null>(null);
 
@@ -186,15 +187,15 @@ function Settings() {
               <span className="text-sm text-[var(--color-text-muted)]">检测中...</span>
             ) : serverStatus?.running ? (
               <>
-                <span className="h-2 w-2 rounded-full bg-green-500"></span>
-                <span className="text-sm text-green-400">
+                <span className="h-2 w-2 rounded-full bg-[var(--color-success)]"></span>
+                <span className="text-sm text-[var(--color-success)]">
                   运行中 (PID: {serverStatus.pid}, 端口: {serverStatus.port})
                 </span>
               </>
             ) : (
               <>
-                <span className="h-2 w-2 rounded-full bg-red-500"></span>
-                <span className="text-sm text-red-400">已停止</span>
+                <span className="h-2 w-2 rounded-full bg-[var(--color-danger)]"></span>
+                <span className="text-sm text-[var(--color-danger)]">已停止</span>
               </>
             )}
           </div>
@@ -204,14 +205,14 @@ function Settings() {
             <button
               onClick={handleStart}
               disabled={serverStatus?.running || starting}
-              className="rounded bg-green-700 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-600 disabled:opacity-50"
+              className="rounded bg-[var(--color-success)] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[var(--color-success)]/80 disabled:opacity-50"
             >
               {starting ? "启动中..." : "启动服务"}
             </button>
             <button
               onClick={handleStop}
               disabled={!serverStatus?.running || stopping}
-              className="rounded border border-red-800 bg-red-900/30 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-900/50 disabled:opacity-50"
+              className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-3 py-1.5 text-xs font-medium text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger-soft)]/80 disabled:opacity-50"
             >
               {stopping ? "停止中..." : "停止服务"}
             </button>
@@ -230,89 +231,104 @@ function Settings() {
             </span>
           </label>
 
-          {/* Binary path */}
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-              llama-server 二进制路径
-            </label>
-            {detected && detected.binary_paths.length > 0 ? (
-              <select
-                value={llamaBinPath}
-                onChange={(e) => setLlamaBinPath(e.target.value)}
-                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
-              >
-                {detected.binary_paths.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-                <option value="">自定路径...</option>
-              </select>
-            ) : null}
-            {(detected?.binary_paths.length ?? 0) === 0 || llamaBinPath === "" || !detected?.binary_paths.includes(llamaBinPath) ? (
-              <input
-                type="text"
-                value={llamaBinPath}
-                onChange={(e) => setLlamaBinPath(e.target.value)}
-                placeholder="C:\\path\\to\\llama-server.exe"
-                className="mt-1 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-              />
-            ) : null}
-          </div>
+          {/* Advanced settings toggle */}
+          <button
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="mb-3 flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            <svg className={`h-3 w-3 transition-transform ${showAdvanced ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+            高级设置
+          </button>
 
-          {/* Port */}
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">端口号</label>
-            <input
-              type="number"
-              value={llamaPort}
-              onChange={(e) => setLlamaPort(parseInt(e.target.value) || 8080)}
-              className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
-            />
-          </div>
+          {showAdvanced && (
+            <>
+              {/* Port */}
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">端口号</label>
+                <input
+                  type="number"
+                  value={llamaPort}
+                  onChange={(e) => setLlamaPort(parseInt(e.target.value) || 8080)}
+                  className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
+                />
+              </div>
 
-          {/* Threads */}
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-              线程数: {llamaThreads}
-            </label>
-            <input
-              type="range"
-              min={1}
-              max={16}
-              value={llamaThreads}
-              onChange={(e) => setLlamaThreads(parseInt(e.target.value))}
-              className="w-48"
-            />
-          </div>
+              {/* Binary path */}
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+                  llama-server 二进制路径
+                </label>
+                {detected && detected.binary_paths.length > 0 ? (
+                  <select
+                    value={llamaBinPath}
+                    onChange={(e) => setLlamaBinPath(e.target.value)}
+                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
+                  >
+                    {detected.binary_paths.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                    <option value="">自定路径...</option>
+                  </select>
+                ) : null}
+                {(detected?.binary_paths.length ?? 0) === 0 || llamaBinPath === "" || !detected?.binary_paths.includes(llamaBinPath) ? (
+                  <input
+                    type="text"
+                    value={llamaBinPath}
+                    onChange={(e) => setLlamaBinPath(e.target.value)}
+                    placeholder="C:\\path\\to\\llama-server.exe"
+                    className="mt-1 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                  />
+                ) : null}
+              </div>
 
-          {/* GPU Layers */}
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-              GPU 层数 (0 = 纯CPU): {llamaGpuLayers}
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={99}
-              step={1}
-              value={llamaGpuLayers}
-              onChange={(e) => setLlamaGpuLayers(parseInt(e.target.value))}
-              className="w-48"
-            />
-          </div>
+              {/* Threads */}
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+                  线程数: {llamaThreads}
+                </label>
+                <input
+                  type="range"
+                  min={1}
+                  max={16}
+                  value={llamaThreads}
+                  onChange={(e) => setLlamaThreads(parseInt(e.target.value))}
+                  className="w-48"
+                />
+              </div>
 
-          {/* Context Size */}
-          <div className="mb-3">
-            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-              上下文大小: {llamaCtxSize}
-            </label>
-            <input
-              type="number"
-              value={llamaCtxSize}
-              onChange={(e) => setLlamaCtxSize(parseInt(e.target.value) || 4096)}
-              step={512}
-              className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
-            />
-          </div>
+              {/* GPU Layers */}
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+                  GPU 层数 (0 = 纯CPU): {llamaGpuLayers}
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={99}
+                  step={1}
+                  value={llamaGpuLayers}
+                  onChange={(e) => setLlamaGpuLayers(parseInt(e.target.value))}
+                  className="w-48"
+                />
+              </div>
+
+              {/* Context Size */}
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+                  上下文大小: {llamaCtxSize}
+                </label>
+                <input
+                  type="number"
+                  value={llamaCtxSize}
+                  onChange={(e) => setLlamaCtxSize(parseInt(e.target.value) || 4096)}
+                  step={512}
+                  className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
+                />
+              </div>
+            </>
+          )}
 
         </section>
 
@@ -331,7 +347,7 @@ function Settings() {
               onChange={(e) => setHttpPort(parseInt(e.target.value) || 8765)}
               className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
             />
-            <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+            <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
               浏览器插件通过此端口与 Medix 通信，修改后需重启应用
             </p>
           </div>
@@ -355,7 +371,7 @@ function Settings() {
               onChange={(e) => setSemanticThreshold(parseFloat(e.target.value))}
               className="w-48"
             />
-            <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+            <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
               越高越严格（只返回高度相关的图片），越低越宽松。默认 0.25
             </p>
           </div>
@@ -401,13 +417,13 @@ function Settings() {
                 >
                   <div>
                     <p className="text-xs text-[var(--color-text-secondary)]">{m.filename}</p>
-                    <p className="text-[10px] text-[var(--color-text-muted)]">
+                    <p className="text-[11px] text-[var(--color-text-muted)]">
                       {m.size_mb}MB
                       {m.is_vlm && " · VLM"}
                     </p>
                   </div>
                   {m.path === llamaModel && (
-                    <span className="rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[10px] text-[var(--color-accent)]">
+                    <span className="rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[11px] text-[var(--color-accent)]">
                       已选择
                     </span>
                   )}
@@ -457,14 +473,14 @@ function Settings() {
                 className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
               />
             )}
-            <p className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+            <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
               将 mmproj 文件放到 models 目录即可自动识别
             </p>
           </div>
 
           {/* Download hint */}
           <div className="mt-3 rounded bg-[var(--color-bg-tertiary)]/50 p-2">
-            <p className="text-[10px] text-[var(--color-text-muted)]">
+            <p className="text-[11px] text-[var(--color-text-muted)]">
               下载模型：{" "}
               <a
                 href="https://huggingface.co/openbmb/MiniCPM-V-2_6-gguf"
@@ -520,15 +536,17 @@ function Settings() {
           </section>
         )}
 
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            onClick={handleSave}
-            className="rounded bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)]"
-          >
-            保存设置
-          </button>
-          {saved && <span className="text-sm text-green-400">已保存</span>}
-        </div>
+      </div>
+
+      {/* Floating save bar */}
+      <div className="border-t border-[var(--color-border)] bg-[var(--color-bg-primary)] pt-3 flex items-center gap-3">
+        <button
+          onClick={handleSave}
+          className="rounded bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)]"
+        >
+          保存设置
+        </button>
+        {saved && <span className="text-sm text-[var(--color-success)]">已保存</span>}
       </div>
     </div>
   );
