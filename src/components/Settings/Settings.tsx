@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import type { LlamaServerStatus, GgufModelList, AutoDetect } from "@/types/ai";
+import { open } from "@tauri-apps/plugin-dialog";
+import type { LlamaServerStatus } from "@/types/ai";
 import {
-  autoDetect,
   llamaServerStatus,
   llamaServerStart,
   llamaServerStop,
-  modelList,
   settingsGetAll,
   settingsSet,
 } from "@/lib/tauri";
@@ -15,7 +14,6 @@ type CloudProvider = "claude" | "openai" | "qwen";
 
 function Settings() {
   const [serverStatus, setServerStatus] = useState<LlamaServerStatus | null>(null);
-  const [ggufList, setGgufList] = useState<GgufModelList | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -36,8 +34,6 @@ function Settings() {
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [httpPort, setHttpPort] = useState(8765);
   const [showAdvanced, setShowAdvanced] = useState(false);
-
-  const [detected, setDetected] = useState<AutoDetect | null>(null);
 
   const [saved, setSaved] = useState(false);
 
@@ -64,14 +60,8 @@ function Settings() {
 
   const pollStatus = useCallback(async () => {
     try {
-      const [status, models, detected] = await Promise.all([
-        llamaServerStatus(),
-        modelList(),
-        autoDetect(),
-      ]);
+      const status = await llamaServerStatus();
       setServerStatus(status);
-      setGgufList(models);
-      setDetected(detected);
     } catch (e) {
       console.error("Failed to poll status:", e);
     } finally {
@@ -260,27 +250,29 @@ function Settings() {
                 <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
                   llama-server 二进制路径
                 </label>
-                {detected && detected.binary_paths.length > 0 ? (
-                  <select
-                    value={llamaBinPath}
-                    onChange={(e) => setLlamaBinPath(e.target.value)}
-                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
-                  >
-                    {detected.binary_paths.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                    <option value="">自定路径...</option>
-                  </select>
-                ) : null}
-                {(detected?.binary_paths.length ?? 0) === 0 || llamaBinPath === "" || !detected?.binary_paths.includes(llamaBinPath) ? (
+                <div className="flex gap-2">
                   <input
                     type="text"
                     value={llamaBinPath}
                     onChange={(e) => setLlamaBinPath(e.target.value)}
-                    placeholder="C:\\path\\to\\llama-server.exe"
-                    className="mt-1 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                    placeholder="C:\path\to\llama-server.exe"
+                    className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
                   />
-                ) : null}
+                  <button
+                    onClick={async () => {
+                      const path = await open({
+                        filters: [{ name: "可执行文件", extensions: ["exe"] }],
+                      });
+                      if (path) setLlamaBinPath(path);
+                    }}
+                    className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                    title="选择可执行文件"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {/* Threads */}
@@ -383,122 +375,67 @@ function Settings() {
             GGUF 模型
           </h2>
 
-          {ggufList && (
-            <p className="mb-2 text-xs text-[var(--color-text-muted)]">
-              模型目录: {ggufList.models_dir}
-            </p>
-          )}
-
-          {/* Model selection */}
+          {/* Model path */}
           <div className="mb-3">
-            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">选择模型</label>
-            <select
-              value={llamaModel}
-              onChange={(e) => setLlamaModel(e.target.value)}
-              className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
-            >
-              <option value="">-- 未选择 --</option>
-              {ggufList?.models.map((m) => (
-                <option key={m.path} value={m.path}>
-                  {m.filename} ({m.size_mb}MB{m.is_vlm ? ", VLM" : ""})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Model files list */}
-          {ggufList && ggufList.models.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-xs text-[var(--color-text-muted)]">已发现的模型文件</p>
-              {ggufList.models.map((m) => (
-                <div
-                  key={m.path}
-                  className="flex items-center justify-between rounded bg-[var(--color-bg-tertiary)]/50 px-2 py-1.5"
-                >
-                  <div>
-                    <p className="text-xs text-[var(--color-text-secondary)]">{m.filename}</p>
-                    <p className="text-[11px] text-[var(--color-text-muted)]">
-                      {m.size_mb}MB
-                      {m.is_vlm && " · VLM"}
-                    </p>
-                  </div>
-                  {m.path === llamaModel && (
-                    <span className="rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[11px] text-[var(--color-accent)]">
-                      已选择
-                    </span>
-                  )}
-                </div>
-              ))}
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">模型文件路径</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={llamaModel}
+                onChange={(e) => setLlamaModel(e.target.value)}
+                placeholder="C:\models\model.gguf"
+                className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+              />
+              <button
+                onClick={async () => {
+                  const path = await open({
+                    filters: [{ name: "GGUF 模型", extensions: ["gguf"] }],
+                  });
+                  if (path) setLlamaModel(path);
+                }}
+                className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                title="选择模型文件"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                </svg>
+              </button>
             </div>
-          )}
-
-          {ggufList && ggufList.models.length === 0 && (
-            <p className="py-2 text-xs text-[var(--color-text-muted)]">
-              暂无 GGUF 模型。将 .gguf 文件放入 models 目录即可。
+            <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
+              输入 .gguf 模型文件的完整路径，或点击浏览选择文件
             </p>
-          )}
+          </div>
 
           {/* mmproj (vision projector) */}
           <div className="mb-3 border-t border-[var(--color-border)] pt-3">
             <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-              mmproj (视觉投影器)
+              mmproj 视觉投影器（可选）
             </label>
-            {detected && detected.mmproj_files.length > 0 ? (
-              <>
-                <select
-                  value={llamaMmproj}
-                  onChange={(e) => setLlamaMmproj(e.target.value)}
-                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
-                >
-                  {detected.mmproj_files.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                  <option value="">不使用 VLM</option>
-                </select>
-                {!detected.mmproj_files.includes(llamaMmproj) && llamaMmproj !== "" ? (
-                  <input
-                    type="text"
-                    value={llamaMmproj}
-                    onChange={(e) => setLlamaMmproj(e.target.value)}
-                    className="mt-1 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
-                  />
-                ) : null}
-              </>
-            ) : (
+            <div className="flex gap-2">
               <input
                 type="text"
                 value={llamaMmproj}
                 onChange={(e) => setLlamaMmproj(e.target.value)}
-                placeholder="留空表示不使用 VLM"
-                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                placeholder="留空表示不使用 VLM 视觉功能"
+                className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
               />
-            )}
+              <button
+                onClick={async () => {
+                  const path = await open({
+                    filters: [{ name: "mmproj 文件", extensions: ["gguf"] }],
+                  });
+                  if (path) setLlamaMmproj(path);
+                }}
+                className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                title="选择 mmproj 文件"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                </svg>
+              </button>
+            </div>
             <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
-              将 mmproj 文件放到 models 目录即可自动识别
-            </p>
-          </div>
-
-          {/* Download hint */}
-          <div className="mt-3 rounded bg-[var(--color-bg-tertiary)]/50 p-2">
-            <p className="text-[11px] text-[var(--color-text-muted)]">
-              下载模型：{" "}
-              <a
-                href="https://huggingface.co/openbmb/MiniCPM-V-2_6-gguf"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--color-accent)] hover:underline"
-              >
-                MiniCPM-V 2.6 (VLM, ~1GB Q4)
-              </a>
-              {" · "}
-              <a
-                href="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--color-accent)] hover:underline"
-              >
-                nomic-embed-text v1.5 (~270MB Q4)
-              </a>
+              使用 VLM 模型时需要配套的 mmproj 文件
             </p>
           </div>
         </section>
