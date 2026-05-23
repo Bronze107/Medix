@@ -644,49 +644,26 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       {activeTab === "captions" && (
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
-            {/* AI Caption Section */}
-            {(() => {
-              const aiCaption = captions.find((c) => c.source === "ai");
-              if (aiCaption) {
-                return (
-                  <div className="mb-4 rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-2.5">
-                    <div className="mb-1.5 flex items-center gap-2">
-                      <span className="rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
-                        AI 描述
-                      </span>
-                    </div>
-                    <p className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--color-accent-hover)]/80">
-                      {aiCaption.text}
-                    </p>
-                    <div className="mt-2 flex gap-2">
-                      <button
-                        onClick={() => handleAdoptAiCaption(aiCaption.text)}
-                        className="text-[10px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
-                      >
-                        采纳为手动描述
-                      </button>
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            })()}
-
-            {/* User Captions */}
-            {(() => {
-              const userCaptions = captions.filter((c) => c.source !== "ai");
-              if (userCaptions.length === 0 && !captions.some((c) => c.source === "ai")) {
-                return (
-                  <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无描述</p>
-                );
-              }
-              return (
-                <div className="space-y-2">
-                  {userCaptions.map((c) => (
+            {captions.length === 0 ? (
+              <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无描述</p>
+            ) : (
+              <div className="space-y-2">
+                {captions.map((c) => {
+                  const isAi = c.source === "ai";
+                  return (
                     <div
                       key={c.id}
-                      className="rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/50 p-2.5"
+                      className={`rounded border p-2.5 ${
+                        isAi
+                          ? "border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)]"
+                          : "border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/50"
+                      }`}
                     >
+                      {isAi && (
+                        <span className="mb-1.5 inline-block rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
+                          AI 描述
+                        </span>
+                      )}
                       {editingCaptionId === c.id ? (
                         <div className="space-y-2">
                           <textarea
@@ -713,16 +690,25 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                         </div>
                       ) : (
                         <div>
-                          <p className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--color-text-secondary)]">
+                          <p className={`whitespace-pre-wrap text-xs leading-relaxed ${isAi ? "text-[var(--color-accent-hover)]/80" : "text-[var(--color-text-secondary)]"}`}>
                             {c.text}
                           </p>
                           <div className="mt-2 flex gap-2">
-                            <button
-                              onClick={() => handleStartEdit(c)}
-                              className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
-                            >
-                              编辑
-                            </button>
+                            {isAi ? (
+                              <button
+                                onClick={() => handleAdoptAiCaption(c.text)}
+                                className="text-[10px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
+                              >
+                                采纳为手动描述
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleStartEdit(c)}
+                                className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
+                              >
+                                编辑
+                              </button>
+                            )}
                             <button
                               onClick={() => handleDeleteCaption(c.id)}
                               className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)]"
@@ -733,10 +719,10 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                         </div>
                       )}
                     </div>
-                  ))}
-                </div>
-              );
-            })()}
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="mt-4 border-t border-[var(--color-border)] pt-3">

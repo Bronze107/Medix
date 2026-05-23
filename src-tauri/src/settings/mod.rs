@@ -14,6 +14,7 @@ pub const KEY_LLAMA_GPU_LAYERS: &str = "llama_gpu_layers";
 pub const KEY_LLAMA_CTX_SIZE: &str = "llama_ctx_size";
 pub const KEY_LLAMA_MMPROJ: &str = "llama_mmproj";
 pub const KEY_LLAMA_AUTO_START: &str = "llama_auto_start";
+pub const KEY_LLAMA_MAX_IMAGE_DIM: &str = "llama_max_image_dim";
 
 pub fn get(app: &AppHandle, key: &str) -> Option<String> {
     crate::db::setting_get(app, key).ok().flatten()
@@ -77,6 +78,12 @@ pub fn get_llama_auto_start(app: &AppHandle) -> bool {
     get(app, KEY_LLAMA_AUTO_START)
         .map(|v| v == "true")
         .unwrap_or(false)
+}
+
+pub fn get_llama_max_image_dim(app: &AppHandle) -> u32 {
+    get(app, KEY_LLAMA_MAX_IMAGE_DIM)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0) // 0 means no resize
 }
 
 pub const KEY_SEMANTIC_THRESHOLD: &str = "semantic_threshold";

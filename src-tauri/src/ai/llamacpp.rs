@@ -115,7 +115,7 @@ pub async fn generate_caption(
     };
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
+        .timeout(Duration::from_secs(180))
         .build()?;
 
     let message = Message {
@@ -142,30 +142,41 @@ pub async fn generate_caption(
         stream: false,
     };
 
-    let resp = client
-        .post(format!("http://127.0.0.1:{}/v1/chat/completions", port))
-        .json(&req_body)
-        .send()
-        .await?;
+    let max_attempts = 2;
+    let mut last_error = AiError::EmptyResponse;
+    for attempt in 1..=max_attempts {
+        let resp = client
+            .post(format!("http://127.0.0.1:{}/v1/chat/completions", port))
+            .json(&req_body)
+            .send()
+            .await?;
 
-    if !resp.status().is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        return Err(AiError::Server(format!("generate failed: {}", text)));
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(AiError::Server(format!("generate failed: {}", text)));
+        }
+
+        let body: ChatCompletionResponse = resp.json().await?;
+        let text = body
+            .choices
+            .first()
+            .map(|c| c.message.content.trim().to_string())
+            .unwrap_or_default();
+
+        if !text.is_empty() {
+            let (caption, tags) = parse_caption_response(&text);
+            return Ok(AiResult { caption, tags });
+        }
+
+        eprintln!(
+            "[ai] empty response from model (attempt {}/{}), retrying...",
+            attempt, max_attempts
+        );
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        last_error = AiError::EmptyResponse;
     }
 
-    let body: ChatCompletionResponse = resp.json().await?;
-    let text = body
-        .choices
-        .first()
-        .map(|c| c.message.content.trim().to_string())
-        .unwrap_or_default();
-
-    if text.is_empty() {
-        return Err(AiError::EmptyResponse);
-    }
-
-    let (caption, tags) = parse_caption_response(&text);
-    Ok(AiResult { caption, tags })
+    Err(last_error)
 }
 
 pub async fn embed_text(text: &str, model: &str, port: u16) -> Result<Vec<f32>, AiError> {

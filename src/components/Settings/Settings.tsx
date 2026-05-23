@@ -31,6 +31,7 @@ function Settings() {
   const [llamaCtxSize, setLlamaCtxSize] = useState(4096);
   const [llamaMmproj, setLlamaMmproj] = useState("");
   const [llamaAutoStart, setLlamaAutoStart] = useState(false);
+  const [llamaMaxImageDim, setLlamaMaxImageDim] = useState(0);
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [httpPort, setHttpPort] = useState(8765);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -51,6 +52,7 @@ function Settings() {
       if (settings.llama_ctx_size) setLlamaCtxSize(parseInt(settings.llama_ctx_size) || 4096);
       if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
       if (settings.llama_auto_start) setLlamaAutoStart(settings.llama_auto_start === "true");
+      if (settings.llama_max_image_dim) setLlamaMaxImageDim(parseInt(settings.llama_max_image_dim) || 0);
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
       if (settings.http_port) setHttpPort(parseInt(settings.http_port) || 8765);
     } catch (e) {
@@ -89,6 +91,7 @@ function Settings() {
       await settingsSet("llama_ctx_size", String(llamaCtxSize));
       await settingsSet("llama_mmproj", llamaMmproj);
       await settingsSet("llama_auto_start", llamaAutoStart ? "true" : "false");
+      await settingsSet("llama_max_image_dim", String(llamaMaxImageDim));
       await settingsSet("semantic_threshold", String(semanticThreshold));
       await settingsSet("http_port", String(httpPort));
       setSaved(true);
@@ -318,6 +321,25 @@ function Settings() {
                   step={512}
                   className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
                 />
+              </div>
+
+              {/* Max Image Dimension */}
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+                  推理分辨率: {llamaMaxImageDim === 0 ? "不缩放" : `${llamaMaxImageDim}px`}
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={2048}
+                  step={64}
+                  value={llamaMaxImageDim}
+                  onChange={(e) => setLlamaMaxImageDim(parseInt(e.target.value))}
+                  className="w-48"
+                />
+                <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
+                  限制发送给 VLM 的图片长边尺寸，0 = 不缩放。降低可加快推理，推荐 768~1024
+                </p>
               </div>
             </>
           )}

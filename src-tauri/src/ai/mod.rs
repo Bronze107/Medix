@@ -116,7 +116,46 @@ async fn process_generate_caption(
 
     println!("[ai] generating caption for {}...", media_id);
 
-    let result = generate_caption(&image_path, &model, port).await.map_err(|e| {
+    // Resize image if max dim is configured
+    let inference_path: PathBuf;
+    let inference_path_ref: &PathBuf;
+    let max_dim = crate::settings::get_llama_max_image_dim(&app);
+    if max_dim > 0 {
+        let img = image::open(&image_path)
+            .map_err(|e| format!("failed to open image for resize: {}", e))?;
+        let (w, h) = (img.width(), img.height());
+        let long_side = w.max(h);
+        if long_side > max_dim {
+            let ratio = max_dim as f64 / long_side as f64;
+            let new_w = (w as f64 * ratio).round() as u32;
+            let new_h = (h as f64 * ratio).round() as u32;
+            let resized = img.resize_exact(
+                new_w,
+                new_h,
+                image::imageops::FilterType::Lanczos3,
+            );
+            let mut buf = std::io::Cursor::new(Vec::new());
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
+                .encode_image(&resized)
+                .map_err(|e| format!("failed to encode resized image: {}", e))?;
+            let tmp = std::env::temp_dir().join(format!("medix_infer_{}.jpg", media_id));
+            tokio::fs::write(&tmp, buf.into_inner())
+                .await
+                .map_err(|e| format!("failed to write temp inference image: {}", e))?;
+            inference_path = tmp;
+            inference_path_ref = &inference_path;
+            println!(
+                "[ai] resized {}x{} → {}x{} for inference",
+                w, h, new_w, new_h
+            );
+        } else {
+            inference_path_ref = &image_path;
+        }
+    } else {
+        inference_path_ref = &image_path;
+    }
+
+    let result = generate_caption(inference_path_ref, &model, port).await.map_err(|e| {
         eprintln!("[ai] caption generation failed for {}: {}", media_id, e);
         e.to_string()
     })?;
