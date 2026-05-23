@@ -139,7 +139,7 @@ function Settings() {
           <div className="space-y-2">
             {(
               [
-                { value: "auto" as AiMode, label: "自动 (Auto)", desc: "优先本地，不可用时降级云端" },
+                { value: "auto" as AiMode, label: "自动 (Auto)", desc: "优先本地，不可用时切换云端" },
                 { value: "local" as AiMode, label: "本地 (Local)", desc: "仅使用本地 llama.cpp" },
                 { value: "cloud" as AiMode, label: "云端 (Cloud)", desc: "仅使用云端 API" },
               ] as const
@@ -409,7 +409,7 @@ function Settings() {
           {/* mmproj (vision projector) */}
           <div className="mb-3 border-t border-[var(--color-border)] pt-3">
             <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-              mmproj 视觉投影器（可选）
+              mmproj 视觉投影器
             </label>
             <div className="flex gap-2">
               <input
