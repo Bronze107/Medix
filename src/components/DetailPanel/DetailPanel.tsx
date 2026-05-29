@@ -111,7 +111,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
   const [versionGenerating, setVersionGenerating] = useState(false);
 
   // Import version
-  const [importVersionPath, setImportVersionPath] = useState("");
+  const [importVersionPaths, setImportVersionPaths] = useState<string[]>([]);
   const [importingVersion, setImportingVersion] = useState(false);
 
   // Captions state
@@ -308,13 +308,15 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
 
   const handleImportVersion = async () => {
     if (!media) return;
-    const path = importVersionPath.trim();
-    if (!path) return;
+    const paths = importVersionPaths
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    if (paths.length === 0) return;
     setImportingVersion(true);
     try {
-      await variantImport(media.id, path);
+      await Promise.all(paths.map((p) => variantImport(media.id, p)));
       await loadVariants(media.id);
-      setImportVersionPath("");
+      setImportVersionPaths([]);
       setShowVersionForm(false);
     } catch (e) {
       console.error("Failed to import version:", e);
@@ -568,6 +570,17 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               </p>
             </div>
 
+            {isVar && t?.source && (
+            <div>
+              <p className="text-xs text-[var(--color-text-muted)]">来源</p>
+              <p className="mt-0.5 text-[var(--color-text-secondary)]">
+                {t.source === "generated" && "生成"}
+                {t.source === "imported" && "导入"}
+                {t.source !== "generated" && t.source !== "imported" && t.source}
+              </p>
+            </div>
+            )}
+
             {!isVar && media.source !== "web" && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">原始路径</p>
@@ -620,28 +633,12 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
             )}
 
             {!isVar && (
-            <>
-            <div>
-              <p className="text-xs text-[var(--color-text-muted)]">创建时间 (EXIF)</p>
-              <p className="mt-0.5 text-[var(--color-text-secondary)]">
-                {formatDate(media.created_at)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs text-[var(--color-text-muted)]">修改时间 (EXIF)</p>
-              <p className="mt-0.5 text-[var(--color-text-secondary)]">
-                {formatDate(media.modified_at)}
-              </p>
-            </div>
-
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">导入时间</p>
               <p className="mt-0.5 text-[var(--color-text-secondary)]">
                 {formatDate(media.imported_at)}
               </p>
             </div>
-            </>
             )}
           </div>
 
@@ -894,23 +891,24 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
           <div className="mb-2 flex gap-1.5">
             <input
               type="text"
-              value={importVersionPath}
-              onChange={(e) => setImportVersionPath(e.target.value)}
+              value={importVersionPaths.length === 0 ? "" : importVersionPaths.length === 1 ? importVersionPaths[0] : `已选择 ${importVersionPaths.length} 个文件`}
+              onChange={(e) => setImportVersionPaths(e.target.value ? [e.target.value] : [])}
               placeholder="外部文件路径..."
               onKeyDown={(e) => { if (e.key === "Enter") handleImportVersion(); }}
+              readOnly={importVersionPaths.length > 1}
               className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
             />
             <button
               onClick={async () => {
-                const selected = await open({ multiple: false, filters: [{ name: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }] });
-                if (selected) setImportVersionPath(selected);
+                const selected = await open({ multiple: true, filters: [{ name: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }] });
+                if (selected) setImportVersionPaths(Array.isArray(selected) ? selected : [selected]);
               }}
               className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-              title="选择文件"
+              title="选择文件（可多选）"
             >...</button>
             <button
               onClick={handleImportVersion}
-              disabled={!importVersionPath.trim() || importingVersion}
+              disabled={importVersionPaths.length === 0 || importingVersion}
               className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50 whitespace-nowrap"
             >{importingVersion ? "导入中..." : "导入"}</button>
           </div>
