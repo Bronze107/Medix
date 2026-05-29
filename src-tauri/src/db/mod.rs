@@ -286,6 +286,22 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         )?;
     }
 
+    // 0014: variant tags
+    let has_variant_tags: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('media_tags') WHERE name='variant_id'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !has_variant_tags {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0014_variant_tags');
+             ALTER TABLE media_tags ADD COLUMN variant_id TEXT REFERENCES variants(id) ON DELETE CASCADE;
+             CREATE INDEX IF NOT EXISTS idx_media_tags_variant ON media_tags(variant_id);",
+        )?;
+    }
+
     Ok(())
 }
 
@@ -760,26 +776,39 @@ pub fn media_tags_get(
     app: &AppHandle,
     media_id: &str,
 ) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
+    media_tags_get_with_variant(app, media_id, None)
+}
+
+pub fn media_tags_get_with_variant(
+    app: &AppHandle,
+    media_id: &str,
+    variant_id: Option<&str>,
+) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
     let path = db_path(app);
     let conn = Connection::open(&path)?;
-    let mut stmt = conn.prepare(
-        "SELECT t.id, t.name, mt.source, mt.confidence FROM tags t
-         JOIN media_tags mt ON t.id = mt.tag_id
-         WHERE mt.media_id = ?1
-         ORDER BY t.name",
-    )?;
-    let tag_iter = stmt.query_map(params![media_id], |row| {
-        Ok(Tag {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            source: row.get(2)?,
-            confidence: row.get(3)?,
-            item_count: None,
-        })
-    })?;
     let mut results = Vec::new();
-    for tag in tag_iter {
-        results.push(tag?);
+    if let Some(vid) = variant_id {
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.name, mt.source, mt.confidence FROM tags t
+             JOIN media_tags mt ON t.id = mt.tag_id
+             WHERE mt.media_id = ?1 AND mt.variant_id = ?2
+             ORDER BY t.name",
+        )?;
+        let tag_iter = stmt.query_map(params![media_id, vid], |row| {
+            Ok(Tag { id: row.get(0)?, name: row.get(1)?, source: row.get(2)?, confidence: row.get(3)?, item_count: None })
+        })?;
+        for tag in tag_iter { results.push(tag?); }
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.name, mt.source, mt.confidence FROM tags t
+             JOIN media_tags mt ON t.id = mt.tag_id
+             WHERE mt.media_id = ?1 AND mt.variant_id IS NULL
+             ORDER BY t.name",
+        )?;
+        let tag_iter = stmt.query_map(params![media_id], |row| {
+            Ok(Tag { id: row.get(0)?, name: row.get(1)?, source: row.get(2)?, confidence: row.get(3)?, item_count: None })
+        })?;
+        for tag in tag_iter { results.push(tag?); }
     }
     Ok(results)
 }
@@ -799,11 +828,32 @@ pub fn media_tag_add_with_source(
     confidence: Option<f64>,
     source: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    media_tag_add_internal(app, media_id, None, tag_id, confidence, source)
+}
+
+pub fn media_tag_add_for_variant(
+    app: &AppHandle,
+    media_id: &str,
+    variant_id: &str,
+    tag_id: &str,
+    source: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    media_tag_add_internal(app, media_id, Some(variant_id), tag_id, None, source)
+}
+
+fn media_tag_add_internal(
+    app: &AppHandle,
+    media_id: &str,
+    variant_id: Option<&str>,
+    tag_id: &str,
+    confidence: Option<f64>,
+    source: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     conn.execute(
-        "INSERT OR REPLACE INTO media_tags (media_id, tag_id, confidence, source) VALUES (?1, ?2, ?3, ?4)",
-        params![media_id, tag_id, confidence, source],
+        "INSERT OR REPLACE INTO media_tags (media_id, variant_id, tag_id, confidence, source) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![media_id, variant_id, tag_id, confidence, source],
     )?;
     Ok(())
 }
@@ -829,12 +879,28 @@ pub fn media_tag_remove(
     media_id: &str,
     tag_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    media_tag_remove_with_variant(app, media_id, None, tag_id)
+}
+
+pub fn media_tag_remove_with_variant(
+    app: &AppHandle,
+    media_id: &str,
+    variant_id: Option<&str>,
+    tag_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = db_path(app);
     let conn = Connection::open(&path)?;
-    conn.execute(
-        "DELETE FROM media_tags WHERE media_id = ?1 AND tag_id = ?2",
-        params![media_id, tag_id],
-    )?;
+    if let Some(vid) = variant_id {
+        conn.execute(
+            "DELETE FROM media_tags WHERE media_id = ?1 AND variant_id = ?2 AND tag_id = ?3",
+            params![media_id, vid, tag_id],
+        )?;
+    } else {
+        conn.execute(
+            "DELETE FROM media_tags WHERE media_id = ?1 AND variant_id IS NULL AND tag_id = ?2",
+            params![media_id, tag_id],
+        )?;
+    }
     Ok(())
 }
 

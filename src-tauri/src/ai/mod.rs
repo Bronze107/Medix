@@ -194,7 +194,13 @@ async fn process_generate_caption(
                 continue;
             }
         };
-        if let Err(e) =
+        if let Some(ref vid) = variant_id {
+            if let Err(e) = crate::db::media_tag_add_for_variant(
+                &app, &media_id, vid, &tag_id, Some("ai"),
+            ) {
+                eprintln!("[ai] failed to add variant tag '{}': {}", tag_name, e);
+            }
+        } else if let Err(e) =
             crate::db::media_tag_add_with_source(&app, &media_id, &tag_id, Some(0.9), Some("ai"))
         {
             eprintln!("[ai] failed to add tag '{}': {}", tag_name, e);

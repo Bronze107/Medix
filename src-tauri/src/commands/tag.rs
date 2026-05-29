@@ -74,3 +74,44 @@ pub fn media_tags_intersect(
 ) -> Result<Vec<Tag>, String> {
     db::media_tags_intersect(&app, &media_ids).map_err(|e| e.to_string())
 }
+
+#[command]
+pub fn media_tags_get_for_variant(
+    app: AppHandle,
+    media_id: String,
+    variant_id: Option<String>,
+) -> Result<Vec<Tag>, String> {
+    db::media_tags_get_with_variant(&app, &media_id, variant_id.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn media_tag_add_for_variant(
+    app: AppHandle,
+    media_id: String,
+    variant_id: Option<String>,
+    tag_id: String,
+) -> Result<(), String> {
+    if let Some(vid) = &variant_id {
+        db::media_tag_add_for_variant(&app, &media_id, vid, &tag_id, None)
+            .map_err(|e| e.to_string())
+    } else {
+        db::media_tag_add(&app, &media_id, &tag_id).map_err(|e| e.to_string())
+    }
+}
+
+#[command]
+pub fn media_tag_remove_for_variant(
+    app: AppHandle,
+    media_id: String,
+    variant_id: Option<String>,
+    tag_id: String,
+) -> Result<(), String> {
+    db::media_tag_remove_with_variant(
+        &app,
+        &media_id,
+        variant_id.as_deref(),
+        &tag_id,
+    )
+    .map_err(|e| e.to_string())
+}

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { showToast } from "@/components/Toast/Toast";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -8,17 +7,16 @@ import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
 import type { Caption } from "@/types/caption";
 import {
-  mediaTagsGet,
-  mediaTagAdd,
-  mediaTagRemove,
+  mediaTagsGetForVariant,
+  mediaTagAddForVariant,
+  mediaTagRemoveForVariant,
   tagList,
   tagCreate,
   variantList,
   variantGenerate,
   variantImport,
-  variantDelete,
-  variantPresets,
   variantAnnotate,
+  variantPresets,
   mediaSetDisplayVariant,
   captionList,
   captionCreate,
@@ -56,7 +54,7 @@ function formatDate(dateStr: string | null): string {
 }
 
 function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPanelProps) {
-  const [activeTab, setActiveTab] = useState<"details" | "captions" | "variants">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "captions" | "tags">("details");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Tags state
@@ -90,6 +88,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
   const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
   const [captionVariantId, setCaptionVariantId] = useState<string | null>(null);
+  const [targetId, setTargetId] = useState<string | null>(null); // null=original, string=variant_id
+  const [showVersionForm, setShowVersionForm] = useState(false);
 
   const loadAllTags = useCallback(async () => {
     try {
@@ -100,9 +100,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
     }
   }, []);
 
-  const loadMediaTags = useCallback(async (mediaId: string) => {
+  const loadMediaTags = useCallback(async (mediaId: string, variantId: string | null) => {
     try {
-      const list = await mediaTagsGet(mediaId);
+      const list = await mediaTagsGetForVariant(mediaId, variantId);
       setTags(list);
     } catch (e) {
       console.error("Failed to load media tags:", e);
@@ -143,7 +143,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
 
   useEffect(() => {
     if (media) {
-      loadMediaTags(media.id);
+      setTargetId(null);
+      setShowVersionForm(false);
+      loadMediaTags(media.id, null);
       loadVariants(media.id);
       loadCaptions(media.id);
       loadEmbeddings(media.id);
@@ -156,8 +158,16 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       setNewCaptionText("");
       setEditingCaptionId(null);
       setEditingText("");
+      setTargetId(null);
     }
   }, [media?.id, loadMediaTags, loadVariants, loadCaptions, loadEmbeddings]);
+
+  // Reload tags when target changes
+  useEffect(() => {
+    if (media) {
+      loadMediaTags(media.id, targetId);
+    }
+  }, [targetId, media?.id, loadMediaTags]);
 
   useEffect(() => {
     const input = newTagInput.trim().toLowerCase();
@@ -199,8 +209,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
     }
 
     try {
-      await mediaTagAdd(media.id, tagId);
-      await loadMediaTags(media.id);
+      await mediaTagAddForVariant(media.id, targetId, tagId);
+      await loadMediaTags(media.id, targetId);
       setNewTagInput("");
       setShowSuggestions(false);
     } catch (e) {
@@ -211,8 +221,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
   const handleRemoveTag = async (tagId: string) => {
     if (!media) return;
     try {
-      await mediaTagRemove(media.id, tagId);
-      await loadMediaTags(media.id);
+      await mediaTagRemoveForVariant(media.id, targetId, tagId);
+      await loadMediaTags(media.id, targetId);
       showToast("已移除标签");
     } catch (e) {
       console.error("Failed to remove tag:", e);
@@ -241,6 +251,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       );
       await loadVariants(media.id);
       setVersionLabel("");
+      setShowVersionForm(false);
     } catch (e) {
       console.error("Failed to generate version:", e);
     } finally {
@@ -257,22 +268,11 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       await variantImport(media.id, path);
       await loadVariants(media.id);
       setImportVersionPath("");
+      setShowVersionForm(false);
     } catch (e) {
       console.error("Failed to import version:", e);
     } finally {
       setImportingVersion(false);
-    }
-  };
-
-  const handleDeleteVariant = async (variantId: string) => {
-    try {
-      await variantDelete(variantId);
-      if (media) {
-        await loadVariants(media.id);
-      }
-      showToast("已删除版本");
-    } catch (e) {
-      console.error("Failed to delete variant:", e);
     }
   };
 
@@ -362,47 +362,65 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
 
   return (
     <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 transition-all duration-300">
-      {/* Tabs */}
-      <div className="mb-4 flex items-center border-b border-[var(--color-border)]">
+      {/* Target selector */}
+      <div className="mb-2 flex items-center gap-2">
         <button
           onClick={onToggleCollapse}
-          className="mr-1 rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
           title="收起详情"
         >
           <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
           </svg>
         </button>
-        <button
-          onClick={() => setActiveTab("details")}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-            activeTab === "details"
-              ? "border-b-2 border-[var(--color-accent)] text-[var(--color-accent)]"
-              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-          }`}
+        <select
+          value={targetId ?? ""}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (val === "__add__") { setShowVersionForm(true); return; }
+            setTargetId(val || null);
+            setCaptionVariantId(val || null);
+          }}
+          className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
         >
-          详情
-        </button>
-        <button
-          onClick={() => setActiveTab("captions")}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-            activeTab === "captions"
-              ? "border-b-2 border-[var(--color-accent)] text-[var(--color-accent)]"
-              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-          }`}
-        >
-          描述 {captions.length > 0 && `(${captions.length})`}
-        </button>
-        <button
-          onClick={() => setActiveTab("variants")}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-            activeTab === "variants"
-              ? "border-b-2 border-[var(--color-accent)] text-[var(--color-accent)]"
-              : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-          }`}
-        >
-          版本 {variants.length > 0 && `(${variants.length})`}
-        </button>
+          <option value="">原图</option>
+          {variants.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.label || v.preset_name || "未命名版本"}
+            </option>
+          ))}
+          <option disabled>──────────</option>
+          <option value="__add__">+ 添加版本...</option>
+        </select>
+        {media.display_variant_id && (
+          targetId === media.display_variant_id ? (
+            <span className="text-xs text-[var(--color-accent)]" title="当前显示版本">👁</span>
+          ) : targetId ? null : (
+            <span className="text-xs text-[var(--color-accent)]" title="当前显示为其他版本">👁</span>
+          )
+        )}
+      </div>
+
+      {/* Tab dots */}
+      <div className="mb-3 flex items-center justify-center gap-4 border-b border-[var(--color-border)] pb-2">
+        {(["details", "captions", "tags"] as const).map((tab) => {
+          const label = tab === "details" ? "详情" : tab === "captions" ? `描述${(() => { const n = captions.filter(c => targetId ? c.variant_id === targetId : !c.variant_id).length; return n > 0 ? ` (${n})` : ""; })()}` : `标签${tags.length > 0 ? ` (${tags.length})` : ""}`;
+          const active = activeTab === tab;
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex items-center gap-1.5 text-xs transition-colors ${
+                active
+                  ? "font-semibold text-[var(--color-text-primary)]"
+                  : "font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+              }`}
+            >
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${active ? "bg-[var(--color-accent)]" : "bg-[var(--color-text-muted)]/40"}`}></span>
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {activeTab === "details" && (
@@ -501,93 +519,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
             </div>
           </div>
 
-          {/* Tags section */}
-          <div className="mt-6 border-t border-[var(--color-border)] pt-4">
-            <p className="mb-2 text-xs text-[var(--color-text-muted)]">标签</p>
-
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {tags.length === 0 && (
-                <span className="text-xs text-[var(--color-text-muted)]">暂无标签</span>
-              )}
-              {tags.map((tag) => {
-                const isAi = tag.source === "ai";
-                return (
-                  <span
-                    key={tag.id}
-                    className={`group inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs ${
-                      isAi
-                        ? "bg-[var(--color-accent-soft)] text-[var(--color-accent-hover)]"
-                        : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
-                    }`}
-                  >
-                    {tag.name}
-                    {isAi && (
-                      <span className="rounded bg-[var(--color-accent-soft)] px-1 text-[11px] text-[var(--color-accent)]">
-                        AI
-                      </span>
-                    )}
-                    <button
-                      onClick={() => handleRemoveTag(tag.id)}
-                      className="opacity-0 transition-opacity group-hover:opacity-100"
-                      title="移除标签"
-                    >
-                      <svg
-                        className="h-3 w-3 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M6 18 18 6M6 6l12 12"
-                        />
-                      </svg>
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-
-            <div className="relative">
-              <input
-                ref={inputRef}
-                type="text"
-                value={newTagInput}
-                onChange={(e) => {
-                  setNewTagInput(e.target.value);
-                  setShowSuggestions(true);
-                }}
-                onFocus={() => setShowSuggestions(true)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleAddTag(newTagInput);
-                  }
-                  if (e.key === "Escape") {
-                    setShowSuggestions(false);
-                  }
-                }}
-                placeholder="添加标签..."
-                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
-              />
-              {showSuggestions && suggestions.length > 0 && (
-                <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] shadow-lg">
-                  {suggestions.map((tag) => (
-                    <button
-                      key={tag.id}
-                      onClick={() => handleAddTag(tag.name)}
-                      className="block w-full px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-                    >
-                      {tag.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
             {/* Embedding status */}
           <div className="mt-6 border-t border-[var(--color-border)] pt-4">
             <p className="mb-2 text-xs text-[var(--color-text-muted)]">向量嵌入</p>
@@ -617,14 +548,106 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
         </div>
       )}
 
+      {activeTab === "tags" && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-auto">
+            {(() => {
+              if (targetId && !variants.some((v) => v.id === targetId)) {
+                return <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">版本未找到</p>;
+              }
+              return (
+                <>
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {tags.length === 0 && (
+                      <span className="text-xs text-[var(--color-text-muted)]">暂无标签</span>
+                    )}
+                    {tags.map((tag) => {
+                      const isAi = tag.source === "ai";
+                      return (
+                        <span
+                          key={tag.id}
+                          className={`group inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs ${
+                            isAi
+                              ? "bg-[var(--color-accent-soft)] text-[var(--color-accent-hover)]"
+                              : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
+                          }`}
+                        >
+                          {tag.name}
+                          {isAi && (
+                            <span className="rounded bg-[var(--color-accent-soft)] px-1 text-[11px] text-[var(--color-accent)]">
+                              AI
+                            </span>
+                          )}
+                          <button
+                            onClick={() => handleRemoveTag(tag.id)}
+                            className="opacity-0 transition-opacity group-hover:opacity-100"
+                            title="移除标签"
+                          >
+                            <svg className="h-3 w-3 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={newTagInput}
+                      onChange={(e) => {
+                        setNewTagInput(e.target.value);
+                        setShowSuggestions(true);
+                      }}
+                      onFocus={() => setShowSuggestions(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddTag(newTagInput);
+                        }
+                        if (e.key === "Escape") {
+                          setShowSuggestions(false);
+                        }
+                      }}
+                      placeholder="添加标签..."
+                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
+                    />
+                    {showSuggestions && suggestions.length > 0 && (
+                      <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] shadow-lg">
+                        {suggestions.map((tag) => (
+                          <button
+                            key={tag.id}
+                            onClick={() => handleAddTag(tag.name)}
+                            className="block w-full px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                          >
+                            {tag.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
       {activeTab === "captions" && (
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
-            {captions.length === 0 ? (
-              <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无描述</p>
-            ) : (
+            {(() => {
+              const targetCaptions = captions.filter(
+                (c) => targetId ? c.variant_id === targetId : !c.variant_id
+              );
+              if (targetCaptions.length === 0) {
+                return <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无描述</p>;
+              }
+              return (
               <div className="space-y-2">
-                {captions.map((c) => {
+                {targetCaptions.map((c) => {
                   const isAi = c.source === "ai";
                   return (
                     <div
@@ -638,11 +661,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                       {isAi && (
                         <span className="mb-1.5 mr-1 inline-block rounded bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
                           AI 描述
-                        </span>
-                      )}
-                      {c.variant_id && (
-                        <span className="mb-1.5 inline-block rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)]">
-                          版本标注
                         </span>
                       )}
                       {editingCaptionId === c.id ? (
@@ -703,23 +721,12 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                   );
                 })}
               </div>
-            )}
+            );
+            })()}
           </div>
 
           <div className="mt-4 border-t border-[var(--color-border)] pt-3">
             <p className="mb-2 text-xs text-[var(--color-text-muted)]">添加描述</p>
-            {variants.length > 0 && (
-              <select
-                value={captionVariantId ?? ""}
-                onChange={(e) => setCaptionVariantId(e.target.value || null)}
-                className="mb-2 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-secondary)] outline-none"
-              >
-                <option value="">原图</option>
-                {variants.map((v) => (
-                  <option key={v.id} value={v.id}>{v.label || v.preset_name || "未命名版本"}</option>
-                ))}
-              </select>
-            )}
             <textarea
               value={newCaptionText}
               onChange={(e) => setNewCaptionText(e.target.value)}
@@ -744,223 +751,69 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
         </div>
       )}
 
-      {activeTab === "variants" && (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-auto">
-            {/* Import external file as version */}
-            <div className="mb-3 flex gap-1.5">
-              <input
-                type="text"
-                value={importVersionPath}
-                onChange={(e) => setImportVersionPath(e.target.value)}
-                placeholder="外部文件路径..."
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleImportVersion();
-                }}
-                className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-              />
-              <button
-                onClick={async () => {
-                  const selected = await open({
-                    multiple: false,
-                    filters: [{ name: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }],
-                  });
-                  if (selected) setImportVersionPath(selected);
-                }}
-                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-                title="选择文件"
-              >
-                ...
-              </button>
-              <button
-                onClick={handleImportVersion}
-                disabled={!importVersionPath.trim() || importingVersion}
-                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50 whitespace-nowrap"
-              >
-                {importingVersion ? "导入中..." : "导入"}
-              </button>
-            </div>
-
-            {variants.length === 0 && (
-              <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无版本</p>
-            )}
-            <div className="space-y-2">
-              {variants.map((v) => {
-                const displayLabel = v.label || v.preset_name || "未命名版本";
-                const isGenerated = v.source === "generated" || !v.source;
-                const isImported = v.source === "imported";
-                return (
-                  <div
-                    key={v.id}
-                    className="rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)]/50 overflow-hidden"
-                  >
-                    <img
-                      src={convertFileSrc(v.file_path)}
-                      alt={displayLabel}
-                      className="w-full h-32 object-cover bg-[var(--color-bg-secondary)]"
-                      draggable={false}
-                    />
-                    <div className="p-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-[var(--color-text-secondary)] truncate">
-                          {displayLabel}
-                        </span>
-                        <div className="flex shrink-0">
-                          <button
-                            onClick={async () => {
-                              if (!media) return;
-                              try {
-                                await variantAnnotate(media.id, v.id);
-                                let remaining = await aiPendingCount();
-                                for (let i = 0; i < 10 && remaining > 0; i++) {
-                                  await new Promise((r) => setTimeout(r, 3000));
-                                  remaining = await aiPendingCount();
-                                }
-                                await loadCaptions(media.id);
-                              } catch (e) {
-                                console.error("Failed to annotate variant:", e);
-                              }
-                            }}
-                            className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
-                            title="AI 标注此版本"
-                          >
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => handleDeleteVariant(v.id)}
-                            className="shrink-0 rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-red-900/30 hover:text-[var(--color-danger)]"
-                            title="删除版本"
-                          >
-                          <svg
-                            className="h-3.5 w-3.5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                            />
-                          </svg>
-                        </button>
-                        </div>
-                      </div>
-                      <div className="mt-1 flex items-center gap-1.5">
-                        {isImported && (
-                          <span className="rounded bg-green-900/30 px-1 text-[11px] text-green-400">导入</span>
-                        )}
-                        {isGenerated && (
-                          <span className="rounded bg-[var(--color-accent-soft)] px-1 text-[11px] text-[var(--color-accent)]">生成</span>
-                        )}
-                        <span className="text-[10px] text-[var(--color-text-muted)]">
-                          {v.format.toUpperCase()} · {v.width ?? "?"}×{v.height ?? "?"} ·{" "}
-                          {formatFileSize(v.file_size)}
-                          {v.quality && v.format === "jpeg" && ` · Q${v.quality}`}
-                        </span>
-                      </div>
-                      <div className="mt-1.5 flex items-center gap-2">
-                        {media.display_variant_id === v.id ? (
-                          <button
-                            onClick={async () => {
-                              await mediaSetDisplayVariant(media.id, null);
-                              window.dispatchEvent(new CustomEvent("display-variant-changed", { detail: { mediaId: media.id, variantId: null } }));
-                            }}
-                            className="text-[10px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
-                          >
-                            当前显示 · 恢复原图
-                          </button>
-                        ) : (
-                          <button
-                            onClick={async () => {
-                              await mediaSetDisplayVariant(media.id, v.id);
-                              window.dispatchEvent(new CustomEvent("display-variant-changed", { detail: { mediaId: media.id, variantId: v.id } }));
-                            }}
-                            className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)]"
-                          >
-                            设为显示
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+      {showVersionForm && (
+        <div className="flex flex-col overflow-hidden border-t border-[var(--color-border)] pt-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold text-[var(--color-text-primary)]">添加版本</p>
+            <button onClick={() => setShowVersionForm(false)} className="rounded p-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
 
-          {/* Generate version */}
-          <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-            <p className="mb-2 text-xs text-[var(--color-text-muted)]">生成版本</p>
+          {/* Import external file as version */}
+          <div className="mb-2 flex gap-1.5">
+            <input
+              type="text"
+              value={importVersionPath}
+              onChange={(e) => setImportVersionPath(e.target.value)}
+              placeholder="外部文件路径..."
+              onKeyDown={(e) => { if (e.key === "Enter") handleImportVersion(); }}
+              className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+            />
+            <button
+              onClick={async () => {
+                const selected = await open({ multiple: false, filters: [{ name: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }] });
+                if (selected) setImportVersionPath(selected);
+              }}
+              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+              title="选择文件"
+            >...</button>
+            <button
+              onClick={handleImportVersion}
+              disabled={!importVersionPath.trim() || importingVersion}
+              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50 whitespace-nowrap"
+            >{importingVersion ? "导入中..." : "导入"}</button>
+          </div>
 
-            {/* Preset templates */}
-            <div className="mb-2 flex flex-wrap gap-1">
-              {presets.map((p) => (
-                <button
-                  key={p.name}
-                  onClick={() => fillPreset(p)}
-                  className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-                  title={`${p.label}: ${p.format} max${p.max_width ?? "—"}px Q${p.quality}`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
+          {/* Preset templates */}
+          <div className="mb-2 flex flex-wrap gap-1">
+            {presets.map((p) => (
+              <button key={p.name} onClick={() => fillPreset(p)}
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+              >{p.label}</button>
+            ))}
+          </div>
 
-            {/* Custom params */}
-            <div className="space-y-1.5">
-              <input
-                type="text"
-                value={versionLabel}
-                onChange={(e) => setVersionLabel(e.target.value)}
-                placeholder="版本名称（可选）"
-                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-              />
-              <div className="flex gap-1.5">
-                <select
-                  value={versionFormat}
-                  onChange={(e) => setVersionFormat(e.target.value)}
-                  className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none"
-                >
-                  <option value="jpeg">JPEG</option>
-                  <option value="png">PNG</option>
-                </select>
-                <input
-                  type="number"
-                  value={versionMaxWidth ?? ""}
-                  onChange={(e) => setVersionMaxWidth(e.target.value ? parseInt(e.target.value) : null)}
-                  placeholder="最大宽度"
-                  className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                />
-                <input
-                  type="number"
-                  value={versionMaxHeight ?? ""}
-                  onChange={(e) => setVersionMaxHeight(e.target.value ? parseInt(e.target.value) : null)}
-                  placeholder="最大高度"
-                  className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                />
-                <input
-                  type="number"
-                  value={versionQuality}
-                  onChange={(e) => setVersionQuality(parseInt(e.target.value) || 75)}
-                  min={1}
-                  max={100}
-                  placeholder="Q"
-                  className="w-12 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none"
-                  title="质量 1-100"
-                />
-              </div>
-              <button
-                onClick={handleGenerateVersion}
-                disabled={versionGenerating}
-                className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
-              >
-                {versionGenerating ? "生成中..." : "生成版本"}
-              </button>
+          <div className="space-y-1.5">
+            <input type="text" value={versionLabel} onChange={(e) => setVersionLabel(e.target.value)} placeholder="版本名称（可选）"
+              className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]" />
+            <div className="flex gap-1.5">
+              <select value={versionFormat} onChange={(e) => setVersionFormat(e.target.value)}
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none">
+                <option value="jpeg">JPEG</option><option value="png">PNG</option>
+              </select>
+              <input type="number" value={versionMaxWidth ?? ""} onChange={(e) => setVersionMaxWidth(e.target.value ? parseInt(e.target.value) : null)} placeholder="最大宽度"
+                className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]" />
+              <input type="number" value={versionMaxHeight ?? ""} onChange={(e) => setVersionMaxHeight(e.target.value ? parseInt(e.target.value) : null)} placeholder="最大高度"
+                className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]" />
+              <input type="number" value={versionQuality} onChange={(e) => setVersionQuality(parseInt(e.target.value) || 75)} min={1} max={100} placeholder="Q"
+                className="w-12 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none" title="质量 1-100" />
             </div>
+            <button onClick={handleGenerateVersion} disabled={versionGenerating}
+              className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
+            >{versionGenerating ? "生成中..." : "生成版本"}</button>
           </div>
         </div>
       )}
@@ -972,14 +825,18 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
             onClick={async () => {
               if (!media) return;
               try {
-                await mediaAiAnnotate(media.id);
+                if (targetId) {
+                  await variantAnnotate(media.id, targetId);
+                } else {
+                  await mediaAiAnnotate(media.id);
+                }
                 let remaining = await aiPendingCount();
                 for (let i = 0; i < 10 && remaining > 0; i++) {
                   await new Promise((r) => setTimeout(r, 3000));
                   remaining = await aiPendingCount();
                 }
                 await loadCaptions(media.id);
-                await loadMediaTags(media.id);
+                await loadMediaTags(media.id, targetId);
                 await loadEmbeddings(media.id);
                 showToast("AI 标注完成");
               } catch (e) {
@@ -993,6 +850,37 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
             </svg>
           </button>
+          {targetId && (
+            media.display_variant_id === targetId ? (
+              <button
+                onClick={async () => {
+                  await mediaSetDisplayVariant(media.id, null);
+                  window.dispatchEvent(new CustomEvent("display-variant-changed", { detail: { mediaId: media.id, variantId: null } }));
+                }}
+                className="rounded-lg p-2 text-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] transition-colors"
+                title="恢复显示原图"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                onClick={async () => {
+                  await mediaSetDisplayVariant(media.id, targetId);
+                  window.dispatchEvent(new CustomEvent("display-variant-changed", { detail: { mediaId: media.id, variantId: targetId } }));
+                }}
+                className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+                title="设为主显示版本"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                </svg>
+              </button>
+            )
+          )}
           <button
             onClick={() => setShowDeleteConfirm(true)}
             className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"

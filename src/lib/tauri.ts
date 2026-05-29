@@ -110,6 +110,29 @@ export function mediaTagsIntersect(mediaIds: string[]): Promise<Tag[]> {
   return invoke("media_tags_intersect", { mediaIds });
 }
 
+export function mediaTagsGetForVariant(
+  mediaId: string,
+  variantId: string | null,
+): Promise<Tag[]> {
+  return invoke("media_tags_get_for_variant", { mediaId, variantId });
+}
+
+export function mediaTagAddForVariant(
+  mediaId: string,
+  variantId: string | null,
+  tagId: string,
+): Promise<void> {
+  return invoke("media_tag_add_for_variant", { mediaId, variantId, tagId });
+}
+
+export function mediaTagRemoveForVariant(
+  mediaId: string,
+  variantId: string | null,
+  tagId: string,
+): Promise<void> {
+  return invoke("media_tag_remove_for_variant", { mediaId, variantId, tagId });
+}
+
 // --- Collections ---
 
 export function collectionList(): Promise<Collection[]> {
