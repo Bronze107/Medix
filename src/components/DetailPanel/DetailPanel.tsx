@@ -516,32 +516,59 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
         })}
       </div>
 
-      {activeTab === "details" && (
+      {activeTab === "details" && (() => {
+          const t = targetId ? variants.find((v) => v.id === targetId) : null;
+          const dimWidth = t?.width ?? media.width;
+          const dimHeight = t?.height ?? media.height;
+          const fileSize = t?.file_size ?? media.file_size;
+          const isVar = !!t;
+          return (
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
           <div className="space-y-3 text-sm">
+            {!isVar && (
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">ID</p>
               <p className="mt-0.5 break-all font-mono text-xs text-[var(--color-text-secondary)]">
                 {media.id}
               </p>
             </div>
+            )}
+
+            {isVar && t && (
+            <div>
+              <p className="text-xs text-[var(--color-text-muted)]">版本 ID</p>
+              <p className="mt-0.5 break-all font-mono text-[11px] text-[var(--color-text-secondary)]">
+                {t.id}
+              </p>
+            </div>
+            )}
+
+            {isVar && (
+            <div>
+              <p className="text-xs text-[var(--color-text-muted)]">格式</p>
+              <p className="mt-0.5 text-[var(--color-text-secondary)]">
+                {t?.format.toUpperCase()}
+                {t?.quality && t?.format === "jpeg" ? ` · Q${t.quality}` : ""}
+              </p>
+            </div>
+            )}
 
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">尺寸</p>
               <p className="mt-0.5 text-[var(--color-text-secondary)]">
-                {media.width ?? "?"} × {media.height ?? "?"} px
+                {dimWidth ?? "?"} × {dimHeight ?? "?"} px
               </p>
             </div>
 
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">文件大小</p>
               <p className="mt-0.5 text-[var(--color-text-secondary)]">
-                {formatFileSize(media.file_size)}
+                {formatFileSize(fileSize)}
               </p>
             </div>
 
-            {media.source !== "web" && (
+            {!isVar && media.source !== "web" && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">原始路径</p>
                 <p className="mt-0.5 break-all text-xs text-[var(--color-text-secondary)]">
@@ -550,7 +577,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               </div>
             )}
 
-            {media.source && (
+            {!isVar && media.source && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">来源</p>
                 <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
@@ -561,7 +588,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                 </p>
               </div>
             )}
-            {media.source_url && (
+            {!isVar && media.source_url && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">图片 URL</p>
                 <p className="mt-0.5 break-all text-xs">
@@ -576,7 +603,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                 </p>
               </div>
             )}
-            {media.page_url && (
+            {!isVar && media.page_url && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">页面 URL</p>
                 <p className="mt-0.5 break-all text-xs">
@@ -592,6 +619,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               </div>
             )}
 
+            {!isVar && (
+            <>
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">创建时间 (EXIF)</p>
               <p className="mt-0.5 text-[var(--color-text-secondary)]">
@@ -612,9 +641,11 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                 {formatDate(media.imported_at)}
               </p>
             </div>
+            </>
+            )}
           </div>
 
-            {/* Embedding status */}
+            {!isVar && (
           <div className="mt-6 border-t border-[var(--color-border)] pt-4">
             <p className="mb-2 text-xs text-[var(--color-text-muted)]">向量嵌入</p>
             {embeddings.length === 0 ? (
@@ -639,9 +670,11 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               </div>
             )}
           </div>
+            )}
           </div>
         </div>
-      )}
+      );
+      })()}
 
       {activeTab === "tags" && (
         <div className="flex flex-1 flex-col overflow-hidden">
