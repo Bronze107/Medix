@@ -59,7 +59,8 @@ function computeRows(
       const ratio = w / h;
       const trialWidth = (totalRatio + ratio) * targetHeight;
       const approxGaps = gap * rowItems.length;
-      if (rowItems.length > 0 && trialWidth + approxGaps > containerWidth) break;
+      const effectiveWidth = containerWidth * (1 + 0.1 * (1 - scale));
+      if (rowItems.length > 0 && trialWidth + approxGaps > effectiveWidth) break;
       rowItems.push(media[i]);
       totalRatio += ratio;
     }
@@ -68,9 +69,17 @@ function computeRows(
 
     const gapTotal = gap * (rowItems.length - 1);
     const availableWidth = containerWidth - gapTotal;
-    let rowHeight = availableWidth / totalRatio;
+    const fillHeight = availableWidth / totalRatio;
+    let rowHeight = fillHeight;
     if (rowItems.length === 1) {
       rowHeight = Math.min(targetHeight * 1.5, Math.max(targetHeight * 0.6, rowHeight));
+    } else {
+      // Blend targetHeight so zoom slider has visible effect. 纯 fillHeight
+      // 完全忽略 scale；纯 targetHeight 无法填满容器宽度。25% blend 在
+      // 0.5x~2.0x 范围内提供 ~15% 的尺寸变化。上限收紧防止溢出。
+      rowHeight = fillHeight + (targetHeight - fillHeight) * 0.25;
+      rowHeight = Math.max(rowHeight, fillHeight * 0.8);
+      rowHeight = Math.min(rowHeight, fillHeight);
     }
 
     rows.push({
