@@ -29,6 +29,7 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_LLAMA_MMPROJ,
         settings::KEY_LLAMA_AUTO_START,
         settings::KEY_LLAMA_MAX_IMAGE_DIM,
+        settings::KEY_AI_CUSTOM_PROMPT,
         settings::KEY_SEMANTIC_THRESHOLD,
         settings::KEY_THEME,
         settings::KEY_HTTP_PORT,

@@ -32,6 +32,7 @@ function Settings() {
   const [llamaMmproj, setLlamaMmproj] = useState("");
   const [llamaAutoStart, setLlamaAutoStart] = useState(false);
   const [llamaMaxImageDim, setLlamaMaxImageDim] = useState(0);
+  const [aiCustomPrompt, setAiCustomPrompt] = useState("");
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [httpPort, setHttpPort] = useState(8765);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -53,6 +54,7 @@ function Settings() {
       if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
       if (settings.llama_auto_start) setLlamaAutoStart(settings.llama_auto_start === "true");
       if (settings.llama_max_image_dim) setLlamaMaxImageDim(parseInt(settings.llama_max_image_dim) || 0);
+      if (settings.ai_custom_prompt) setAiCustomPrompt(settings.ai_custom_prompt);
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
       if (settings.http_port) setHttpPort(parseInt(settings.http_port) || 8765);
     } catch (e) {
@@ -92,6 +94,7 @@ function Settings() {
       await settingsSet("llama_mmproj", llamaMmproj);
       await settingsSet("llama_auto_start", llamaAutoStart ? "true" : "false");
       await settingsSet("llama_max_image_dim", String(llamaMaxImageDim));
+      await settingsSet("ai_custom_prompt", aiCustomPrompt);
       await settingsSet("semantic_threshold", String(semanticThreshold));
       await settingsSet("http_port", String(httpPort));
       setSaved(true);
@@ -166,6 +169,35 @@ function Settings() {
               </label>
             ))}
           </div>
+        </section>
+
+        {/* Custom Prompt */}
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+              自定义提示词
+            </h2>
+            <button
+              onClick={() => setAiCustomPrompt("")}
+              className="rounded px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+            >
+              恢复默认
+            </button>
+          </div>
+          <textarea
+            value={aiCustomPrompt}
+            onChange={(e) => setAiCustomPrompt(e.target.value)}
+            rows={6}
+            placeholder={`Describe this image in detail. Then on a new line starting with "TAGS:", list key objects, concepts, and visual elements as comma-separated lowercase tags.
+
+Example output:
+A golden retriever playing fetch with a red ball in a sunny park with green grass and trees.
+TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
+            className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] resize-y"
+          />
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            留空使用默认英文提示。支持自定义语言、风格和输出格式
+          </p>
         </section>
 
         {/* llama.cpp Server */}

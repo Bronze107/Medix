@@ -155,7 +155,13 @@ async fn process_generate_caption(
         inference_path_ref = &image_path;
     }
 
-    let result = generate_caption(inference_path_ref, &model, port).await.map_err(|e| {
+    let custom_prompt = crate::settings::get_ai_custom_prompt(&app);
+    let result = generate_caption(
+        inference_path_ref,
+        &model,
+        port,
+        custom_prompt.as_deref(),
+    ).await.map_err(|e| {
         eprintln!("[ai] caption generation failed for {}: {}", media_id, e);
         e.to_string()
     })?;

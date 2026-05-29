@@ -96,7 +96,9 @@ pub async fn generate_caption(
     image_path: &Path,
     model: &str,
     port: u16,
+    custom_prompt: Option<&str>,
 ) -> Result<AiResult, AiError> {
+    let prompt_text = custom_prompt.unwrap_or(CAPTION_PROMPT);
     let image_bytes = tokio::fs::read(image_path).await?;
     let image_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image_bytes);
 
@@ -130,7 +132,7 @@ pub async fn generate_caption(
             },
             ContentPart {
                 content_type: "text".to_string(),
-                text: Some(CAPTION_PROMPT.to_string()),
+                text: Some(prompt_text.to_string()),
                 image_url: None,
             },
         ],
