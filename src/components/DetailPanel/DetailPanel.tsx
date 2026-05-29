@@ -493,16 +493,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
             </div>
           </div>
 
-          {/* Delete button */}
-          <div className="mt-6 border-t border-[var(--color-border)] pt-4">
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="w-full rounded border border-red-800/50 bg-red-900/20 px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/30 transition-colors"
-            >
-              删除
-            </button>
-          </div>
-
           {/* Tags section */}
           <div className="mt-6 border-t border-[var(--color-border)] pt-4">
             <p className="mb-2 text-xs text-[var(--color-text-muted)]">标签</p>
@@ -590,7 +580,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
             </div>
           </div>
 
-          {/* Embedding status */}
+            {/* Embedding status */}
           <div className="mt-6 border-t border-[var(--color-border)] pt-4">
             <p className="mb-2 text-xs text-[var(--color-text-muted)]">向量嵌入</p>
             {embeddings.length === 0 ? (
@@ -614,28 +604,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                 ))}
               </div>
             )}
-            <button
-              onClick={async () => {
-                if (!media) return;
-                try {
-                  await mediaAiAnnotate(media.id);
-                  // Poll for completion (max 30s)
-                  let remaining = await aiPendingCount();
-                  for (let i = 0; i < 10 && remaining > 0; i++) {
-                    await new Promise((r) => setTimeout(r, 3000));
-                    remaining = await aiPendingCount();
-                  }
-                  await loadCaptions(media.id);
-                  await loadMediaTags(media.id);
-                  await loadEmbeddings(media.id);
-                } catch (e) {
-                  console.error("Failed to trigger AI annotation:", e);
-                }
-              }}
-              className="mt-2 w-full rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] px-2 py-1.5 text-xs text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] transition-colors"
-            >
-              AI 标注
-            </button>
           </div>
           </div>
         </div>
@@ -924,6 +892,47 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
           </div>
         </div>
       )}
+
+      {/* Floating action bar */}
+      <div className="mt-auto border-t border-[var(--color-border)] pt-3">
+        <div className="flex items-center justify-center gap-2">
+          <button
+            onClick={async () => {
+              if (!media) return;
+              try {
+                await mediaAiAnnotate(media.id);
+                let remaining = await aiPendingCount();
+                for (let i = 0; i < 10 && remaining > 0; i++) {
+                  await new Promise((r) => setTimeout(r, 3000));
+                  remaining = await aiPendingCount();
+                }
+                await loadCaptions(media.id);
+                await loadMediaTags(media.id);
+                await loadEmbeddings(media.id);
+                showToast("AI 标注完成");
+              } catch (e) {
+                console.error("Failed to trigger AI annotation:", e);
+              }
+            }}
+            className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)] transition-colors"
+            title="AI 标注"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
+            title="删除图片"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
       <ConfirmDialog
         open={showDeleteConfirm}
         title="删除图片"
