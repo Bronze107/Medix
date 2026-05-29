@@ -173,6 +173,7 @@ fn download_and_import(
         phash: None,
         sha256,
         deleted_at: None,
+        display_variant_id: None,
         thumb_256: None,
         thumb_512: None,
     };
@@ -196,6 +197,7 @@ fn download_and_import(
     let _ = queue.send(crate::ai::AiTask::GenerateCaption {
         media_id: id.clone(),
         image_path: dest_path,
+        variant_id: None,
     });
 
     // Clean up temp file

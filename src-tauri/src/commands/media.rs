@@ -197,6 +197,7 @@ pub fn media_ai_annotate(app: AppHandle, id: String) -> Result<(), String> {
         .send(crate::ai::AiTask::GenerateCaption {
             media_id: id.clone(),
             image_path,
+            variant_id: None,
         })
         .map_err(|e| e.to_string())?;
 

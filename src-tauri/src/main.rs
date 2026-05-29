@@ -14,8 +14,8 @@ mod variants;
 use tauri::Manager;
 
 use commands::{
-    ai_pending_count, auto_detect, caption_create, caption_create_batch, caption_delete,
-    caption_list, caption_update,
+    ai_pending_count, auto_detect, caption_create, caption_create_batch,
+    caption_create_for_variant, caption_delete, caption_list, caption_update,
     collection_add_batch, collection_add_item, collection_create, collection_delete,
     collection_first_media_id, collection_get, collection_get_item_ids, collection_list,
     collection_pin, collection_remove_item, collection_rename, collection_unpin,
@@ -27,7 +27,8 @@ use commands::{
     media_search, media_tag_add, media_tag_add_batch, media_tag_remove, media_tag_remove_batch, media_tags_get, media_tags_intersect,
     media_thumbnail, model_list, saved_filters_delete, saved_filters_list, saved_filters_save,
     settings_get, settings_get_all, settings_set, tag_create, tag_delete, tag_list, tag_rename,
-    variant_delete, variant_generate, variant_import, variant_list, variant_presets,
+    variant_annotate, variant_delete, variant_generate, variant_import, variant_list, variant_presets,
+    media_set_display_variant,
 };
 
 fn main() {
@@ -99,14 +100,17 @@ fn main() {
             tag_delete,
             tag_list,
             tag_rename,
+            variant_annotate,
             variant_delete,
             variant_generate,
             variant_import,
             variant_list,
             variant_presets,
+            media_set_display_variant,
             caption_list,
             caption_create,
             caption_create_batch,
+            caption_create_for_variant,
             caption_update,
             caption_delete,
             collection_list,

@@ -210,6 +210,17 @@ export function variantPresets(): Promise<VariantPreset[]> {
   return invoke("variant_presets");
 }
 
+export function variantAnnotate(mediaId: string, variantId: string): Promise<void> {
+  return invoke("variant_annotate", { mediaId, variantId });
+}
+
+export function mediaSetDisplayVariant(
+  mediaId: string,
+  variantId: string | null,
+): Promise<void> {
+  return invoke("media_set_display_variant", { mediaId, variantId });
+}
+
 // --- Captions ---
 
 export function captionList(mediaId: string): Promise<Caption[]> {
@@ -218,6 +229,14 @@ export function captionList(mediaId: string): Promise<Caption[]> {
 
 export function captionCreate(mediaId: string, text: string): Promise<Caption> {
   return invoke("caption_create", { mediaId, text });
+}
+
+export function captionCreateForVariant(
+  mediaId: string,
+  variantId: string,
+  text: string,
+): Promise<Caption> {
+  return invoke("caption_create_for_variant", { mediaId, variantId, text });
 }
 
 export function captionUpdate(id: string, text: string): Promise<void> {

@@ -14,6 +14,7 @@ pub enum AiTask {
     GenerateCaption {
         media_id: String,
         image_path: PathBuf,
+        variant_id: Option<String>,
     },
 }
 
@@ -55,9 +56,10 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
                     AiTask::GenerateCaption {
                         media_id,
                         image_path,
+                        variant_id,
                     } => {
                         if let Err(e) =
-                            process_generate_caption(app.clone(), media_id, image_path).await
+                            process_generate_caption(app.clone(), media_id, image_path, variant_id).await
                         {
                             eprintln!("[ai] failed to process caption generation: {}", e);
                         }
@@ -76,6 +78,7 @@ async fn process_generate_caption(
     app: AppHandle,
     media_id: String,
     image_path: PathBuf,
+    variant_id: Option<String>,
 ) -> Result<(), String> {
     let ai_mode = crate::settings::get_ai_mode(&app);
 
@@ -174,8 +177,13 @@ async fn process_generate_caption(
     );
 
     // Store caption with source='ai'
-    crate::db::caption_create_with_source(&app, &media_id, &result.caption, Some("ai"))
-        .map_err(|e| e.to_string())?;
+    if let Some(ref variant_id) = variant_id {
+        crate::db::caption_create_for_variant(&app, &media_id, variant_id, &result.caption, Some("ai"))
+            .map_err(|e| e.to_string())?;
+    } else {
+        crate::db::caption_create_with_source(&app, &media_id, &result.caption, Some("ai"))
+            .map_err(|e| e.to_string())?;
+    }
 
     // Store AI tags with source='ai' and confidence=0.9
     for tag_name in &result.tags {
@@ -193,33 +201,35 @@ async fn process_generate_caption(
         }
     }
 
-    // Generate embedding for caption
-    match embed_text(&result.caption, &model, port).await {
-        Ok(vector) => {
-            if let Err(e) =
-                crate::db::embedding_insert(&app, &media_id, &model_short,"caption", &vector)
-            {
-                eprintln!("[ai] failed to store caption embedding: {}", e);
-            }
-        }
-        Err(e) => {
-            eprintln!("[ai] caption embedding failed: {}", e);
-        }
-    }
-
-    // Generate embedding for tags
-    if !result.tags.is_empty() {
-        let tags_text = result.tags.join(", ");
-        match embed_text(&tags_text, &model, port).await {
+    // Generate embedding for caption (only for original, not variants)
+    if variant_id.is_none() {
+        match embed_text(&result.caption, &model, port).await {
             Ok(vector) => {
                 if let Err(e) =
-                    crate::db::embedding_insert(&app, &media_id, &model_short,"tags", &vector)
+                    crate::db::embedding_insert(&app, &media_id, &model_short,"caption", &vector)
                 {
-                    eprintln!("[ai] failed to store tags embedding: {}", e);
+                    eprintln!("[ai] failed to store caption embedding: {}", e);
                 }
             }
             Err(e) => {
-                eprintln!("[ai] tags embedding failed: {}", e);
+                eprintln!("[ai] caption embedding failed: {}", e);
+            }
+        }
+
+        // Generate embedding for tags
+        if !result.tags.is_empty() {
+            let tags_text = result.tags.join(", ");
+            match embed_text(&tags_text, &model, port).await {
+                Ok(vector) => {
+                    if let Err(e) =
+                        crate::db::embedding_insert(&app, &media_id, &model_short,"tags", &vector)
+                    {
+                        eprintln!("[ai] failed to store tags embedding: {}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[ai] tags embedding failed: {}", e);
+                }
             }
         }
     }

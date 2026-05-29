@@ -14,6 +14,17 @@ pub fn caption_create(app: AppHandle, media_id: String, text: String) -> Result<
 }
 
 #[command]
+pub fn caption_create_for_variant(
+    app: AppHandle,
+    media_id: String,
+    variant_id: String,
+    text: String,
+) -> Result<Caption, String> {
+    db::caption_create_for_variant(&app, &media_id, &variant_id, &text, None)
+        .map_err(|e| e.to_string())
+}
+
+#[command]
 pub fn caption_update(app: AppHandle, id: String, text: String) -> Result<(), String> {
     db::caption_update(&app, &id, &text).map_err(|e| e.to_string())
 }

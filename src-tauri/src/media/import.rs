@@ -164,6 +164,7 @@ fn import_single_file(
         phash: super::phash::compute_phash(source_path).map(|h| h.to_le_bytes().to_vec()),
         sha256,
         deleted_at: None,
+        display_variant_id: None,
         thumb_256: None,
         thumb_512: None,
     };
@@ -200,6 +201,7 @@ fn import_single_file(
         let _ = queue.send(crate::ai::AiTask::GenerateCaption {
             media_id,
             image_path: dest_path_clone,
+            variant_id: None,
         });
     });
 

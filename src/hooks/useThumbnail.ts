@@ -4,13 +4,14 @@ import { mediaThumbnail } from "@/lib/tauri";
 
 const cache = new Map<string, string>();
 
-export function useThumbnail(id: string | null) {
+export function useThumbnail(id: string | null, displayVariantId?: string | null) {
   const [url, setUrl] = useState<string | null>(null);
+  const cacheKey = id ? (displayVariantId ? `${id}:${displayVariantId}` : id) : null;
 
   useEffect(() => {
-    if (!id) return;
-    if (cache.has(id)) {
-      setUrl(cache.get(id)!);
+    if (!id || !cacheKey) return;
+    if (cache.has(cacheKey)) {
+      setUrl(cache.get(cacheKey)!);
       return;
     }
 
@@ -24,7 +25,7 @@ export function useThumbnail(id: string | null) {
         .then((path) => {
           if (!cancelled) {
             const src = convertFileSrc(path);
-            cache.set(id, src);
+            cache.set(cacheKey, src);
             setUrl(src);
           }
         })
@@ -45,7 +46,7 @@ export function useThumbnail(id: string | null) {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [id]);
+  }, [id, cacheKey]);
 
   return url;
 }

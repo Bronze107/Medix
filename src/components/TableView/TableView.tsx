@@ -37,24 +37,25 @@ function formatFileSize(bytes: number | null): string {
 
 const thumbCache = new Map<string, string>();
 
-function useThumbnail(id: string | null) {
+function useThumbnail(id: string | null, displayVariantId?: string | null) {
   const [url, setUrl] = useState<string | null>(null);
+  const cacheKey = id ? (displayVariantId ? `${id}:${displayVariantId}` : id) : null;
   useEffect(() => {
-    if (!id) return;
-    if (thumbCache.has(id)) {
-      setUrl(thumbCache.get(id)!);
+    if (!id || !cacheKey) return;
+    if (thumbCache.has(cacheKey)) {
+      setUrl(thumbCache.get(cacheKey)!);
       return;
     }
     let cancelled = false;
     mediaThumbnail(id).then((path) => {
       if (!cancelled) {
         const src = convertFileSrc(path);
-        thumbCache.set(id, src);
+        thumbCache.set(cacheKey, src);
         setUrl(src);
       }
     });
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, cacheKey]);
   return url;
 }
 
@@ -208,7 +209,7 @@ function TableRow({
   onDelete?: () => void;
   style: React.CSSProperties;
 }) {
-  const thumbUrl = useThumbnail(item.id);
+  const thumbUrl = useThumbnail(item.id, item.display_variant_id);
 
   return (
     <div

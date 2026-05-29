@@ -23,7 +23,7 @@ function FilmstripThumb({
   isActive: boolean;
   onClick: () => void;
 }) {
-  const url = useThumbnail(item.id);
+  const url = useThumbnail(item.id, item.display_variant_id);
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}

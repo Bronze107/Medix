@@ -417,6 +417,27 @@ function AllMedia({ collectionId }: AllMediaProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Listen for display variant changes from DetailPanel
+  const selectedRefForVariant = useRef(selected);
+  selectedRefForVariant.current = selected;
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { mediaId: string; variantId: string | null };
+      setMedia((prev) =>
+        prev.map((m) =>
+          m.id === detail.mediaId
+            ? { ...m, display_variant_id: detail.variantId }
+            : m,
+        ),
+      );
+      if (selectedRefForVariant.current?.id === detail.mediaId) {
+        setSelected((prev) => prev ? { ...prev, display_variant_id: detail.variantId } : null);
+      }
+    };
+    window.addEventListener("display-variant-changed", handler);
+    return () => window.removeEventListener("display-variant-changed", handler);
+  }, []);
+
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
   // Keep lastSelectedIndex in sync with single-select (card click without modifiers)

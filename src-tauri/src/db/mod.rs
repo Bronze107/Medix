@@ -267,6 +267,25 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         )?;
     }
 
+    // 0013: variant annotation + display variant
+    let has_variant_captions: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('captions') WHERE name='variant_id'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+    if !has_variant_captions {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0013_variant_annotation');
+             ALTER TABLE captions ADD COLUMN variant_id TEXT REFERENCES variants(id) ON DELETE CASCADE;
+             ALTER TABLE embeddings ADD COLUMN variant_id TEXT REFERENCES variants(id) ON DELETE CASCADE;
+             ALTER TABLE media ADD COLUMN display_variant_id TEXT REFERENCES variants(id) ON DELETE SET NULL;
+             CREATE INDEX IF NOT EXISTS idx_captions_variant ON captions(variant_id);
+             CREATE INDEX IF NOT EXISTS idx_embeddings_variant ON embeddings(variant_id);",
+        )?;
+    }
+
     Ok(())
 }
 
@@ -423,7 +442,8 @@ pub fn media_list_by_collection(
     let sql = format!(
         "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
                 m.created_at, m.modified_at, m.imported_at,
-                m.source_url, m.page_url, m.source, m.sha256, m.deleted_at
+                m.source_url, m.page_url, m.source, m.sha256, m.deleted_at,
+                m.display_variant_id
          FROM media m
          JOIN collection_items ci ON ci.media_id = m.id
          WHERE ci.collection_id = ?1 AND m.deleted_at IS NULL
@@ -447,6 +467,7 @@ pub fn media_list_by_collection(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
+            display_variant_id: row.get(13)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -482,7 +503,7 @@ pub fn media_get_by_sha256(
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id
          FROM media WHERE sha256 = ?1 AND deleted_at IS NULL LIMIT 1",
     )?;
     let mut rows = stmt.query_map(params![hash], |row| {
@@ -501,6 +522,7 @@ pub fn media_get_by_sha256(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
+            display_variant_id: row.get(13)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -570,7 +592,7 @@ pub fn list_media_path(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id
          FROM media
          WHERE deleted_at IS NULL
          ORDER BY {} {}",
@@ -594,6 +616,7 @@ pub fn list_media_path(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
+            display_variant_id: row.get(13)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -629,7 +652,7 @@ pub fn media_get_batch(
     let conn = Connection::open(&path)?;
     let placeholders: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 1)).collect();
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id
          FROM media WHERE deleted_at IS NULL AND id IN ({})",
         placeholders.join(",")
     );
@@ -652,6 +675,7 @@ pub fn media_get_batch(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
+            display_variant_id: row.get(13)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -884,7 +908,7 @@ pub fn media_search_by_tags_path(
     let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = match mode {
         TagSearchMode::Intersection => format!(
-            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at
+            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
@@ -895,7 +919,7 @@ pub fn media_search_by_tags_path(
             placeholders, tag_names.len(), sort_column, order
         ),
         TagSearchMode::Union => format!(
-            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at
+            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
@@ -926,6 +950,7 @@ pub fn media_search_by_tags_path(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
+            display_variant_id: row.get(13)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -1057,7 +1082,8 @@ pub fn media_query_filtered_path(
     let sql = format!(
         "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
                 m.created_at, m.modified_at, m.imported_at,
-                m.source_url, m.page_url, m.source, m.sha256, m.deleted_at
+                m.source_url, m.page_url, m.source, m.sha256, m.deleted_at,
+                m.display_variant_id
          FROM media m {} ORDER BY {} {}",
         where_clause, sort_column, order
     );
@@ -1082,6 +1108,7 @@ pub fn media_query_filtered_path(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
+            display_variant_id: row.get(13)?,
             thumb_256: None,
             thumb_512: None,
         })
@@ -1242,20 +1269,27 @@ pub fn caption_list(
     app: &AppHandle,
     media_id: &str,
 ) -> Result<Vec<Caption>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    caption_list_path(&db_path(app), media_id)
+}
+
+pub fn caption_list_path(
+    db_path: &Path,
+    media_id: &str,
+) -> Result<Vec<Caption>, Box<dyn std::error::Error>> {
+    let conn = Connection::open(db_path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_id, text, source, created_at, updated_at
+        "SELECT id, media_id, variant_id, text, source, created_at, updated_at
          FROM captions WHERE media_id = ?1 ORDER BY created_at",
     )?;
     let caption_iter = stmt.query_map(params![media_id], |row| {
         Ok(Caption {
             id: row.get(0)?,
             media_id: row.get(1)?,
-            text: row.get(2)?,
-            source: row.get(3)?,
-            created_at: row.get(4)?,
-            updated_at: row.get(5)?,
+            variant_id: row.get(2)?,
+            text: row.get(3)?,
+            source: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
         })
     })?;
     let mut results = Vec::new();
@@ -1273,22 +1307,43 @@ pub fn caption_create(
     caption_create_with_source(app, media_id, text, None)
 }
 
+pub fn caption_create_for_variant(
+    app: &AppHandle,
+    media_id: &str,
+    variant_id: &str,
+    text: &str,
+    source: Option<&str>,
+) -> Result<Caption, Box<dyn std::error::Error>> {
+    caption_create_internal(app, media_id, text, source, Some(variant_id))
+}
+
 pub fn caption_create_with_source(
     app: &AppHandle,
     media_id: &str,
     text: &str,
     source: Option<&str>,
 ) -> Result<Caption, Box<dyn std::error::Error>> {
+    caption_create_internal(app, media_id, text, source, None)
+}
+
+fn caption_create_internal(
+    app: &AppHandle,
+    media_id: &str,
+    text: &str,
+    source: Option<&str>,
+    variant_id: Option<&str>,
+) -> Result<Caption, Box<dyn std::error::Error>> {
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let id = Ulid::new().to_string();
     conn.execute(
-        "INSERT INTO captions (id, media_id, text, source) VALUES (?1, ?2, ?3, ?4)",
-        params![&id, media_id, text, source],
+        "INSERT INTO captions (id, media_id, variant_id, text, source) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![&id, media_id, variant_id, text, source],
     )?;
     Ok(Caption {
         id,
         media_id: media_id.to_string(),
+        variant_id: variant_id.map(|s| s.to_string()),
         text: text.to_string(),
         source: source.map(|s| s.to_string()),
         created_at: None,
@@ -1522,6 +1577,48 @@ pub fn media_recover(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+pub fn media_get_display_variant(
+    app: &AppHandle,
+    media_id: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let display_id: Option<String> = conn
+        .query_row(
+            "SELECT display_variant_id FROM media WHERE id = ?1",
+            params![media_id],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten();
+    if let Some(vid) = display_id {
+        let file_path: Option<String> = conn
+            .query_row(
+                "SELECT file_path FROM variants WHERE id = ?1",
+                params![vid],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+        return Ok(file_path);
+    }
+    Ok(None)
+}
+
+pub fn media_set_display_variant(
+    app: &AppHandle,
+    media_id: &str,
+    variant_id: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    conn.execute(
+        "UPDATE media SET display_variant_id = ?1 WHERE id = ?2",
+        params![variant_id, media_id],
+    )?;
+    Ok(())
+}
+
 pub fn media_permanent_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let app_dir = app.path().app_data_dir().expect("app data dir");
 
@@ -1583,7 +1680,7 @@ pub fn media_list_trash(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id
          FROM media
          WHERE deleted_at IS NOT NULL
          ORDER BY {} {}",
@@ -1607,6 +1704,7 @@ pub fn media_list_trash(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
+            display_variant_id: row.get(13)?,
             thumb_256: None,
             thumb_512: None,
         })

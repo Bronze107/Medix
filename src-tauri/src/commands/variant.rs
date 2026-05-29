@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use tauri::{command, AppHandle, Manager};
+use tauri::{command, AppHandle, Emitter, Manager};
 
 use crate::db;
 use crate::variants::{list_presets, generate_variant, Variant, VariantPreset};
@@ -112,4 +112,44 @@ pub fn variant_delete(app: AppHandle, id: String) -> Result<(), String> {
 #[command]
 pub fn variant_presets() -> Vec<VariantPreset> {
     list_presets()
+}
+
+#[command]
+pub fn variant_annotate(
+    app: AppHandle,
+    media_id: String,
+    variant_id: String,
+) -> Result<(), String> {
+    let variant = db::variant_get_by_id(&app, &variant_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Variant not found")?;
+    let image_path = std::path::PathBuf::from(&variant.file_path);
+    if !image_path.exists() {
+        return Err("Variant file not found on disk".to_string());
+    }
+    let queue = app.state::<crate::ai::AiQueue>();
+    queue
+        .send(crate::ai::AiTask::GenerateCaption {
+            media_id: media_id.clone(),
+            image_path,
+            variant_id: Some(variant_id),
+        })
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit(
+        "ai-task-done",
+        crate::ai::AiTaskProgress {
+            remaining: queue.pending_count(),
+        },
+    );
+    Ok(())
+}
+
+#[command]
+pub fn media_set_display_variant(
+    app: AppHandle,
+    media_id: String,
+    variant_id: Option<String>,
+) -> Result<(), String> {
+    db::media_set_display_variant(&app, &media_id, variant_id.as_deref())
+        .map_err(|e| e.to_string())
 }

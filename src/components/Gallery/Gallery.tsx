@@ -229,7 +229,7 @@ function ThumbnailCard({
   onContextMenu?: (e: React.MouseEvent) => void;
   onToggleSelect: (shiftKey: boolean) => void;
 }) {
-  const thumbUrl = useThumbnail(item.id);
+  const thumbUrl = useThumbnail(item.id, item.display_variant_id);
   const [loaded, setLoaded] = useState(false);
 
   return (

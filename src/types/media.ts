@@ -12,6 +12,7 @@ export interface Media {
   source: string | null;
   sha256: string | null;
   deleted_at: string | null;
+  display_variant_id: string | null;
   thumb_256: string | null;
   thumb_512: string | null;
 }
