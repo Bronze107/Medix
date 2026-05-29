@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { showToast } from "@/components/Toast/Toast";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -35,6 +36,38 @@ interface DetailPanelProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onDeleted?: () => void;
+}
+
+function parsePlatform(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const host = new URL(url).hostname.replace("www.", "");
+    const map: Record<string, string> = {
+      "xiaohongshu.com": "小红书",
+      "xhs.sh": "小红书",
+      "weibo.com": "微博",
+      "douyin.com": "抖音",
+      "bilibili.com": "B站",
+      "pinterest.com": "Pinterest",
+      "twitter.com": "Twitter",
+      "x.com": "X",
+      "instagram.com": "Instagram",
+      "zhihu.com": "知乎",
+      "lofter.com": "LOFTER",
+      "tumblr.com": "Tumblr",
+      "deviantart.com": "DeviantArt",
+      "artstation.com": "ArtStation",
+      "pixiv.net": "Pixiv",
+      "reddit.com": "Reddit",
+      "flickr.com": "Flickr",
+    };
+    for (const [domain, name] of Object.entries(map)) {
+      if (host === domain || host.endsWith("." + domain)) return name;
+    }
+    return host;
+  } catch {
+    return null;
+  }
 }
 
 function formatFileSize(bytes: number | null): string {
@@ -90,6 +123,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
   const [captionVariantId, setCaptionVariantId] = useState<string | null>(null);
   const [targetId, setTargetId] = useState<string | null>(null); // null=original, string=variant_id
   const [showVersionForm, setShowVersionForm] = useState(false);
+  const [showTargetMenu, setShowTargetMenu] = useState(false);
+  const targetMenuRef = useRef<HTMLDivElement>(null);
 
   const loadAllTags = useCallback(async () => {
     try {
@@ -168,6 +203,18 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       loadMediaTags(media.id, targetId);
     }
   }, [targetId, media?.id, loadMediaTags]);
+
+  // Click outside target menu → close
+  useEffect(() => {
+    if (!showTargetMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (targetMenuRef.current && !targetMenuRef.current.contains(e.target as Node)) {
+        setShowTargetMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showTargetMenu]);
 
   useEffect(() => {
     const input = newTagInput.trim().toLowerCase();
@@ -373,25 +420,71 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
           </svg>
         </button>
-        <select
-          value={targetId ?? ""}
-          onChange={(e) => {
-            const val = e.target.value;
-            if (val === "__add__") { setShowVersionForm(true); return; }
-            setTargetId(val || null);
-            setCaptionVariantId(val || null);
-          }}
-          className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
-        >
-          <option value="">原图</option>
-          {variants.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.label || v.preset_name || "未命名版本"}
-            </option>
-          ))}
-          <option disabled>──────────</option>
-          <option value="__add__">+ 添加版本...</option>
-        </select>
+        <div className="relative flex-1" ref={targetMenuRef}>
+          <button
+            onClick={() => setShowTargetMenu((s) => !s)}
+            className="flex w-full items-center justify-between gap-2 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none hover:border-[var(--color-text-muted)] transition-colors"
+          >
+            <span className="truncate">
+              {targetId
+                ? variants.find((v) => v.id === targetId)?.label || variants.find((v) => v.id === targetId)?.preset_name || "未命名版本"
+                : "原图"}
+            </span>
+            <svg className="h-3 w-3 shrink-0 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+          {showTargetMenu && (
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-lg py-1">
+              {/* Original */}
+              <button
+                onClick={() => { setTargetId(null); setCaptionVariantId(null); setShowTargetMenu(false); }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)] ${!targetId ? "bg-[var(--color-accent-soft)]" : ""}`}
+              >
+                <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
+                  {media.thumb_256
+                    ? <img src={convertFileSrc(media.thumb_256)} alt="" className="h-full w-full object-cover" />
+                    : <div className="h-full w-full bg-[var(--color-bg-secondary)]" />
+                  }
+                </div>
+                <span className={`text-xs ${!targetId ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>原图</span>
+              </button>
+              {variants.map((v) => {
+                const label = v.label || v.preset_name || "未命名版本";
+                const active = targetId === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() => { setTargetId(v.id); setCaptionVariantId(v.id); setShowTargetMenu(false); }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)] ${active ? "bg-[var(--color-accent-soft)]" : ""}`}
+                  >
+                    <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
+                      <img src={convertFileSrc(v.file_path)} alt="" className="h-full w-full object-cover" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className={`truncate text-xs ${active ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>
+                        {label}
+                        {media.display_variant_id === v.id && (
+                          <span className="ml-1 text-[10px] text-[var(--color-accent)]">👁</span>
+                        )}
+                      </div>
+                      <p className="truncate text-[10px] text-[var(--color-text-muted)]">
+                        {v.format.toUpperCase()} · {v.width ?? "?"}×{v.height ?? "?"} · {formatFileSize(v.file_size)}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+              <div className="my-1 border-t border-[var(--color-border)]"></div>
+              <button
+                onClick={() => { setShowTargetMenu(false); setShowVersionForm(true); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+              >
+                + 添加版本...
+              </button>
+            </div>
+          )}
+        </div>
         {media.display_variant_id && (
           targetId === media.display_variant_id ? (
             <span className="text-xs text-[var(--color-accent)]" title="当前显示版本">👁</span>
@@ -448,18 +541,20 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               </p>
             </div>
 
-            <div>
-              <p className="text-xs text-[var(--color-text-muted)]">原始路径</p>
-              <p className="mt-0.5 break-all text-xs text-[var(--color-text-secondary)]">
-                {media.source_path ?? "—"}
-              </p>
-            </div>
+            {media.source !== "web" && (
+              <div>
+                <p className="text-xs text-[var(--color-text-muted)]">原始路径</p>
+                <p className="mt-0.5 break-all text-xs text-[var(--color-text-secondary)]">
+                  {media.source_path ?? "—"}
+                </p>
+              </div>
+            )}
 
             {media.source && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">来源</p>
                 <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-                  {media.source === "web" && "网页"}
+                  {media.source === "web" && `网页 · ${parsePlatform(media.source_url || media.page_url) || "未知站点"}`}
                   {media.source === "local" && "本地"}
                   {media.source === "zip" && "ZIP 导入"}
                   {media.source !== "web" && media.source !== "local" && media.source !== "zip" && media.source}
