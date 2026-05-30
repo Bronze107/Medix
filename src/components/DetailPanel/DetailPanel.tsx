@@ -17,6 +17,7 @@ import {
   variantList,
   variantGenerate,
   variantImport,
+  variantDelete,
   variantAnnotate,
   variantPresets,
   mediaSetDisplayVariant,
@@ -104,6 +105,7 @@ function formatDate(dateStr: string | null): string {
 function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<"details" | "captions" | "tags">("details");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDeleteVariantConfirm, setShowDeleteVariantConfirm] = useState(false);
 
   // Tags state
   const [tags, setTags] = useState<Tag[]>([]);
@@ -363,6 +365,19 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       console.error("Failed to import version:", e);
     } finally {
       setImportingVersion(false);
+    }
+  };
+
+  const handleDeleteVariant = async () => {
+    if (!targetId || !media) return;
+    try {
+      await variantDelete(targetId);
+      setShowDeleteVariantConfirm(false);
+      setTargetId(null);
+      await loadVariants(media.id);
+      showToast("已删除版本");
+    } catch (e) {
+      console.error("Failed to delete variant:", e);
     }
   };
 
@@ -1048,15 +1063,27 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               </button>
             )
           )}
-          <button
-            onClick={() => setShowDeleteConfirm(true)}
-            className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
-            title="删除图片"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-            </svg>
-          </button>
+          {targetId ? (
+            <button
+              onClick={() => setShowDeleteVariantConfirm(true)}
+              className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
+              title="删除版本"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
+              title="删除图片"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1079,6 +1106,16 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
           }
         }}
         onCancel={() => setShowDeleteConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showDeleteVariantConfirm}
+        title="删除版本"
+        message="确定要删除这个版本吗？版本文件和记录将被永久删除，不可恢复。"
+        variant="danger"
+        confirmLabel="删除"
+        onConfirm={handleDeleteVariant}
+        onCancel={() => setShowDeleteVariantConfirm(false)}
       />
     </div>
   );
