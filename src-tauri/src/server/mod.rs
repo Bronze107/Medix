@@ -1,3 +1,4 @@
+use std::error::Error as StdError;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -107,15 +108,42 @@ fn download_and_import(
     req: &ImportRequest,
 ) -> Result<String, String> {
     // Download image
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let mut client_builder = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30));
 
-    let response = client
-        .get(&req.url)
+    // Honour HTTPS_PROXY / HTTP_PROXY env vars (Clash / V2Ray typical setup)
+    if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
+        .or_else(|_| std::env::var("https_proxy"))
+        .or_else(|_| std::env::var("HTTP_PROXY"))
+        .or_else(|_| std::env::var("http_proxy"))
+    {
+        if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+            client_builder = client_builder.proxy(proxy);
+            eprintln!("[http] using proxy {}", proxy_url);
+        }
+    }
+
+    let client = client_builder.build().map_err(|e| e.to_string())?;
+
+    let mut http_req = client.get(&req.url);
+    // Sites like Twitter/X block requests without a browser-like User-Agent
+    http_req = http_req.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+    http_req = http_req.header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+    if let Some(ref page_url) = req.page_url {
+        http_req = http_req.header("Referer", page_url.as_str());
+    }
+
+    let response = http_req
         .send()
-        .map_err(|e| format!("download failed: {}", e))?;
+        .map_err(|e| {
+            let mut msg = format!("download failed: {e}");
+            let mut src = e.source();
+            while let Some(inner) = src {
+                msg.push_str(&format!("\n  caused by: {inner}"));
+                src = inner.source();
+            }
+            msg
+        })?;
 
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
