@@ -179,9 +179,9 @@ pub fn parse(input: &str) -> ParsedQuery {
     result
 }
 
-/// Returns (tag_words, leftover_semantic) where tag_words are ASCII-only (valid tag names)
-/// and leftover_semantic contains non-ASCII words that should be treated as semantic query text.
-/// Quoted strings like "black cat" are treated as single tag tokens.
+/// Returns (tag_words, leftover_semantic). Any word containing at least one letter
+/// or digit is a valid tag (including Chinese, Japanese, etc.). Purely symbolic
+/// tokens fall into semantic. Quoted strings like "black cat" are single tag tokens.
 fn split_tag_words(content: &str) -> (Vec<String>, Vec<String>) {
     let mut tags = Vec::new();
     let mut semantic = Vec::new();
@@ -221,7 +221,10 @@ fn split_tag_words(content: &str) -> (Vec<String>, Vec<String>) {
         if word.is_empty() {
             continue;
         }
-        if word.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        // Any word containing at least one letter or digit is a valid tag.
+        // Chinese / Japanese / Cyrillic etc. are all covered by is_alphabetic().
+        // Purely symbolic words (e.g. "***") → semantic.
+        if word.chars().any(|c| c.is_alphabetic() || c.is_numeric()) {
             tags.push(word);
         } else {
             semantic.push(word);
@@ -426,11 +429,19 @@ mod tests {
     }
 
     #[test]
+    fn test_chinese_tag() {
+        let r = parse("tag:猫");
+        let tg = r.tag_group.unwrap();
+        assert_eq!(tg.tags, vec!["猫"]);
+        assert_eq!(tg.mode, TagMatchMode::All);
+    }
+
+    #[test]
     fn test_mixed() {
         let r = parse("tag:cat 橘子猫 width:>1000");
         let tg = r.tag_group.unwrap();
-        assert_eq!(tg.tags, vec!["cat"]);
-        assert_eq!(r.semantic_text, Some("橘子猫".to_string()));
+        assert_eq!(tg.tags, vec!["cat", "橘子猫"]);
+        assert_eq!(r.semantic_text, None);
         assert_eq!(r.dimensions.len(), 1);
     }
 
