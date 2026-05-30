@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Media } from "@/types/media";
 import { useThumbnail } from "@/hooks/useThumbnail";
@@ -106,7 +106,7 @@ function Gallery({
   scale = 1,
 }: GalleryProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(800);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
     const el = parentRef.current;
@@ -135,6 +135,15 @@ function Gallery({
     overscan: 3,
   });
 
+  // @tanstack/react-virtual caches sizes per index; when `count` stays
+  // the same across a containerWidth change, cached (stale) sizes survive.
+  // `measure()` + `measureElement` break that cycle because we no longer
+  // set an explicit height on media-row wrappers — the wrapper is sized
+  // purely by its content, so the measurement reflects the real layout.
+  useLayoutEffect(() => {
+    virtualizer.measure();
+  }, [rows, virtualizer]);
+
   const virtualItems = virtualizer.getVirtualItems();
 
   return (
@@ -160,7 +169,7 @@ function Gallery({
                   top: 0,
                   left: 0,
                   width: "100%",
-                  height: `${virtualRow.size}px`,
+                  height: `${row.height}px`,
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
                 className="flex items-center gap-3 px-3"
@@ -184,7 +193,7 @@ function Gallery({
                 top: 0,
                 left: 0,
                 width: "100%",
-                height: `${virtualRow.size}px`,
+                paddingBottom: `${gap}px`,
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
