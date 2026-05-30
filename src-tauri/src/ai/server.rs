@@ -73,6 +73,7 @@ impl LlamaServer {
         if !mmproj_path.is_empty() {
             cmd.arg("--mmproj").arg(mmproj_path);
         }
+        cmd.arg("--parallel").arg("2");
         cmd.arg("--embeddings");
         cmd.arg("--pooling").arg("mean");
         cmd.stdout(Stdio::piped());
