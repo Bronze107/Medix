@@ -486,7 +486,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       setShowBatchTagDialog(false);
       setBatchTagSearch("");
       setSelectedIds(new Set());
-      setSelected(null);
+      window.dispatchEvent(new CustomEvent("tags-changed"));
     } catch (e) {
       console.error("Failed to batch add tag:", e);
     }

@@ -199,7 +199,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       loadVariants(media.id);
       loadCaptions(media.id);
       loadEmbeddings(media.id);
-      setActiveTab("details");
     } else {
       setTags([]);
       setVariants([]);
@@ -229,6 +228,15 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
     });
     return () => { unlisten.then((f) => f()); };
   }, [media?.id, targetId, loadCaptions, loadMediaTags]);
+
+  // Reload tags when batch-tagging or other manual tag changes happen
+  useEffect(() => {
+    const handler = () => {
+      if (media) loadMediaTags(media.id, targetId);
+    };
+    window.addEventListener("tags-changed", handler);
+    return () => window.removeEventListener("tags-changed", handler);
+  }, [media?.id, targetId, loadMediaTags]);
 
   // Click outside target menu → close
   useEffect(() => {
