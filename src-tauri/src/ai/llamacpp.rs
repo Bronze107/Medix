@@ -86,11 +86,22 @@ struct EmbeddingData {
     embedding: Vec<f32>,
 }
 
-const CAPTION_PROMPT: &str = r#"Describe this image in detail. Then on a new line starting with "TAGS:", list key objects, concepts, and visual elements as comma-separated lowercase tags.
+const CAPTION_PROMPT: &str = r#"You are a professional photographer. Analyze the image and describe only information that is directly observable.
 
-Example output:
-A golden retriever playing fetch with a red ball in a sunny park with green grass and trees.
-TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny"#;
+Focus on:
+
+1. Main subject — For people: apparent age range, build, hairstyle, gender presentation, clothing, pose, expression. For objects/animals: type, condition, position.
+2. Scene and environment — indoor/outdoor, setting, background elements.
+3. Composition — framing, angle, rule of thirds, leading lines, symmetry.
+4. Lighting conditions — direction, quality (hard/soft), source (natural/artificial), time of day cues.
+5. Colors and tones — dominant palette, saturation level, warm/cool/neutral cast.
+6. Camera perspective — eye-level, high angle, low angle, aerial, close-up.
+7. Depth of field — shallow/deep, bokeh quality, focus plane.
+8. Photography style — portrait, landscape, macro, street, documentary, snapshot.
+9. Notable visual elements — text, logos, UI elements, signs. Skip if none present.
+
+Produce your response in this format:
+A dense sentence factual description. Then on a new line starting with "TAGS:", list 10 at most distinctive key objects, concepts, and visual elements as comma-separated lowercase danbooru style tags."#;
 
 pub async fn generate_caption(
     image_path: &Path,
@@ -120,27 +131,28 @@ pub async fn generate_caption(
         .timeout(Duration::from_secs(180))
         .build()?;
 
-    let message = Message {
-        role: "user".to_string(),
-        content: vec![
-            ContentPart {
-                content_type: "image_url".to_string(),
-                text: None,
-                image_url: Some(ImageUrl {
-                    url: format!("data:{};base64,{}", mime, image_b64),
-                }),
-            },
-            ContentPart {
-                content_type: "text".to_string(),
-                text: Some(prompt_text.to_string()),
-                image_url: None,
-            },
-        ],
-    };
-
     let req_body = ChatCompletionRequest {
         model: model.to_string(),
-        messages: vec![message],
+        messages: vec![
+            Message {
+                role: "system".to_string(),
+                content: vec![ContentPart {
+                    content_type: "text".to_string(),
+                    text: Some(prompt_text.to_string()),
+                    image_url: None,
+                }],
+            },
+            Message {
+                role: "user".to_string(),
+                content: vec![ContentPart {
+                    content_type: "image_url".to_string(),
+                    text: None,
+                    image_url: Some(ImageUrl {
+                        url: format!("data:{};base64,{}", mime, image_b64),
+                    }),
+                }],
+            },
+        ],
         stream: false,
     };
 
