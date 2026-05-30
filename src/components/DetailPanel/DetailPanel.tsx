@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { showToast } from "@/components/Toast/Toast";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useThumbnail } from "@/hooks/useThumbnail";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
@@ -100,6 +101,90 @@ function formatDate(dateStr: string | null): string {
   } catch {
     return dateStr;
   }
+}
+
+// --- Dropdown for variant list, kept in DOM (hidden when closed) for image cache ---
+function TargetMenu({
+  media,
+  variants,
+  targetId,
+  onSelect,
+  onAdd,
+}: {
+  media: Media;
+  variants: Variant[];
+  targetId: string | null;
+  onSelect: (id: string | null) => void;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-lg">
+      {/* Original */}
+      <button
+        onClick={() => onSelect(null)}
+        className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)] ${!targetId ? "bg-[var(--color-accent-soft)]" : ""}`}
+      >
+        <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
+          <MenuThumb itemId={media.id} />
+        </div>
+        <span className={`text-xs ${!targetId ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>原图</span>
+      </button>
+      {variants.map((v) => {
+        const label = v.label || v.preset_name || "未命名版本";
+        const active = targetId === v.id;
+        const fmt = v.format.toUpperCase();
+        const dim = `${v.width ?? "?"}×${v.height ?? "?"}`;
+        return (
+          <button
+            key={v.id}
+            onClick={() => onSelect(v.id)}
+            className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)] ${active ? "bg-[var(--color-accent-soft)]" : ""}`}
+          >
+            <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
+              <MenuThumb itemId={v.id} filePath={v.file_path} />
+            </div>
+            <div className="min-w-0 flex-1 text-left">
+              <div className={`truncate text-xs ${active ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>
+                {label}
+                {media.display_variant_id === v.id && (
+                  <span className="ml-1 text-[10px] text-[var(--color-accent)]">👁</span>
+                )}
+              </div>
+              <p className="truncate text-[10px] text-[var(--color-text-muted)]">
+                {fmt}{v.quality && v.format === "jpeg" ? `·Q${v.quality}` : ""} · {dim} · {formatFileSize(v.file_size)}
+              </p>
+            </div>
+          </button>
+        );
+      })}
+      <div className="border-t border-[var(--color-border)]">
+        <button
+          onClick={onAdd}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+        >
+          + 添加版本...
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MenuThumb({ itemId, filePath }: { itemId: string; filePath?: string }) {
+  const thumbUrl = useThumbnail(itemId, undefined);
+  const url = filePath ? convertFileSrc(filePath) : thumbUrl;
+  const [loaded, setLoaded] = useState(false);
+
+  if (!url) return <div className="h-full w-full bg-[var(--color-bg-secondary)]" />;
+
+  return (
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      className={`h-full w-full object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+      onLoad={() => setLoaded(true)}
+    />
+  );
 }
 
 function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPanelProps) {
@@ -350,14 +435,20 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
     if (paths.length === 0) return;
     setImportingVersion(true);
     try {
-      await Promise.all(
-        paths.map(async (p) => {
-          const v = await variantImport(media.id, p);
-          variantAnnotate(media.id, v.id).catch((e) =>
-            console.error("Failed to annotate imported version:", e),
-          );
-        }),
-      );
+      // Process in chunks of 6 to avoid overwhelming CPU/I/O with parallel
+      // image decodes, file copies, and DB writes.
+      const CONCURRENCY = 6;
+      for (let i = 0; i < paths.length; i += CONCURRENCY) {
+        const chunk = paths.slice(i, i + CONCURRENCY);
+        await Promise.all(
+          chunk.map(async (p) => {
+            const v = await variantImport(media.id, p);
+            variantAnnotate(media.id, v.id).catch((e) =>
+              console.error("Failed to annotate imported version:", e),
+            );
+          }),
+        );
+      }
       await loadVariants(media.id);
       setImportVersionPaths([]);
       setShowVersionForm(false);
@@ -492,56 +583,19 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
             </svg>
           </button>
-          {showTargetMenu && (
-            <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-lg py-1">
-              {/* Original */}
-              <button
-                onClick={() => { setTargetId(null); setCaptionVariantId(null); setShowTargetMenu(false); }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)] ${!targetId ? "bg-[var(--color-accent-soft)]" : ""}`}
-              >
-                <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
-                  {media.thumb_256
-                    ? <img src={convertFileSrc(media.thumb_256)} alt="" className="h-full w-full object-cover" />
-                    : <div className="h-full w-full bg-[var(--color-bg-secondary)]" />
-                  }
-                </div>
-                <span className={`text-xs ${!targetId ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>原图</span>
-              </button>
-              {variants.map((v) => {
-                const label = v.label || v.preset_name || "未命名版本";
-                const active = targetId === v.id;
-                return (
-                  <button
-                    key={v.id}
-                    onClick={() => { setTargetId(v.id); setCaptionVariantId(v.id); setShowTargetMenu(false); }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)] ${active ? "bg-[var(--color-accent-soft)]" : ""}`}
-                  >
-                    <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
-                      <img src={convertFileSrc(v.file_path)} alt="" className="h-full w-full object-cover" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className={`truncate text-xs ${active ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>
-                        {label}
-                        {media.display_variant_id === v.id && (
-                          <span className="ml-1 text-[10px] text-[var(--color-accent)]">👁</span>
-                        )}
-                      </div>
-                      <p className="truncate text-[10px] text-[var(--color-text-muted)]">
-                        {v.format.toUpperCase()} · {v.width ?? "?"}×{v.height ?? "?"} · {formatFileSize(v.file_size)}
-                      </p>
-                    </div>
-                  </button>
-                );
-              })}
-              <div className="my-1 border-t border-[var(--color-border)]"></div>
-              <button
-                onClick={() => { setShowTargetMenu(false); setShowVersionForm(true); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-              >
-                + 添加版本...
-              </button>
-            </div>
-          )}
+          <div className={`${showTargetMenu ? "" : "hidden"}`}>
+            <TargetMenu
+              media={media}
+              variants={variants}
+              targetId={targetId}
+              onSelect={(id) => {
+                setTargetId(id);
+                setCaptionVariantId(id);
+                setShowTargetMenu(false);
+              }}
+              onAdd={() => { setShowTargetMenu(false); setShowVersionForm(true); }}
+            />
+          </div>
         </div>
         {media.display_variant_id && (
           targetId === media.display_variant_id ? (
