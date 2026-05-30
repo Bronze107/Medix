@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { showToast } from "@/components/Toast/Toast";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -204,6 +205,17 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
     }
   }, [targetId, media?.id, loadMediaTags]);
 
+  // Auto-refresh captions & tags when AI annotation completes
+  useEffect(() => {
+    const unlisten = listen<{ remaining: number }>("ai-task-done", () => {
+      if (media) {
+        loadCaptions(media.id);
+        loadMediaTags(media.id, targetId);
+      }
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [media?.id, targetId, loadCaptions, loadMediaTags]);
+
   // Click outside target menu → close
   useEffect(() => {
     if (!showTargetMenu) return;
@@ -314,7 +326,14 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
     if (paths.length === 0) return;
     setImportingVersion(true);
     try {
-      await Promise.all(paths.map((p) => variantImport(media.id, p)));
+      await Promise.all(
+        paths.map(async (p) => {
+          const v = await variantImport(media.id, p);
+          variantAnnotate(media.id, v.id).catch((e) =>
+            console.error("Failed to annotate imported version:", e),
+          );
+        }),
+      );
       await loadVariants(media.id);
       setImportVersionPaths([]);
       setShowVersionForm(false);
