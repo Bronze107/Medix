@@ -30,6 +30,16 @@ struct ChatCompletionRequest {
     model: String,
     messages: Vec<Message>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repeat_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -103,11 +113,33 @@ Focus on:
 Produce your response in this format:
 A dense sentence factual description. Then on a new line starting with "TAGS:", list 10 at most distinctive key objects, concepts, and visual elements as comma-separated lowercase danbooru style tags."#;
 
+#[derive(Debug, Clone)]
+pub struct SamplingParams {
+    pub temperature: f32,
+    pub top_p: f32,
+    pub min_p: f32,
+    pub repeat_penalty: f32,
+    pub max_tokens: u32,
+}
+
+impl Default for SamplingParams {
+    fn default() -> Self {
+        Self {
+            temperature: 0.2,
+            top_p: 0.9,
+            min_p: 0.05,
+            repeat_penalty: 1.05,
+            max_tokens: 1024,
+        }
+    }
+}
+
 pub async fn generate_caption(
     image_path: &Path,
     model: &str,
     port: u16,
     custom_prompt: Option<&str>,
+    sampling: &SamplingParams,
 ) -> Result<AiResult, AiError> {
     let prompt_text = custom_prompt.unwrap_or(CAPTION_PROMPT);
     let image_bytes = tokio::fs::read(image_path).await?;
@@ -154,6 +186,11 @@ pub async fn generate_caption(
             },
         ],
         stream: false,
+        temperature: Some(sampling.temperature),
+        top_p: Some(sampling.top_p),
+        min_p: Some(sampling.min_p),
+        repeat_penalty: Some(sampling.repeat_penalty),
+        max_tokens: Some(sampling.max_tokens),
     };
 
     let max_attempts = 2;

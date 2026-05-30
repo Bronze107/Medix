@@ -1,7 +1,7 @@
 pub mod llamacpp;
 pub mod server;
 
-pub use llamacpp::{embed_text, generate_caption, AiResult};
+pub use llamacpp::{embed_text, generate_caption, AiResult, SamplingParams};
 pub use server::LlamaServer;
 
 use std::path::PathBuf;
@@ -159,11 +159,19 @@ async fn process_generate_caption(
     }
 
     let custom_prompt = crate::settings::get_ai_custom_prompt(&app);
+    let sampling = SamplingParams {
+        temperature: crate::settings::get_llama_temperature(&app),
+        top_p: crate::settings::get_llama_top_p(&app),
+        min_p: crate::settings::get_llama_min_p(&app),
+        repeat_penalty: crate::settings::get_llama_repeat_penalty(&app),
+        max_tokens: crate::settings::get_llama_max_tokens(&app),
+    };
     let result = generate_caption(
         inference_path_ref,
         &model,
         port,
         custom_prompt.as_deref(),
+        &sampling,
     ).await.map_err(|e| {
         eprintln!("[ai] caption generation failed for {}: {}", media_id, e);
         e.to_string()

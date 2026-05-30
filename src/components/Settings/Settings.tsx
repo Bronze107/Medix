@@ -33,6 +33,11 @@ function Settings() {
   const [llamaAutoStart, setLlamaAutoStart] = useState(false);
   const [llamaMaxImageDim, setLlamaMaxImageDim] = useState(0);
   const [aiCustomPrompt, setAiCustomPrompt] = useState("");
+  const [llamaTemperature, setLlamaTemperature] = useState(0.2);
+  const [llamaTopP, setLlamaTopP] = useState(0.9);
+  const [llamaMinP, setLlamaMinP] = useState(0.05);
+  const [llamaRepeatPenalty, setLlamaRepeatPenalty] = useState(1.05);
+  const [llamaMaxTokens, setLlamaMaxTokens] = useState(1024);
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [httpPort, setHttpPort] = useState(8765);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -55,6 +60,11 @@ function Settings() {
       if (settings.llama_auto_start) setLlamaAutoStart(settings.llama_auto_start === "true");
       if (settings.llama_max_image_dim) setLlamaMaxImageDim(parseInt(settings.llama_max_image_dim) || 0);
       if (settings.ai_custom_prompt) setAiCustomPrompt(settings.ai_custom_prompt);
+      if (settings.llama_temperature) setLlamaTemperature(parseFloat(settings.llama_temperature) || 0.2);
+      if (settings.llama_top_p) setLlamaTopP(parseFloat(settings.llama_top_p) || 0.9);
+      if (settings.llama_min_p) setLlamaMinP(parseFloat(settings.llama_min_p) || 0.05);
+      if (settings.llama_repeat_penalty) setLlamaRepeatPenalty(parseFloat(settings.llama_repeat_penalty) || 1.05);
+      if (settings.llama_max_tokens) setLlamaMaxTokens(parseInt(settings.llama_max_tokens) || 1024);
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
       if (settings.http_port) setHttpPort(parseInt(settings.http_port) || 8765);
     } catch (e) {
@@ -95,6 +105,11 @@ function Settings() {
       await settingsSet("llama_auto_start", llamaAutoStart ? "true" : "false");
       await settingsSet("llama_max_image_dim", String(llamaMaxImageDim));
       await settingsSet("ai_custom_prompt", aiCustomPrompt);
+      await settingsSet("llama_temperature", String(llamaTemperature));
+      await settingsSet("llama_top_p", String(llamaTopP));
+      await settingsSet("llama_min_p", String(llamaMinP));
+      await settingsSet("llama_repeat_penalty", String(llamaRepeatPenalty));
+      await settingsSet("llama_max_tokens", String(llamaMaxTokens));
       await settingsSet("semantic_threshold", String(semanticThreshold));
       await settingsSet("http_port", String(httpPort));
       setSaved(true);
@@ -372,6 +387,62 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                 <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
                   限制发送给 VLM 的图片长边尺寸，0 = 不缩放。降低可加快推理，推荐 768~1024
                 </p>
+              </div>
+
+              {/* Sampling Parameters */}
+              <div className="mb-3 border-t border-[var(--color-border-light)] pt-3">
+                <p className="mb-2 text-xs font-medium text-[var(--color-text-primary)]">采样参数</p>
+
+                {/* Temperature */}
+                <div className="mb-2">
+                  <label className="mb-0.5 block text-[11px] text-[var(--color-text-muted)]">
+                    Temperature: {llamaTemperature.toFixed(2)}
+                  </label>
+                  <input type="range" min={0} max={2} step={0.05} value={llamaTemperature}
+                    onChange={(e) => setLlamaTemperature(parseFloat(e.target.value))} className="w-48" />
+                  <p className="text-[11px] text-[var(--color-text-muted)]">控制输出随机性。低值更一致，高值更多样。标注任务推荐 0.1~0.3</p>
+                </div>
+
+                {/* Top-P */}
+                <div className="mb-2">
+                  <label className="mb-0.5 block text-[11px] text-[var(--color-text-muted)]">
+                    Top-P: {llamaTopP.toFixed(2)}
+                  </label>
+                  <input type="range" min={0} max={1} step={0.05} value={llamaTopP}
+                    onChange={(e) => setLlamaTopP(parseFloat(e.target.value))} className="w-48" />
+                  <p className="text-[11px] text-[var(--color-text-muted)]">Nucleus 采样阈值，过滤低概率 token。推荐 0.85~0.95</p>
+                </div>
+
+                {/* Min-P */}
+                <div className="mb-2">
+                  <label className="mb-0.5 block text-[11px] text-[var(--color-text-muted)]">
+                    Min-P: {llamaMinP.toFixed(2)}
+                  </label>
+                  <input type="range" min={0} max={0.3} step={0.01} value={llamaMinP}
+                    onChange={(e) => setLlamaMinP(parseFloat(e.target.value))} className="w-48" />
+                  <p className="text-[11px] text-[var(--color-text-muted)]">最小概率阈值，砍掉低于此值的 token。推荐 0.02~0.1</p>
+                </div>
+
+                {/* Repeat Penalty */}
+                <div className="mb-2">
+                  <label className="mb-0.5 block text-[11px] text-[var(--color-text-muted)]">
+                    Repeat Penalty: {llamaRepeatPenalty.toFixed(2)}
+                  </label>
+                  <input type="range" min={1} max={1.5} step={0.05} value={llamaRepeatPenalty}
+                    onChange={(e) => setLlamaRepeatPenalty(parseFloat(e.target.value))} className="w-48" />
+                  <p className="text-[11px] text-[var(--color-text-muted)]">重复惩罚，{'>'}1.0 降低已出现 token 的概率。推荐 1.0~1.15</p>
+                </div>
+
+                {/* Max Tokens */}
+                <div>
+                  <label className="mb-0.5 block text-[11px] text-[var(--color-text-muted)]">
+                    Max Tokens: {llamaMaxTokens}
+                  </label>
+                  <input type="number" min={64} max={4096} step={64} value={llamaMaxTokens}
+                    onChange={(e) => setLlamaMaxTokens(parseInt(e.target.value) || 1024)}
+                    className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none" />
+                  <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">最大输出 token 数。caption+tags 通常 150~300 token 足够</p>
+                </div>
               </div>
             </>
           )}

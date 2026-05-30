@@ -93,6 +93,42 @@ pub fn get_ai_custom_prompt(app: &AppHandle) -> Option<String> {
     if trimmed.is_empty() { None } else { Some(trimmed) }
 }
 
+pub const KEY_LLAMA_TEMPERATURE: &str = "llama_temperature";
+pub const KEY_LLAMA_TOP_P: &str = "llama_top_p";
+pub const KEY_LLAMA_MIN_P: &str = "llama_min_p";
+pub const KEY_LLAMA_REPEAT_PENALTY: &str = "llama_repeat_penalty";
+pub const KEY_LLAMA_MAX_TOKENS: &str = "llama_max_tokens";
+
+pub fn get_llama_temperature(app: &AppHandle) -> f32 {
+    get(app, KEY_LLAMA_TEMPERATURE)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.2)
+}
+
+pub fn get_llama_top_p(app: &AppHandle) -> f32 {
+    get(app, KEY_LLAMA_TOP_P)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.9)
+}
+
+pub fn get_llama_min_p(app: &AppHandle) -> f32 {
+    get(app, KEY_LLAMA_MIN_P)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.05)
+}
+
+pub fn get_llama_repeat_penalty(app: &AppHandle) -> f32 {
+    get(app, KEY_LLAMA_REPEAT_PENALTY)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1.05)
+}
+
+pub fn get_llama_max_tokens(app: &AppHandle) -> u32 {
+    get(app, KEY_LLAMA_MAX_TOKENS)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1024)
+}
+
 pub const KEY_SEMANTIC_THRESHOLD: &str = "semantic_threshold";
 
 pub fn get_semantic_threshold(app: &AppHandle) -> f64 {
