@@ -129,8 +129,9 @@ function Gallery({
     estimateSize: (index) => {
       const r = rows[index];
       if (!r) return 240;
-      return r.height + gap;
+      return r.type === "group" ? r.height : r.height + gap;
     },
+    measureElement: (el) => el.getBoundingClientRect().height,
     overscan: 3,
   });
 
@@ -153,6 +154,7 @@ function Gallery({
             return (
               <div
                 key={`group-${row.label}`}
+                data-index={virtualRow.index}
                 style={{
                   position: "absolute",
                   top: 0,
@@ -176,6 +178,7 @@ function Gallery({
           return (
             <div
               key={virtualRow.key}
+              data-index={virtualRow.index}
               style={{
                 position: "absolute",
                 top: 0,
