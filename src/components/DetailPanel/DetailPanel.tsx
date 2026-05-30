@@ -44,23 +44,37 @@ function parsePlatform(url: string | null): string | null {
   try {
     const host = new URL(url).hostname.replace("www.", "");
     const map: Record<string, string> = {
+      // Social platforms
       "xiaohongshu.com": "小红书",
       "xhs.sh": "小红书",
       "weibo.com": "微博",
+      "sinaimg.cn": "微博",
       "douyin.com": "抖音",
       "bilibili.com": "B站",
-      "pinterest.com": "Pinterest",
       "twitter.com": "Twitter",
-      "x.com": "X",
+      "x.com": "Twitter",
+      "twimg.com": "Twitter",
       "instagram.com": "Instagram",
+      "cdninstagram.com": "Instagram",
       "zhihu.com": "知乎",
       "lofter.com": "LOFTER",
       "tumblr.com": "Tumblr",
       "deviantart.com": "DeviantArt",
       "artstation.com": "ArtStation",
       "pixiv.net": "Pixiv",
+      "pximg.net": "Pixiv",
       "reddit.com": "Reddit",
       "flickr.com": "Flickr",
+      "pinterest.com": "Pinterest",
+      "pinimg.com": "Pinterest",
+      "facebook.com": "Facebook",
+      "fbcdn.net": "Facebook",
+      "discord.com": "Discord",
+      "discordapp.net": "Discord",
+      // Image hosts
+      "imgur.com": "Imgur",
+      "gyazo.com": "Gyazo",
+      "deviantart.net": "DeviantArt",
     };
     for (const [domain, name] of Object.entries(map)) {
       if (host === domain || host.endsWith("." + domain)) return name;
@@ -613,7 +627,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">来源</p>
                 <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-                  {media.source === "web" && `网页 · ${parsePlatform(media.source_url || media.page_url) || "未知站点"}`}
+                  {media.source === "web" && `网页 · ${parsePlatform(media.page_url || media.source_url) || "未知站点"}`}
                   {media.source === "local" && "本地"}
                   {media.source === "zip" && "ZIP 导入"}
                   {media.source !== "web" && media.source !== "local" && media.source !== "zip" && media.source}
