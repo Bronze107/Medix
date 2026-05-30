@@ -271,23 +271,331 @@
 
 **目标**: 生产就绪，万级图库流畅运行
 
+**性能审计日期**: 2026-05-30（基于 3000-5000 张图片规模分析）
+
+---
+
+### 规模预测
+
+| 图片数 | 元数据 | 缩略图磁盘 | 启动加载 | 搜索 | AI 管道 |
+|--------|--------|-----------|---------|------|---------|
+| 1,000 | ~0.5MB | ~200MB | 快 (<1s) | 快 | 可行 |
+| **5,000** | **~2.5MB** | **~1GB** | **可感知 (2-4s)** | **可感知** | **可行** |
+| 10,000 | ~5MB | ~2GB | 明显慢 (5-10s) | 慢 | 队列积压 |
+| 50,000+ | ~25MB | ~10GB | 不可接受 | 不可接受 | 不可行 |
+
+---
+
 ### 任务
-1. [ ] 性能优化
-   - [ ] 缩略图预生成改为 Worker 线程 / 后台任务
-   - [x] 大型网格使用虚拟滚动 + 回收 DOM（@tanstack/react-virtual）— 已应用于 Grid、Table 两种视图
-   - [ ] SQLite 索引优化 (覆盖索引、查询计划分析)
-   - [ ] 图片解码使用流式/分块处理
-2. [x] 数据安全
-   - [ ] 定期自动备份数据库
-   - [x] 导入时 SHA256 精确去重（跳过重复文件）
-   - [x] pHash 感知哈希检测视觉相似图片（"查找重复"按钮）
-   - [x] 回收站机制（软删除）
-   - [x] 永久删除（级联清理文件 + 数据库记录）
-   - [x] 批量删除
-3. [ ] 打包发布
-   - [ ] Tauri 代码签名配置
-   - [ ] 自动更新 (Tauri updater)
-   - [ ] Windows Installer (MSI + NSIS)
+
+#### P0 — 数据库索引（阻塞级，缺少导致全表扫描）
+
+> 当前缺失索引导致几乎所有查询都是全表扫描。这三项改动量小（各一行 SQL），但收益巨大。
+
+- [ ] **`sha256` 索引** — 每次导入都全表扫描查重。5000 张图导入 100 张 = 500,000 次比较
+  - 位置：`src-tauri/src/db/mod.rs`，`media_get_by_sha256` 的 `WHERE sha256 = ?1`
+- [ ] **`deleted_at` 索引** — 几乎所有查询都过滤 `WHERE deleted_at IS NULL`，无索引 = 全表扫描
+  - 影响 10+ 查询：`list_media`、`media_list_trash`、`media_search_by_tags`、`media_query_filtered`、`media_list_by_collection`、`media_find_similar`、`media_get_by_sha256`、`media_get_batch` 等
+- [ ] **`embeddings.model` 索引** — 每次语义搜索扫描整个 embeddings 表加载所有向量到内存
+  - 位置：`src-tauri/src/db/mod.rs`，`embedding_get_all_by_model` 的 `WHERE model = ?1`
+  - 5000 张 × 768 维 × 4 bytes ≈ 15MB per search（无索引时）
+
+#### P0 — 媒体列表分页（前端全量加载 → 首屏按需）
+
+> 当前 `media_list` / `media_search` / `media_list_by_collection` 无 LIMIT，每次加载全部行。
+> 同时 `resolve_thumb_paths` 对每条记录做 2× `stat()` 检查（`_256.jpg` + `_512.jpg`）。
+> 5000 张 = 10000 次文件系统调用 + 全量 IPC 序列化。
+
+- [ ] **后端加分页**：`media_list` / `media_search` / `media_list_by_collection` SQL 添加 `LIMIT ? OFFSET ?`
+  - 位置：`src-tauri/src/db/mod.rs`（`list_media` 约第 610 行、`media_query_filtered` 等）
+- [ ] **前端窗口化加载**：虚拟滚动 + 按需加载下一页（类似无限滚动）
+  - 位置：`src/components/AllMedia/AllMedia.tsx`，`loadMedia` 函数
+
+#### P1 — 缩略图批量 IPC（200 次往返 → 1 次）
+
+> 网格视图 ~200 个可见卡片，每个卡片独立调用 `invoke("media_thumbnail", { id })` → 200 次 Tauri IPC 往返。
+> 虽然有前端 Map 缓存，但首次加载/切换视图时仍然全部重新请求。
+
+- [ ] **批量命令**：新增 `media_thumbnail_batch(ids: Vec<String>)` 一次返回所有路径
+  - 位置：`src-tauri/src/commands/thumbnail.rs`
+- [ ] **前端批量调用**：`useThumbnail` hook 改为批量预加载模式，或 Gallery 层统一请求
+  - 位置：`src/hooks/useThumbnail.ts`、`src/components/Gallery/Gallery.tsx`
+- [ ] **统一缩略图缓存**：合并 Gallery 和 TableView 各自维护的独立 `Map`，提到全局 hook
+  - 位置：`src/hooks/useThumbnail.ts` + `src/components/TableView/TableView.tsx:38`
+
+#### P1 — 批量操作事务包装（N 次 fsync → 1 次）
+
+> `media_tag_add_batch`、`collection_add_batch`、`caption_create_batch`、`media_empty_trash` 等
+> 逐个遍历 ID，每次独立的 DB 连接 + 自动提交。批量打 100 个标签 = 100 次 fsync。
+
+- [ ] `media_tag_add_batch` 单连接 + `BEGIN/COMMIT` 包裹所有 INSERT
+  - 位置：`src-tauri/src/db/mod.rs` 约第 861 行
+- [ ] `collection_add_batch` 同上
+  - 位置：`src-tauri/src/db/mod.rs` 约第 419 行
+- [ ] `caption_create_batch` 使用单个 INSERT 多 VALUES
+  - 位置：`src-tauri/src/commands/caption.rs` 约第 38 行
+
+#### P2 — DB 连接池（消除 per-call Connection::open）
+
+> 当前每个 DB 函数都 `Connection::open(&path)?`，离开作用域关闭。
+> SQLite 页面缓存在连接关闭后丢失，跨函数无法共享。
+
+- [ ] 引入 `r2d2` + `r2d2_sqlite`，Tauri 中作为 managed state
+  - 位置：`src-tauri/src/db/mod.rs`（全局连接获取模式）
+- [ ] 重构 DB 函数签名：`fn xxx(app: &AppHandle, ...)` → 通过 app state 获取 pool
+
+#### P2 — pHash 去重 O(n²) 优化
+
+> `media_find_similar` 加载所有图片的 pHash → 双循环汉明距离比较。
+> 5000 张图 = 1250 万次 u64 比较。点击"查找重复"会长时间卡住。
+
+- [ ] 多索引预过滤（按文件大小/宽高快速排除不可能相似的图片对）
+  - 位置：`src-tauri/src/db/mod.rs`，`media_find_similar` 约第 1805 行
+- [ ] 可选：SIMD 加速汉明距离（`std::simd` 或 `wide` crate）
+
+#### P2 — `resolve_thumb_paths` 消除 per-item stat()
+
+> 每次列表查询后，对所有结果做 2× `path.exists()` 检查。
+> 5000 张 = 10000 次 stat 系统调用。
+
+- [ ] 方案 A：依赖 DB 记录的 `has_thumbnail` 字段（导入时设置为 true），不再 stat
+- [ ] 方案 B：前端按需检查（缩略图加载失败时 fallback），后端列表不再预检查
+  - 位置：`src-tauri/src/db/mod.rs` 约第 577 行
+
+#### 导入管道优化（2026-05-31 审计）
+
+> 当前导入流程：文件被打开 5 次，图片被解码 3 次，100% 串行处理。
+> 典型 4MB JPEG 单文件耗时 ~200-350ms，500 张图 ≈ 2-3 分钟。
+
+**当前流程（单文件）**：
+```
+文件 → SHA256(读全文件) → DB查重(全表扫描) → fs::copy(再读全文件)
+     → image::open(解码) 取尺寸
+     → 再次打开文件 读EXIF
+     → image::open(再次解码) 算pHash
+     → DB INSERT(新连接+自动提交)
+     → spawn_blocking → image::open(第三次解码) → 256+512缩略图
+     → spawn_blocking → 入AI队列
+```
+
+- [ ] **P0 — SHA256 + copy 合并 I/O**（一次读取完成两件事）
+  - 当前：`compute_sha256` 读全文件(~50ms)，然后 `fs::copy` 再读全文件(~30ms)，合计 ~80ms 重复 I/O
+  - 方案：用 wrapper reader 边读边 hash 边写入目标，一次读取完成 SHA256 + copy
+  - 位置：`src-tauri/src/media/import.rs`，`import_single_file` 函数
+
+- [ ] **P0 — 共享一次图片解码**（`image::open` ×3 → ×1）
+  - 当前：`read_image_info`(30-80ms) + `compute_phash`(80-150ms) + `generate_thumbnails`(100-200ms) 各自独立解码
+  - 合计 ~210-430ms 都在做 JPEG 解压缩
+  - 方案：解码一次为 `DynamicImage`，clone 引用（Arc，不复制像素）给各步骤共享
+  - 位置：`src-tauri/src/media/import.rs:138-192` + `src-tauri/src/media/thumbnail.rs:7-33` + `src-tauri/src/media/phash.rs:5-49`
+
+- [ ] **P0 — 并行处理**（3-4 路并发导入）
+  - 当前：`for` 循环完全串行，文件 N+1 等文件 N 完成才启动
+  - 方案：用 `tokio::task::spawn_blocking` 或 `rayon` 同时处理 3-4 个文件，I/O 和 CPU 交替利用
+  - 位置：`src-tauri/src/media/import.rs:46-56`，`import_files` 函数
+
+- [ ] **P1 — pHash 计算优化**
+  - 32×32→8×8 中间 resize 用 `Nearest` 替代 `Lanczos3`（8×8 最终尺寸下质量差异无意义，速度提升 3-5x）
+  - 可选：用 `rustdct` crate 替换纯 Rust 浮点 DCT（基于 FFT，O(n log n) vs O(n²)）
+  - 位置：`src-tauri/src/media/phash.rs:8-10`
+
+- [ ] **P1 — 导入批次内 DB 事务**（100 次 fsync → 1 次）
+  - 当前：每个文件独立的 `Connection::open` + `INSERT` + 自动提交，100 张 = 100 次 fsync
+  - 方案：批次内共享连接 + `BEGIN TRANSACTION` / `COMMIT`
+  - 注意：与上述 P1 "批量操作事务包装" 同根因，可一并解决
+  - 位置：`src-tauri/src/media/import.rs:46-56` + `src-tauri/src/db/mod.rs:552-575`
+
+- [ ] **P2 — EXIF 复用缓冲区**（减少一次文件打开）
+  - 当前：`read_exif_timestamps` 独立 `fs::File::open`，但 JPEG EXIF 在文件头部(APP1 marker)
+  - 方案：从 SHA256/copy 阶段读到的首 64KB 缓冲区中解析 EXIF，不再单独打开文件
+  - 位置：`src-tauri/src/media/import.rs:238-260`
+
+**预估收益**：
+
+| 优化项 | 单文件节省 | 100 张总收益 |
+|--------|-----------|-------------|
+| SHA256 + copy 合并 I/O | ~50ms | ~5s |
+| 共享一次图片解码 | ~150ms | ~15s |
+| 3-4 路并发处理 | — | **3-4x 总时间** |
+| DB 事务批处理 | ~10ms × N | ~1s |
+| EXIF 复用缓冲区 | ~5ms | ~0.5s |
+| **全部合计** | **~200ms × 并发** | **500 张 < 30 秒** |
+
+---
+
+#### 磁盘占用优化（2026-05-31 审计）
+
+> 5000 张 12MP JPEG 总计占用 ~20.6GB，其中 ~700MB-1.7GB 是浪费或可压缩的。
+
+**当前存储结构**：
+```
+%APPDATA%/com.bronze107.medix/
+├── library/         原图副本     ~20GB    ← 每张 ~4MB
+├── thumbnails/
+│   ├── *_256.jpg    网格/详情用   ~75MB   ← Q85 JPEG, ~15KB/张
+│   └── *_512.jpg    从未使用！    ~200MB  ← Q85 JPEG, ~40KB/张
+├── variants/        衍生版本     ~?GB    ← 取决于用户生成量
+├── medix.db         SQLite      ~32MB   ← embeddings 占大头
+└── %TEMP%/          推理临时文件  ~0.5-1GB ← 从未清理！
+    └── medix_infer_*.jpg × N
+```
+
+- [ ] **P0 — 去掉 thumb_512**（纯浪费 ~200MB）
+  - `thumb_512` 只在类型定义中出现（`src/types/media.ts:17`、`src/lib/tauri.ts:60`），**零前端引用**
+  - 但后端仍在生成：`generate_thumbnails` 输出两份、`resolve_thumb_paths` 对两种尺寸各做 `stat()`
+  - 方案：`THUMB_SIZES` 只保留 256，删除 512 生成逻辑；已有 `_512.jpg` 文件需迁移清理
+  - 位置：`src-tauri/src/media/thumbnail.rs:5` + `src-tauri/src/db/mod.rs:577-591` + `src/types/media.ts:17`
+
+- [ ] **P0 — 推理临时文件清理**（泄漏 ~500MB-1GB）
+  - `process_generate_caption` 写入 `%TEMP%/medix_infer_{id}.jpg`，完成后**从未删除**
+  - AI 处理 5000 张图 = 5000 个临时文件永久积累
+  - 方案：`process_generate_caption` 函数末尾添加 `let _ = tokio::fs::remove_file(&tmp).await;`
+  - 位置：`src-tauri/src/ai/mod.rs:144` + 约第 249 行（函数返回前）
+  - 另需：启动时扫描并清理残留的 `medix_infer_*.jpg`
+
+- [ ] **P1 — 缩略图格式 JPEG → WebP**（节省 ~35MB / 5000 张）
+  - 256px JPEG Q85 ~15KB → WebP 同质量 ~8KB（小 40-50%）
+  - WebView2 完全支持 WebP，`image` crate 需开启 `webp` feature
+  - 位置：`src-tauri/src/media/thumbnail.rs:27` + `Cargo.toml`
+
+- [ ] **P1 — Embedding 存储 f32 → f16**（节省 ~15MB / 5000 张）
+  - 当前：`f32::to_le_bytes()` 每维 4 字节，768 维 × 2 向量 = 6144 字节/张
+  - 改为 f16（`half` crate 的 `f16::to_le_bytes()`）：每维 2 字节 → 3072 字节/张
+  - 余弦相似度对 f16 精度下降不敏感，实际搜索质量几乎无影响
+  - 位置：`src-tauri/src/db/mod.rs:1452`（写入）+ `db/mod.rs:1478/1553`（读取）
+  - 迁移：新 embedding 用 f16 存储，读取时兼容旧 f32 数据
+
+- [ ] **P2 — caption/tags embedding 去重**（节省 ~7.5MB / 5000 张）
+  - 当前同一张图的 caption 和 tags 存了两份**完全相同的向量 BLOB**
+  - 方案：改为 `content_type = "all"`，存一次；搜索时只查一行
+  - 位置：`src-tauri/src/ai/mod.rs:232-243`
+
+- [ ] **P3 — 可选的原始文件无损压缩**（节省 1-3GB / 5000 张）
+  - JPEG 可通过优化 Huffman 表、去除无关元数据做到无损压缩（通常 5-15%）
+  - 需设计为**可选的一键优化功能**，带预览统计，不自动执行
+  - 注意：这会修改用户原始文件
+
+**预估收益**：
+
+| 优化 | 节省空间（5000 张） | 改动量 | 风险 |
+|------|-------------------|--------|------|
+| 去掉 thumb_512 | ~200MB | 小 | 无（前端零引用） |
+| 清理推理临时文件 | ~500MB-1GB | 极小 | 无 |
+| WebP 缩略图 | ~35MB | 中 | 需测试 WebView2 兼容 |
+| f16 embedding | ~15MB | 中 | 需迁移旧数据 |
+| embedding 去重 | ~7.5MB | 小 | 无 |
+| 原始无损压缩 | 1-3GB | 中 | 需用户确认 |
+| **合计** | **~1.8-4.3GB** | | |
+
+---
+
+#### 缩略图系统优化（2026-05-31 审计）
+
+> 缩略图涉及 5 个消费端（Gallery/TableView/Lightbox/DetailPanel/VariantDropdown），
+> 当前每张缩略图单独走 IPC，两个独立缓存在 Grid/Table 之间不共享。
+
+**当前消费点**：
+
+| 组件 | 调用 `media_thumbnail` | 缓存来源 |
+|------|----------------------|---------|
+| Gallery `ThumbnailCard` | ~200 张可见 | `@/hooks/useThumbnail` 的全局 Map |
+| TableView `useThumbnail` | ~50 行可见 | **自己的重复 Map**（`TableView.tsx:38`） |
+| Lightbox `FilmstripThumb` | ~7 张胶片条 | 共享 Gallery 的 Map |
+| Lightbox `VariantThumb` | 每版本一张 | 共享 Gallery 的 Map |
+| DetailPanel `MenuThumb` | 原图 + N 版本 | 共享 Gallery 的 Map；变体绕过缩略图，直接加载原图 |
+
+- [ ] **P0 — 统一缓存，消除双份 Map**
+  - 当前：`@/hooks/useThumbnail.ts:5` 和 `TableView.tsx:38` 各自维护独立的 `Map<string, string>`
+  - TableView 版本还没有重试逻辑，功能不一致
+  - 切换网格↔表格视图，相同图片的缩略图全部重新 IPC
+  - 方案：删除 TableView 内的重复 hook，统一 import `@/hooks/useThumbnail`
+  - 位置：`src/components/TableView/TableView.tsx:38-60`
+
+- [ ] **P0 — 批量缩略图 IPC**（200+ 次 → 1 次）
+  - 当前每个 `<ThumbnailCard>` 独立 `invoke("media_thumbnail", { id })` → 200 次 IPC 往返
+  - 且每次 `media_thumbnail` 内部都做 `SELECT display_variant_id FROM media WHERE id = ?` → 200 次 DB 查询
+  - 方案：新增 `media_thumbnail_batch(ids: Vec<String>)` → 返回 `Vec<{id, path}>`，一次 IPC + 一条 `WHERE id IN (...)` SQL
+  - 前端 `useThumbnail` hook 改为批量预加载模式：组件 mount 时注册 ID，父组件统一调用 batch 命令
+  - 位置：`src-tauri/src/commands/thumbnail.rs` + `src/hooks/useThumbnail.ts`
+
+- [ ] **P1 — 重试策略：固定间隔 → 指数退避**
+  - 当前：`maxRetries = 15`，固定 2 秒间隔 = 最多 30 秒无效 IPC
+  - 缩略图在导入时同步生成，3 次重试后仍缺失 = 永久缺失
+  - 方案：上限 3 次，指数退避（1s → 2s → 4s = 总共 7 秒），避免突发
+  - 位置：`src/hooks/useThumbnail.ts:20-21`
+
+- [ ] **P1 — 变体缩略图应使用缩略图，非原图**
+  - `MenuThumb` 对 variant 用 `convertFileSrc(v.file_path)` 直接加载完整原图
+  - 50 个变体 36×36px CSS 框里加载数 MB 大图 → 浏览器全解码到内存 → 数百 MB 浪费
+  - 方案：variant 导入/生成时也为变体文件生成 256px 缩略图；`media_thumbnail` 支持传 variant id
+  - 位置：`src/components/DetailPanel/DetailPanel.tsx:172-174` + `src-tauri/src/commands/thumbnail.rs:4` + `src-tauri/src/media/thumbnail.rs`
+
+- [ ] **P2 — `<img decoding="async">`** 
+  - Gallery 的 `<img>` 有 `loading="lazy"` 但无 `decoding="async"`
+  - 缺少时图片解码在主线程同步执行，200 张缩略图解码会短暂阻塞 UI
+  - 方案：所有缩略图 `<img>` 加 `decoding="async"`
+  - 位置：`src/components/Gallery/Gallery.tsx:308-317` + Lightbox、DetailPanel 的 `<img>`
+
+- [ ] **P2 — 低质量占位图 (LQIP)**
+  - 当前缩略图缺失时只显示灰色背景 + 尺寸文字，加载中无明显反馈
+  - 方案：导入时生成 ~20px 内联 base64 缩略图存 DB（<1KB），作为模糊占位图实现渐进加载
+  - 位置：`src-tauri/src/media/thumbnail.rs` + 前端 `<img>` 的 `background-image`
+
+- [ ] **P3 — 缓存 LRU 淘汰**
+  - 当前 cache Map 无限增长，浏览数万张图后累积大量 URL 字符串
+  - 内存影响小（~100 字节/条），但干净起见可加 LRU 限制（如 2000 条）
+  - 位置：`src/hooks/useThumbnail.ts:5`
+
+- [ ] **P3 — 按场景用不同缩略图尺寸**
+  - 网格用 256px，但变体下拉框、胶片条只用 36-64px CSS
+  - 可生成 64px 微缩略图给这些场景用，进一步减少内存和加载时间
+  - 位置：`src-tauri/src/media/thumbnail.rs:5`
+
+**预估收益**：
+
+| 优化 | 效果 |
+|------|------|
+| 统一缓存 | 切换视图零 IPC，删除 20 行重复代码 |
+| 批量 IPC | Gallery 首屏 200→1 次 IPC + 200→1 次 DB 查询 |
+| 重试改退避 | 无效 IPC 流量减少 80%+ |
+| 变体用缩略图 | 50 变体下拉框：数百 MB → 几 MB 内存 |
+| `decoding="async"` | 主线程无阻塞 |
+| LQIP | 慢速磁盘下加载体验明显提升 |
+
+---
+
+#### P3 — FTS5 全文搜索
+
+> caption/tags 文本无 FTS 索引，只能通过 embedding 语义搜索匹配。
+> 无法做精确文本匹配搜索（如搜索包含特定关键词的 caption）。
+
+- [ ] SQLite FTS5 虚拟表：`CREATE VIRTUAL TABLE captions_fts USING fts5(text, content=captions, content_rowid=rowid)`
+  - 位置：`src-tauri/src/db/mod.rs`，migration 中追加
+
+---
+
+### 已完成（性能相关）
+
+- [x] 大型网格使用虚拟滚动 + 回收 DOM（@tanstack/react-virtual）— Grid、Table 两种视图
+- [x] AI 标注管道优化 — HTTP client 复用 (`LazyLock<reqwest::Client>`) + tag 缓存 + embedding 合并为单次调用 + VLM 输入默认缩放 768px
+- [x] llama-server `--parallel 2` 启用并行推理
+
+---
+
+### 数据安全
+
+- [ ] 定期自动备份数据库
+- [x] 导入时 SHA256 精确去重（跳过重复文件）
+- [x] pHash 感知哈希检测视觉相似图片（"查找重复"按钮）
+- [x] 回收站机制（软删除）
+- [x] 永久删除（级联清理文件 + 数据库记录）
+- [x] 批量删除
+
+### 打包发布
+
+- [ ] Tauri 代码签名配置
+- [ ] 自动更新 (Tauri updater)
+- [ ] Windows Installer (MSI + NSIS)
 
 ### 验证标准
 - [ ] 图库 10000 张图片，冷启动到可浏览 < 3 秒
