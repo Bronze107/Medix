@@ -109,7 +109,8 @@ fn download_and_import(
 ) -> Result<String, String> {
     // Download image
     let mut client_builder = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30));
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(60));
 
     // Honour HTTPS_PROXY / HTTP_PROXY env vars (Clash / V2Ray typical setup)
     if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")

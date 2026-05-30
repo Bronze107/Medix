@@ -310,10 +310,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
       setDropHover(false);
       doImport(event.payload.paths);
     });
-    const unlistenRemote = listen<string>("remote-import", () => {
+    const unlistenRemote = listen<string>("remote-import", async () => {
       loadMedia();
       setImportMessage("收到来自浏览器的图片，已导入");
       setTimeout(() => setImportMessage(""), 3000);
+      const pending = await aiPendingCount();
+      setAiRemaining(pending);
     });
     const unlistenAiDone = listen<{ remaining: number }>("ai-task-done", (event) => {
       setAiRemaining(event.payload.remaining);
