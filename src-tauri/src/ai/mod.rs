@@ -193,9 +193,11 @@ async fn process_generate_caption(
             .map_err(|e| e.to_string())?;
     }
 
-    // Store AI tags with source='ai' and confidence=0.9
+    // Load all existing tags once, then do in-memory lookups per tag.
+    // Saves ~10-15 `SELECT * FROM tags` round trips per image.
+    let all_tags = crate::db::tag_list(&app).map_err(|e| e.to_string())?;
     for tag_name in &result.tags {
-        let tag_id = match ensure_tag(&app, tag_name) {
+        let tag_id = match ensure_tag_cached(&app, &all_tags, tag_name) {
             Ok(id) => id,
             Err(e) => {
                 eprintln!("[ai] failed to ensure tag '{}': {}", tag_name, e);
@@ -215,35 +217,33 @@ async fn process_generate_caption(
         }
     }
 
-    // Generate embedding for caption (only for original, not variants)
+    // Generate embeddings (only for original, not variants).
+    // Batch caption + tags into a single embedding call instead of two round trips.
     if variant_id.is_none() {
-        match embed_text(&result.caption, &model, port).await {
+        let embed_text_input: String = if result.tags.is_empty() {
+            result.caption.clone()
+        } else {
+            format!("{}\n{}", result.caption, result.tags.join(", "))
+        };
+        match embed_text(&embed_text_input, &model, port).await {
             Ok(vector) => {
+                // Store the same vector for both "caption" and "tags" slots so
+                // semantic search can match against either.
                 if let Err(e) =
-                    crate::db::embedding_insert(&app, &media_id, &model_short,"caption", &vector)
+                    crate::db::embedding_insert(&app, &media_id, &model_short, "caption", &vector)
                 {
                     eprintln!("[ai] failed to store caption embedding: {}", e);
                 }
-            }
-            Err(e) => {
-                eprintln!("[ai] caption embedding failed: {}", e);
-            }
-        }
-
-        // Generate embedding for tags
-        if !result.tags.is_empty() {
-            let tags_text = result.tags.join(", ");
-            match embed_text(&tags_text, &model, port).await {
-                Ok(vector) => {
+                if !result.tags.is_empty() {
                     if let Err(e) =
-                        crate::db::embedding_insert(&app, &media_id, &model_short,"tags", &vector)
+                        crate::db::embedding_insert(&app, &media_id, &model_short, "tags", &vector)
                     {
                         eprintln!("[ai] failed to store tags embedding: {}", e);
                     }
                 }
-                Err(e) => {
-                    eprintln!("[ai] tags embedding failed: {}", e);
-                }
+            }
+            Err(e) => {
+                eprintln!("[ai] embedding failed: {}", e);
             }
         }
     }
@@ -252,8 +252,11 @@ async fn process_generate_caption(
     Ok(())
 }
 
-fn ensure_tag(app: &AppHandle, name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let existing = crate::db::tag_list(app)?;
+fn ensure_tag_cached(
+    app: &AppHandle,
+    existing: &[crate::tag::Tag],
+    name: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     let name_lower = name.to_lowercase();
     if let Some(tag) = existing.iter().find(|t| t.name == name_lower) {
         return Ok(tag.id.clone());

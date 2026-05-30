@@ -84,7 +84,7 @@ pub fn get_llama_auto_start(app: &AppHandle) -> bool {
 pub fn get_llama_max_image_dim(app: &AppHandle) -> u32 {
     get(app, KEY_LLAMA_MAX_IMAGE_DIM)
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0) // 0 means no resize
+        .unwrap_or(768) // 768px is sufficient for MiniCPM-V 2.6; cuts ~85% of data vs 2K
 }
 
 pub fn get_ai_custom_prompt(app: &AppHandle) -> Option<String> {

@@ -31,7 +31,7 @@ function Settings() {
   const [llamaCtxSize, setLlamaCtxSize] = useState(4096);
   const [llamaMmproj, setLlamaMmproj] = useState("");
   const [llamaAutoStart, setLlamaAutoStart] = useState(false);
-  const [llamaMaxImageDim, setLlamaMaxImageDim] = useState(0);
+  const [llamaMaxImageDim, setLlamaMaxImageDim] = useState(768);
   const [aiCustomPrompt, setAiCustomPrompt] = useState("");
   const [llamaTemperature, setLlamaTemperature] = useState(0.2);
   const [llamaTopP, setLlamaTopP] = useState(0.9);

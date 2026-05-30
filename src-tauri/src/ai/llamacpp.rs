@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::LazyLock;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -96,6 +97,15 @@ struct EmbeddingData {
     embedding: Vec<f32>,
 }
 
+/// Shared reqwest client — reused across all HTTP calls to avoid per-request TLS
+/// handshake and connection-pool churn. reqwest Client is designed for this.
+static SHARED_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(180))
+        .build()
+        .expect("failed to build shared HTTP client")
+});
+
 const CAPTION_PROMPT: &str = r#"You are a professional photographer. Analyze the image and describe only information that is directly observable.
 
 Focus on:
@@ -159,10 +169,6 @@ pub async fn generate_caption(
         _ => "image/jpeg",
     };
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(180))
-        .build()?;
-
     let req_body = ChatCompletionRequest {
         model: model.to_string(),
         messages: vec![
@@ -196,7 +202,7 @@ pub async fn generate_caption(
     let max_attempts = 2;
     let mut last_error = AiError::EmptyResponse;
     for attempt in 1..=max_attempts {
-        let resp = client
+        let resp = SHARED_CLIENT
             .post(format!("http://127.0.0.1:{}/v1/chat/completions", port))
             .json(&req_body)
             .send()
@@ -231,16 +237,12 @@ pub async fn generate_caption(
 }
 
 pub async fn embed_text(text: &str, model: &str, port: u16) -> Result<Vec<f32>, AiError> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
-
     let req_body = EmbeddingRequest {
         model: model.to_string(),
         input: text.to_string(),
     };
 
-    let resp = client
+    let resp = SHARED_CLIENT
         .post(format!("http://127.0.0.1:{}/v1/embeddings", port))
         .json(&req_body)
         .send()
