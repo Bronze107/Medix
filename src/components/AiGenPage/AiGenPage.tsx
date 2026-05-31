@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { imageGenerate, imageConfirmImport, imageDiscardStaged } from "@/lib/tauri";
+import { imageGenerate, imageConfirmImport, imageDiscardStaged, stagedImageDataUrl } from "@/lib/tauri";
 import type { StagedImage } from "@/lib/tauri";
 
 const ASPECT_RATIOS = ["auto", "1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "1:2", "2:1"];
@@ -35,6 +34,9 @@ function AiGenPage() {
   const selectAll = () => setSelectedIds(new Set(staged.map((s) => s.id)));
   const deselectAll = () => setSelectedIds(new Set());
 
+  // Load preview URLs for staged images
+  const [previewUrls, setPreviewUrls] = useState<Map<string, string>>(new Map());
+
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     setGenerating(true);
@@ -42,6 +44,14 @@ function AiGenPage() {
     try {
       const results = await imageGenerate(prompt.trim(), aspectRatio, resolution, n);
       setStaged(results);
+      // Load preview data URLs
+      const urls = new Map<string, string>();
+      for (const r of results) {
+        try {
+          urls.set(r.id, await stagedImageDataUrl(r.id));
+        } catch { /* ignore individual load failures */ }
+      }
+      setPreviewUrls(urls);
       if (results.length === 0) setError("未生成任何图片，请尝试修改提示词。");
     } catch (e) {
       setError(String(e));
@@ -187,13 +197,11 @@ function AiGenPage() {
                     }`}
                   >
                     <div className="aspect-square bg-[var(--color-bg-tertiary)] flex items-center justify-center overflow-hidden">
-                      <img
-                        src={convertFileSrc(img.path)}
-                        alt=""
-                        className="w-full h-full object-cover"
-                        draggable={false}
-                        decoding="async"
-                      />
+                      {previewUrls.has(img.id) ? (
+                        <img src={previewUrls.get(img.id)} alt="" className="w-full h-full object-cover" draggable={false} decoding="async" />
+                      ) : (
+                        <div className="text-[11px] text-[var(--color-text-muted)]">{img.width} × {img.height}</div>
+                      )}
                     </div>
                     {/* Checkbox */}
                     <div className="absolute top-2 right-2 z-10">
