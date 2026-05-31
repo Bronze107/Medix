@@ -132,6 +132,21 @@ function Layout() {
               <span className="ml-auto rounded-full bg-[var(--color-danger-soft)] px-1.5 py-px text-[11px] tabular-nums text-[var(--color-danger)]">{trashCount}</span>
             )}
           </NavLink>
+          <NavLink
+            to="/generate"
+            className={({ isActive }) =>
+              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                isActive
+                  ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)] border-l-[3px] border-[var(--color-accent)]"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] border-l-[3px] border-transparent"
+              }`
+            }
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+            </svg>
+            AI 生图
+          </NavLink>
           <div className="mt-3 border-t border-[var(--color-border)]" />
 
           {/* Collections */}

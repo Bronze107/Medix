@@ -39,6 +39,12 @@ function Settings() {
   const [llamaRepeatPenalty, setLlamaRepeatPenalty] = useState(1.05);
   const [llamaMaxTokens, setLlamaMaxTokens] = useState(1024);
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
+
+  // Image generation API
+  const [imageApiProvider, setImageApiProvider] = useState("");
+  const [imageApiKey, setImageApiKey] = useState("");
+  const [imageApiBaseUrl, setImageApiBaseUrl] = useState("");
+  const [imageApiModel, setImageApiModel] = useState("");
   const [httpPort, setHttpPort] = useState(8765);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -67,6 +73,10 @@ function Settings() {
       if (settings.llama_max_tokens) setLlamaMaxTokens(parseInt(settings.llama_max_tokens) || 1024);
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
       if (settings.http_port) setHttpPort(parseInt(settings.http_port) || 8765);
+      if (settings.image_api_provider) setImageApiProvider(settings.image_api_provider);
+      if (settings.image_api_key) setImageApiKey(settings.image_api_key);
+      if (settings.image_api_base_url) setImageApiBaseUrl(settings.image_api_base_url);
+      if (settings.image_api_model) setImageApiModel(settings.image_api_model);
     } catch (e) {
       console.error("Failed to load settings:", e);
     }
@@ -112,6 +122,10 @@ function Settings() {
       await settingsSet("llama_max_tokens", String(llamaMaxTokens));
       await settingsSet("semantic_threshold", String(semanticThreshold));
       await settingsSet("http_port", String(httpPort));
+      await settingsSet("image_api_provider", imageApiProvider);
+      await settingsSet("image_api_key", imageApiKey);
+      await settingsSet("image_api_base_url", imageApiBaseUrl);
+      await settingsSet("image_api_model", imageApiModel);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -597,6 +611,56 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
             </div>
           </section>
         )}
+
+        {/* Image Generation API */}
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
+            🖼 图像生成 API
+          </h2>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs text-[var(--color-text-muted)]">服务商</label>
+              <select
+                value={imageApiProvider}
+                onChange={(e) => setImageApiProvider(e.target.value)}
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
+              >
+                <option value="">未配置</option>
+                <option value="xai">xAI (Grok Imagine)</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--color-text-muted)]">API Key</label>
+              <input
+                type="password"
+                value={imageApiKey}
+                onChange={(e) => setImageApiKey(e.target.value)}
+                placeholder="xai-..."
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--color-text-muted)]">服务地址</label>
+              <input
+                type="text"
+                value={imageApiBaseUrl}
+                onChange={(e) => setImageApiBaseUrl(e.target.value)}
+                placeholder={imageApiProvider === "xai" ? "https://api.x.ai/v1" : ""}
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--color-text-muted)]">模型</label>
+              <input
+                type="text"
+                value={imageApiModel}
+                onChange={(e) => setImageApiModel(e.target.value)}
+                placeholder={imageApiProvider === "xai" ? "grok-imagine-image-quality" : ""}
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+              />
+            </div>
+          </div>
+        </section>
 
       </div>
 

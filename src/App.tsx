@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router";
 import Toast from "./components/Toast/Toast";
 import Layout from "./components/Layout/Layout";
+import AiGenPage from "./components/AiGenPage/AiGenPage";
 import AllMedia from "./components/AllMedia/AllMedia";
 import CollectionView from "./components/AllMedia/CollectionView";
 import CollectionsPage from "./components/CollectionsPage/CollectionsPage";
@@ -27,6 +28,7 @@ function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Navigate to="/media" replace />} />
           <Route path="/media" element={<AllMedia />} />
+          <Route path="/generate" element={<AiGenPage />} />
           <Route path="/collections" element={<CollectionsPage />} />
           <Route path="/collections/:id" element={<CollectionView />} />
           <Route path="/trash" element={<Trash />} />
