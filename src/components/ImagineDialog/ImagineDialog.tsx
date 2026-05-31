@@ -19,6 +19,7 @@ function ImagineDialog({ mediaId, onClose }: Props) {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imported, setImported] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
 
   const thumbUrl = useThumbnail(mediaId);
 
@@ -73,6 +74,7 @@ function ImagineDialog({ mediaId, onClose }: Props) {
   const selected = Array.from(selectedIds);
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-bg-overlay)] animate-fade-in" onClick={onClose}>
       <div className="w-[640px] max-h-[85vh] rounded-xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)] shadow-2xl animate-scale-in flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
@@ -146,7 +148,10 @@ function ImagineDialog({ mediaId, onClose }: Props) {
                     className={`cursor-pointer rounded-lg border overflow-hidden transition-all ${
                       selectedIds.has(img.id) ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]" : "border-[var(--color-border)] hover:border-[var(--color-accent)]/50"
                     }`}>
-                    <div className="aspect-square bg-[var(--color-bg-tertiary)]">
+                    <div
+                      className="aspect-square bg-[var(--color-bg-tertiary)]"
+                      onDoubleClick={(e) => { e.stopPropagation(); setPreview(img.path); }}
+                    >
                       <img src={convertFileSrc(img.path)} alt="" className="w-full h-full object-cover" draggable={false} decoding="async" />
                     </div>
                     <div className="px-2 py-1 text-[10px] text-[var(--color-text-muted)] text-center">
@@ -172,6 +177,28 @@ function ImagineDialog({ mediaId, onClose }: Props) {
         </div>
       </div>
     </div>
+
+    {/* Fullscreen preview overlay */}
+    {preview && (
+      <div
+        className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center animate-fade-in"
+        onClick={() => setPreview(null)}
+      >
+        <img
+          src={convertFileSrc(preview)}
+          alt=""
+          className="max-h-[90vh] max-w-[90vw] object-contain select-none"
+          draggable={false}
+        />
+        <button
+          onClick={() => setPreview(null)}
+          className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white/80 hover:bg-white/20 transition-colors"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    )}
+    </>
   );
 }
 

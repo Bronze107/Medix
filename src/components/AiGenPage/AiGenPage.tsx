@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { imageGenerate, imageConfirmImport, imageDiscardStaged } from "@/lib/tauri";
 import type { StagedImage } from "@/lib/tauri";
@@ -16,6 +16,8 @@ function AiGenPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
 
   // Default select all staged images
   useEffect(() => {
@@ -84,6 +86,7 @@ function AiGenPage() {
   const selected = Array.from(selectedIds);
 
   return (
+    <>
     <div className="flex h-full flex-col p-6">
       <h1 className="mb-6 text-xl font-semibold text-[var(--color-text-primary)]">
         🖼 AI 生图
@@ -186,7 +189,10 @@ function AiGenPage() {
                         : "border-[var(--color-border)] hover:border-[var(--color-accent)]/50"
                     }`}
                   >
-                    <div className="aspect-square bg-[var(--color-bg-tertiary)] flex items-center justify-center overflow-hidden">
+                    <div
+                      className="aspect-square bg-[var(--color-bg-tertiary)] flex items-center justify-center overflow-hidden"
+                      onDoubleClick={(e) => { e.stopPropagation(); setPreview(img.path); }}
+                    >
                       <img
                         src={convertFileSrc(img.path)}
                         alt=""
@@ -241,6 +247,29 @@ function AiGenPage() {
         </div>
       </div>
     </div>
+
+    {/* Fullscreen preview overlay */}
+    {preview && (
+      <div
+        ref={previewRef}
+        className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center animate-fade-in"
+        onClick={() => setPreview(null)}
+      >
+        <img
+          src={convertFileSrc(preview)}
+          alt=""
+          className="max-h-[90vh] max-w-[90vw] object-contain select-none"
+          draggable={false}
+        />
+        <button
+          onClick={() => setPreview(null)}
+          className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white/80 hover:bg-white/20 transition-colors"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    )}
+    </>
   );
 }
 
