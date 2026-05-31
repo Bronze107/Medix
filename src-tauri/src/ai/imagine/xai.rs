@@ -87,6 +87,7 @@ impl ImageProvider for XaiProvider {
         let resp = XAI_CLIENT
             .post(format!("{}/images/generations", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("User-Agent", "Hermes-Agent/0.14.0")
             .json(&req_body)
             .send()
             .await?;
@@ -113,6 +114,7 @@ impl ImageProvider for XaiProvider {
         let resp = XAI_CLIENT
             .post(format!("{}/images/edits", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("User-Agent", "Hermes-Agent/0.14.0")
             .json(&req_body)
             .send()
             .await?;
@@ -135,6 +137,7 @@ impl ImageProvider for XaiProvider {
         let resp = XAI_CLIENT
             .get(format!("{}/models", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("User-Agent", "Hermes-Agent/0.14.0")
             .send()
             .await?;
         Ok(resp.status().is_success())
@@ -145,7 +148,9 @@ async fn download_images(data: &[ImageData]) -> Result<Vec<GeneratedImage>, Imag
     let mut images = Vec::with_capacity(data.len());
     for item in data {
         if let Some(ref url) = item.url {
-            let resp = XAI_CLIENT.get(url).send().await?;
+            let resp = XAI_CLIENT.get(url)
+                .header("User-Agent", "Hermes-Agent/0.14.0")
+                .send().await?;
             if !resp.status().is_success() {
                 eprintln!("[imagine] failed to download image from {}", url);
                 continue;
