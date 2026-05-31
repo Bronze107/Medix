@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
+import ImagineDialog from "@/components/ImagineDialog/ImagineDialog";
 import { useAppStore } from "@/stores/appStore";
 import type { Collection } from "@/types/collection";
 import type { Media } from "@/types/media";
@@ -77,6 +78,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [importZipPath, setImportZipPath] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+  const [aiEditMediaId, setAiEditMediaId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [aiRemaining, setAiRemaining] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -1270,6 +1272,16 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 查看详情
               </button>
               <div className="my-1 border-t border-[var(--color-border)]" />
+              <button
+                onClick={() => { setAiEditMediaId(ctxMenu.media.id); setCtxMenu(null); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+                </svg>
+                AI 图像编辑
+              </button>
+              <div className="my-1 border-t border-[var(--color-border)]" />
             </>
           ) : (
             <>
@@ -1513,6 +1525,9 @@ function AllMedia({ collectionId }: AllMediaProps) {
         }}
         onCancel={() => { setDeleteConfirm(null); setPendingDeleteId(null); }}
       />
+      {aiEditMediaId && (
+        <ImagineDialog mediaId={aiEditMediaId} onClose={() => setAiEditMediaId(null)} />
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { showToast } from "@/components/Toast/Toast";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useThumbnail } from "@/hooks/useThumbnail";
+import ImagineDialog from "@/components/ImagineDialog/ImagineDialog";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
@@ -226,6 +227,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
   const [captionVariantId, setCaptionVariantId] = useState<string | null>(null);
   const [targetId, setTargetId] = useState<string | null>(null); // null=original, string=variant_id
   const [showVersionForm, setShowVersionForm] = useState(false);
+  const [showAiEdit, setShowAiEdit] = useState(false);
   const [showTargetMenu, setShowTargetMenu] = useState(false);
   const targetMenuRef = useRef<HTMLDivElement>(null);
 
@@ -558,6 +560,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
   }
 
   return (
+    <>
     <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 transition-all duration-300">
       {/* Target selector */}
       <div className="mb-2 flex items-center gap-2">
@@ -1055,6 +1058,19 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
         </div>
       )}
 
+      {/* AI Edit button in version tab */}
+      {/* AI Edit button */}
+      {media && (
+        <div className="border-t border-[var(--color-border)] pt-3">
+          <button
+            onClick={() => setShowAiEdit(true)}
+            className="w-full rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-soft-hover)] active:scale-[0.97]"
+          >
+            ✨ AI 编辑
+          </button>
+        </div>
+      )}
+
       {/* Floating action bar */}
       <div className="mt-auto border-t border-[var(--color-border)] pt-3">
         <div className="flex items-center justify-center gap-2">
@@ -1173,6 +1189,10 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
         onCancel={() => setShowDeleteVariantConfirm(false)}
       />
     </div>
+    {showAiEdit && media && (
+      <ImagineDialog mediaId={media.id} onClose={() => setShowAiEdit(false)} />
+    )}
+  </>
   );
 }
 
