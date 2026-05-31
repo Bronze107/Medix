@@ -355,3 +355,42 @@ export function settingsSet(key: string, value: string): Promise<void> {
 export function settingsGetAll(): Promise<Record<string, string>> {
   return invoke("settings_get_all");
 }
+
+// --- AI Image Generation ---
+
+export interface StagedImage {
+  id: string;
+  width: number;
+  height: number;
+  file_size: number;
+}
+
+export function imageGenerate(
+  prompt: string,
+  aspectRatio?: string,
+  resolution?: string,
+  n?: number,
+): Promise<StagedImage[]> {
+  return invoke("image_generate", { prompt, aspectRatio, resolution, n });
+}
+
+export function imageEdit(
+  mediaId: string,
+  prompt: string,
+  resolution?: string,
+  n?: number,
+): Promise<StagedImage[]> {
+  return invoke("image_edit", { mediaId, prompt, resolution, n });
+}
+
+export function imageConfirmImport(
+  stagedIds: string[],
+  prompt: string,
+  mediaId?: string | null,
+): Promise<MediaImportResult[]> {
+  return invoke("image_confirm_import", { stagedIds, prompt, mediaId });
+}
+
+export function imageDiscardStaged(stagedIds: string[]): Promise<void> {
+  return invoke("image_discard_staged", { stagedIds });
+}

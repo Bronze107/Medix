@@ -150,3 +150,41 @@ pub fn get_http_port(app: &AppHandle) -> u16 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(8765)
 }
+
+// --- Image generation API ---
+
+pub const KEY_IMAGE_API_PROVIDER: &str = "image_api_provider";
+pub const KEY_IMAGE_API_KEY: &str = "image_api_key";
+pub const KEY_IMAGE_API_BASE_URL: &str = "image_api_base_url";
+pub const KEY_IMAGE_API_MODEL: &str = "image_api_model";
+
+pub fn get_image_api_provider(app: &AppHandle) -> String {
+    get(app, KEY_IMAGE_API_PROVIDER).unwrap_or_default()
+}
+
+pub fn get_image_api_key(app: &AppHandle) -> String {
+    get(app, KEY_IMAGE_API_KEY).unwrap_or_default()
+}
+
+pub fn get_image_api_base_url(app: &AppHandle) -> String {
+    let configured = get(app, KEY_IMAGE_API_BASE_URL).unwrap_or_default();
+    if !configured.is_empty() {
+        return configured;
+    }
+    match get_image_api_provider(app).as_str() {
+        "xai" => "https://api.x.ai/v1".to_string(),
+        "comfyui" => "http://localhost:8188".to_string(),
+        _ => String::new(),
+    }
+}
+
+pub fn get_image_api_model(app: &AppHandle) -> String {
+    let configured = get(app, KEY_IMAGE_API_MODEL).unwrap_or_default();
+    if !configured.is_empty() {
+        return configured;
+    }
+    match get_image_api_provider(app).as_str() {
+        "xai" => "grok-imagine-image-quality".to_string(),
+        _ => String::new(),
+    }
+}

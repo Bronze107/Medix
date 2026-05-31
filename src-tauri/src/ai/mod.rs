@@ -1,3 +1,4 @@
+pub mod imagine;
 pub mod llamacpp;
 pub mod server;
 

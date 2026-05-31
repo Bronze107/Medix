@@ -1,6 +1,7 @@
 mod caption;
 mod collection;
 mod export;
+mod imagine;
 mod media;
 mod model;
 mod settings;
@@ -11,6 +12,7 @@ mod variant;
 pub use caption::*;
 pub use collection::*;
 pub use export::*;
+pub use imagine::*;
 pub use media::*;
 pub use model::*;
 pub use settings::*;
