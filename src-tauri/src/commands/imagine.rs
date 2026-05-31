@@ -116,7 +116,7 @@ pub async fn image_edit(
         _ => 1024,
     };
     let (w, h) = (img.width(), img.height());
-    let mut image_data_url = if w.max(h) > max_dim {
+    let image_data_url = if w.max(h) > max_dim {
         let ratio = max_dim as f64 / w.max(h) as f64;
         let new_w = (w as f64 * ratio).round() as u32;
         let new_h = (h as f64 * ratio).round() as u32;
@@ -126,23 +126,14 @@ pub async fn image_edit(
         image_to_data_url(&img, &source_path)?
     };
 
-    eprintln!("[imagine] edit image data_url size: {}KB", image_data_url.len() / 1024);
-
     // Check request body size
     let b64_len = image_data_url.len();
-    const MAX_BODY: usize = 5 * 1024 * 1024; // 5MB
+    const MAX_BODY: usize = 10 * 1024 * 1024; // 10MB
     if b64_len > MAX_BODY {
-        // Retry with JPEG Q75 as fallback
-        let jpeg = img_to_jpeg_data_url(&img).map_err(|e| e.to_string())?;
-        eprintln!("[imagine] retrying with JPEG fallback, size: {}KB", jpeg.len() / 1024);
-        if jpeg.len() > MAX_BODY {
-            return Err(format!(
-                "Image too large ({}MB after compression). Try a lower resolution.",
-                jpeg.len() / (1024 * 1024)
-            ));
-        }
-        // Use the JPEG fallback
-        image_data_url = jpeg;
+        return Err(format!(
+            "Image too large after encoding ({}MB > 10MB limit). Try a lower resolution.",
+            b64_len / (1024 * 1024)
+        ));
     }
 
     let provider = imagine::create_provider(&app).map_err(|e| e.to_string())?;
@@ -387,18 +378,17 @@ fn image_to_data_url(img: &image::DynamicImage, source_path: &Path) -> Result<St
         .unwrap_or("jpg")
         .to_lowercase();
 
-    // Use JPEG for edit endpoint to keep body small (PNG can be 5x larger)
     let (mime, bytes) = match ext.as_str() {
-        "jpg" | "jpeg" => {
+        "png" => {
+            let rgba = img.to_rgba8();
             let mut buf = Vec::new();
-            let rgb = img.to_rgb8();
-            let mut encoder =
-                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85);
-            encoder.encode_image(&rgb).map_err(|e| e.to_string())?;
-            ("image/jpeg", buf)
+            let encoder = image::codecs::png::PngEncoder::new(&mut buf);
+            encoder
+                .write_image(&rgba, img.width(), img.height(), image::ExtendedColorType::Rgba8)
+                .map_err(|e| e.to_string())?;
+            ("image/png", buf)
         }
         _ => {
-            // For non-JPEG sources, encode as JPEG Q85 to avoid huge PNG body
             let mut buf = Vec::new();
             let rgb = img.to_rgb8();
             let mut encoder =
@@ -410,13 +400,4 @@ fn image_to_data_url(img: &image::DynamicImage, source_path: &Path) -> Result<St
 
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{};base64,{}", mime, b64))
-}
-
-fn img_to_jpeg_data_url(img: &image::DynamicImage) -> Result<String, String> {
-    let mut buf = Vec::new();
-    let rgb = img.to_rgb8();
-    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 75);
-    encoder.encode_image(&rgb).map_err(|e| e.to_string())?;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
-    Ok(format!("data:image/jpeg;base64,{}", b64))
 }
