@@ -79,6 +79,7 @@ pub async fn image_generate(
 
         results.push(StagedImage {
             id,
+            path: temp_path.to_string_lossy().replace('\\', "/"),
             width: decoded.width() as i32,
             height: decoded.height() as i32,
             file_size,
@@ -165,6 +166,7 @@ pub async fn image_edit(
 
         results.push(StagedImage {
             id,
+            path: temp_path.to_string_lossy().replace('\\', "/"),
             width: decoded.width() as i32,
             height: decoded.height() as i32,
             file_size,

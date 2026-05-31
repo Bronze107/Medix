@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { imageGenerate, imageConfirmImport, imageDiscardStaged } from "@/lib/tauri";
 import type { StagedImage } from "@/lib/tauri";
 
@@ -185,14 +186,14 @@ function AiGenPage() {
                         : "border-[var(--color-border)] hover:border-[var(--color-accent)]/50"
                     }`}
                   >
-                    <div className="aspect-square bg-[var(--color-bg-tertiary)] flex items-center justify-center text-[var(--color-text-muted)]">
-                      <div className="text-center">
-                        <svg className="mx-auto mb-1 h-10 w-10 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 0 0 2.25-2.25V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
-                        </svg>
-                        <span className="block text-[11px]">{img.width} × {img.height}</span>
-                        <span className="block text-[10px] mt-0.5">{formatSize(img.file_size)}</span>
-                      </div>
+                    <div className="aspect-square bg-[var(--color-bg-tertiary)] flex items-center justify-center overflow-hidden">
+                      <img
+                        src={convertFileSrc(img.path)}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        draggable={false}
+                        decoding="async"
+                      />
                     </div>
                     {/* Checkbox */}
                     <div className="absolute top-2 right-2 z-10">
@@ -241,12 +242,6 @@ function AiGenPage() {
       </div>
     </div>
   );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
 export default AiGenPage;

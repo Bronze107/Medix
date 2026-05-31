@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useThumbnail } from "@/hooks/useThumbnail";
 import { imageEdit, imageConfirmImport, imageDiscardStaged } from "@/lib/tauri";
 import type { StagedImage } from "@/lib/tauri";
@@ -142,15 +143,15 @@ function ImagineDialog({ mediaId, onClose }: Props) {
               <div className="grid grid-cols-2 gap-2 max-h-64 overflow-auto">
                 {staged.map((img) => (
                   <div key={img.id} onClick={() => toggleSelect(img.id)}
-                    className={`cursor-pointer rounded-lg border p-3 text-center transition-all ${
-                      selectedIds.has(img.id) ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]" : "border-[var(--color-border)] hover:border-[var(--color-accent)]/50"
+                    className={`cursor-pointer rounded-lg border overflow-hidden transition-all ${
+                      selectedIds.has(img.id) ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]" : "border-[var(--color-border)] hover:border-[var(--color-accent)]/50"
                     }`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-xs font-medium ${selectedIds.has(img.id) ? "text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>
-                        {selectedIds.has(img.id) ? "✓" : ""} {img.width} × {img.height}
-                      </span>
+                    <div className="aspect-square bg-[var(--color-bg-tertiary)]">
+                      <img src={convertFileSrc(img.path)} alt="" className="w-full h-full object-cover" draggable={false} decoding="async" />
                     </div>
-                    <span className="text-[10px] text-[var(--color-text-muted)]">{formatSize(img.file_size)}</span>
+                    <div className="px-2 py-1 text-[10px] text-[var(--color-text-muted)] text-center">
+                      {img.width} × {img.height}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -172,12 +173,6 @@ function ImagineDialog({ mediaId, onClose }: Props) {
       </div>
     </div>
   );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
 export default ImagineDialog;

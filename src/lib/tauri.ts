@@ -360,6 +360,7 @@ export function settingsGetAll(): Promise<Record<string, string>> {
 
 export interface StagedImage {
   id: string;
+  path: string;
   width: number;
   height: number;
   file_size: number;

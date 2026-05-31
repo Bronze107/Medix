@@ -55,6 +55,7 @@ pub trait ImageProvider: Send + Sync {
 #[derive(Debug, Clone, Serialize)]
 pub struct StagedImage {
     pub id: String,
+    pub path: String,
     pub width: i32,
     pub height: i32,
     pub file_size: i64,
