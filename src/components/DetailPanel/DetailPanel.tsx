@@ -111,14 +111,12 @@ function TargetMenu({
   targetId,
   onSelect,
   onAdd,
-  captions,
 }: {
   media: Media;
   variants: Variant[];
   targetId: string | null;
   onSelect: (id: string | null) => void;
   onAdd: () => void;
-  captions: Caption[];
 }) {
   return (
     <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-lg">
@@ -137,7 +135,6 @@ function TargetMenu({
         const active = targetId === v.id;
         const fmt = v.format.toUpperCase();
         const dim = `${v.width ?? "?"}×${v.height ?? "?"}`;
-        const variantCaption = captions.find((c) => c.variant_id === v.id && c.source === "ai-edit");
         return (
           <button
             key={v.id}
@@ -157,11 +154,6 @@ function TargetMenu({
               <p className="truncate text-[10px] text-[var(--color-text-muted)]">
                 {fmt}{v.quality && v.format === "jpeg" ? `·Q${v.quality}` : ""} · {dim} · {formatFileSize(v.file_size)}
               </p>
-              {variantCaption && (
-                <p className="truncate text-[10px] text-[var(--color-accent)]/70 mt-0.5 italic">
-                  "{variantCaption.text}"
-                </p>
-              )}
             </div>
           </button>
         );
@@ -618,7 +610,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                 setShowTargetMenu(false);
               }}
               onAdd={() => { setShowTargetMenu(false); setShowVersionForm(true); }}
-              captions={captions}
             />
           </div>
         </div>
