@@ -38,6 +38,11 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_SEMANTIC_THRESHOLD,
         settings::KEY_THEME,
         settings::KEY_HTTP_PORT,
+        settings::KEY_IMAGE_API_PROVIDER,
+        settings::KEY_IMAGE_API_KEY,
+        settings::KEY_IMAGE_API_BASE_URL,
+        settings::KEY_IMAGE_API_MODEL,
+        settings::KEY_IMAGE_API_PROXY,
     ];
     for key in keys {
         if let Some(val) = settings::get(&app, key) {
