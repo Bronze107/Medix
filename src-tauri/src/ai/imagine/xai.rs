@@ -8,10 +8,23 @@ use super::{EditParams, GenerateParams, GeneratedImage, ImageProvider, ImagineEr
 // --- Shared HTTP client ---
 
 static XAI_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
-        .build()
-        .expect("failed to build xAI HTTP client")
+        .connect_timeout(Duration::from_secs(15));
+
+    // Honour HTTPS_PROXY / HTTP_PROXY env vars
+    if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
+        .or_else(|_| std::env::var("https_proxy"))
+        .or_else(|_| std::env::var("HTTP_PROXY"))
+        .or_else(|_| std::env::var("http_proxy"))
+    {
+        if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+            builder = builder.proxy(proxy);
+            eprintln!("[imagine] using proxy {}", proxy_url);
+        }
+    }
+
+    builder.build().expect("failed to build xAI HTTP client")
 });
 
 // --- Request / Response types ---
@@ -75,6 +88,9 @@ impl XaiProvider {
 #[async_trait]
 impl ImageProvider for XaiProvider {
     async fn generate(&self, params: &GenerateParams) -> Result<Vec<GeneratedImage>, ImagineError> {
+        let url = format!("{}/images/generations", self.base_url);
+        eprintln!("[imagine] POST {} (model={})", url, self.model);
+
         let req_body = ImageGenRequest {
             model: self.model.clone(),
             prompt: params.prompt.clone(),
@@ -85,7 +101,7 @@ impl ImageProvider for XaiProvider {
         };
 
         let resp = XAI_CLIENT
-            .post(format!("{}/images/generations", self.base_url))
+            .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("User-Agent", "Hermes-Agent/0.14.0")
             .json(&req_body)
@@ -93,8 +109,9 @@ impl ImageProvider for XaiProvider {
             .await?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(ImagineError::Api(format!("xAI generate failed: {}", text)));
+            return Err(ImagineError::Api(format!("xAI generate failed ({}): {}", status, text)));
         }
 
         let body: ImageResponse = resp.json().await?;
@@ -102,6 +119,9 @@ impl ImageProvider for XaiProvider {
     }
 
     async fn edit(&self, params: &EditParams) -> Result<Vec<GeneratedImage>, ImagineError> {
+        let url = format!("{}/images/edits", self.base_url);
+        eprintln!("[imagine] POST {} (model={})", url, self.model);
+
         let req_body = ImageEditRequest {
             model: self.model.clone(),
             prompt: params.prompt.clone(),
@@ -112,7 +132,7 @@ impl ImageProvider for XaiProvider {
         };
 
         let resp = XAI_CLIENT
-            .post(format!("{}/images/edits", self.base_url))
+            .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("User-Agent", "Hermes-Agent/0.14.0")
             .json(&req_body)
@@ -120,8 +140,9 @@ impl ImageProvider for XaiProvider {
             .await?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(ImagineError::Api(format!("xAI edit failed: {}", text)));
+            return Err(ImagineError::Api(format!("xAI edit failed ({}): {}", status, text)));
         }
 
         let body: ImageResponse = resp.json().await?;

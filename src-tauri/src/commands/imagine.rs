@@ -47,7 +47,10 @@ pub async fn image_generate(
         n: n.unwrap_or(1),
     };
 
-    let images = provider.generate(&params).await.map_err(|e| e.to_string())?;
+    let images = provider.generate(&params).await.map_err(|e| {
+        eprintln!("[imagine] generate error: {}", e);
+        format!("生成失败: {}", e)
+    })?;
 
     let staging = staging_dir(&app)?;
     let mut results = Vec::new();
@@ -125,7 +128,10 @@ pub async fn image_edit(
         n: n.unwrap_or(1),
     };
 
-    let images = provider.edit(&params).await.map_err(|e| e.to_string())?;
+    let images = provider.edit(&params).await.map_err(|e| {
+        eprintln!("[imagine] edit error: {}", e);
+        format!("编辑失败: {}", e)
+    })?;
 
     let staging = staging_dir(&app)?;
     let mut results = Vec::new();
