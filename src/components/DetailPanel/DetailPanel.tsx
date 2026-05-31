@@ -1070,22 +1070,18 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
         </div>
       )}
 
-      {/* AI Edit button in version tab */}
-      {/* AI Edit button */}
-      {media && (
-        <div className="border-t border-[var(--color-border)] pt-3">
-          <button
-            onClick={() => setShowAiEdit(true)}
-            className="w-full rounded border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent-soft-hover)] active:scale-[0.97]"
-          >
-            ✨ AI 编辑
-          </button>
-        </div>
-      )}
-
       {/* Floating action bar */}
       <div className="mt-auto border-t border-[var(--color-border)] pt-3">
         <div className="flex items-center justify-center gap-2">
+          <button
+            onClick={() => setShowAiEdit(true)}
+            className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)] transition-colors"
+            title="AI 编辑"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+            </svg>
+          </button>
           <button
             onClick={async () => {
               if (!media) return;
