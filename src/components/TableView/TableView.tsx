@@ -225,7 +225,7 @@ function TableRow({
       <div className="relative w-8 shrink-0">
         <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
           {thumbUrl ? (
-            <img src={thumbUrl} alt="" className="h-full w-full object-cover" draggable={false} />
+            <img src={thumbUrl} alt="" className="h-full w-full object-cover" draggable={false} decoding="async" />
           ) : (
             <div className="h-4 w-4 text-[var(--color-text-muted)]" />
           )}

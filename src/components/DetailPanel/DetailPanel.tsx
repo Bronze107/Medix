@@ -180,6 +180,7 @@ function MenuThumb({ itemId, filePath }: { itemId: string; filePath?: string }) 
     <img
       src={url}
       alt=""
+      decoding="async"
       loading="lazy"
       className={`h-full w-full object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
       onLoad={() => setLoaded(true)}

@@ -46,7 +46,7 @@ function FilmstripThumb({
       }`}
     >
       {url ? (
-        <img src={url} alt="" className="h-16 w-16 object-cover" draggable={false} />
+        <img src={url} alt="" className="h-16 w-16 object-cover" draggable={false} decoding="async" />
       ) : (
         <div className="h-16 w-16 bg-white/10" />
       )}
@@ -125,6 +125,7 @@ function VariantThumb({
         <img
           src={src}
           alt=""
+          decoding="async"
           className={`h-full w-full object-cover transition-all duration-300 ${
             imgLoaded ? "opacity-100" : "opacity-0"
           }`}
@@ -527,6 +528,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                 className="absolute inset-0 w-full h-full object-contain"
                 style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
                 draggable={false}
+                decoding="async"
               />
               <img
                 src={getFilePath(compareRight ?? null) ?? ""}
@@ -534,6 +536,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                 className="absolute inset-0 w-full h-full object-contain"
                 style={{ clipPath: `inset(0 0 0 ${sliderPos}%)` }}
                 draggable={false}
+                decoding="async"
               />
               <div
                 className="absolute inset-y-0 z-10 flex items-center justify-center"
@@ -561,7 +564,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
             style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
           >
             {mainUrl && (
-              <img src={mainUrl} alt="" className="max-h-full max-w-full object-contain select-none" draggable={false} />
+              <img src={mainUrl} alt="" className="max-h-full max-w-full object-contain select-none" draggable={false} decoding="async" />
             )}
           </div>
         )}

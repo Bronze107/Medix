@@ -41,17 +41,41 @@ pub fn import_files(
     }
 
     let total = file_paths.len();
-    let mut results = Vec::new();
+    let mut results: Vec<MediaImportResult> = Vec::with_capacity(total);
 
-    for (i, path_str) in file_paths.iter().enumerate() {
-        let path = Path::new(path_str);
-        let result = import_single_file(app, path, &library_dir);
-        results.push(result);
-        let _ = app.emit("import-progress", serde_json::json!({
-            "current": i + 1,
-            "total": total,
-            "filename": path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-        }));
+    // Process files in parallel batches — 4 concurrent workers for I/O + CPU overlap
+    let concurrency = 4usize;
+    let chunks: Vec<Vec<String>> = file_paths
+        .chunks(concurrency)
+        .map(|c| c.iter().map(|s| s.clone()).collect())
+        .collect();
+
+    for (chunk_idx, chunk) in chunks.iter().enumerate() {
+        let mut chunk_results: Vec<MediaImportResult> = Vec::with_capacity(chunk.len());
+        std::thread::scope(|s| {
+            let handles: Vec<_> = chunk.iter().map(|path_str| {
+                s.spawn(|| {
+                    let path = Path::new(path_str);
+                    let result = import_single_file(app, path, &library_dir);
+                    let filename = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    (result, filename)
+                })
+            }).collect();
+            for handle in handles {
+                let (result, filename) = handle.join().unwrap();
+                let idx = results.len() + chunk_results.len();
+                let _ = app.emit("import-progress", serde_json::json!({
+                    "current": idx + 1,
+                    "total": total,
+                    "filename": filename,
+                }));
+                chunk_results.push(result);
+            }
+        });
+        results.extend(chunk_results);
     }
 
     Ok(results)

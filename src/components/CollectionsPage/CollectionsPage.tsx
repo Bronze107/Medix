@@ -165,7 +165,7 @@ function CollectionsPage() {
               className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] overflow-hidden transition-colors hover:bg-[var(--color-bg-tertiary)]"
             >
               {covers[c.id] ? (
-                <img src={covers[c.id]} alt="" className="w-full h-28 object-cover bg-[var(--color-bg-tertiary)]" draggable={false} />
+                <img src={covers[c.id]} alt="" className="w-full h-28 object-cover bg-[var(--color-bg-tertiary)]" draggable={false} decoding="async" />
               ) : (
                 <div className="w-full h-28 flex items-center justify-center bg-[var(--color-bg-tertiary)]">
                   <svg className="h-8 w-8 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
