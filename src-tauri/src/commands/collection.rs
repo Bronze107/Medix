@@ -74,8 +74,10 @@ pub fn media_list_by_collection(
     collection_id: String,
     sort_by: String,
     descending: bool,
+    offset: u32,
+    limit: u32,
 ) -> Result<Vec<crate::media::Media>, String> {
-    db::media_list_by_collection(&app, &collection_id, &sort_by, descending).map_err(|e| e.to_string())
+    db::media_list_by_collection(&app, &collection_id, &sort_by, descending, offset, limit).map_err(|e| e.to_string())
 }
 
 #[command]

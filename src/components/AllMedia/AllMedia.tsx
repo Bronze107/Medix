@@ -184,9 +184,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
   }, [searchQuery]);
 
   const loadSeqRef = useRef(0);
+  const PAGE_SIZE = 500;
 
-  const loadMedia = useCallback(async () => {
+  const loadMedia = useCallback(async (append = false) => {
     const seq = ++loadSeqRef.current;
+    const offset = append ? media.length : 0;
+    const limit = PAGE_SIZE;
     try {
       const query = debouncedSearch.trim();
       let list: Media[];
@@ -194,24 +197,28 @@ function AllMedia({ collectionId }: AllMediaProps) {
         if (query) {
           const ids = await collectionGetItemIds(collectionId);
           const idSet = new Set(ids);
-          const searchResults = await mediaSearch(query, sortBy, descending);
+          const searchResults = await mediaSearch(query, sortBy, descending, offset, limit);
           list = searchResults.filter((m) => idSet.has(m.id));
         } else {
-          list = await mediaListByCollection(collectionId, sortBy, descending);
+          list = await mediaListByCollection(collectionId, sortBy, descending, offset, limit);
         }
       } else {
         if (query) {
-          list = await mediaSearch(query, sortBy, descending);
+          list = await mediaSearch(query, sortBy, descending, offset, limit);
         } else {
-          list = await mediaList(sortBy, descending);
+          list = await mediaList(sortBy, descending, offset, limit);
         }
       }
       if (seq !== loadSeqRef.current) return; // Stale response
-      setMedia(list);
+      if (append && list.length > 0) {
+        setMedia((prev) => [...prev, ...list]);
+      } else {
+        setMedia(list);
+      }
     } catch (e) {
       console.error("Failed to load media:", e);
     }
-  }, [sortBy, descending, debouncedSearch, collectionId]);
+  }, [sortBy, descending, debouncedSearch, collectionId, media.length]);
 
   useEffect(() => {
     loadMedia();

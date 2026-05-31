@@ -469,6 +469,8 @@ pub fn media_list_by_collection(
     collection_id: &str,
     sort_by: &str,
     descending: bool,
+    offset: u32,
+    limit: u32,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     let path = db_path(app);
     let conn = Connection::open(&path)?;
@@ -489,11 +491,12 @@ pub fn media_list_by_collection(
          FROM media m
          JOIN collection_items ci ON ci.media_id = m.id
          WHERE ci.collection_id = ?1 AND m.deleted_at IS NULL
-         ORDER BY {} {}",
+         ORDER BY {} {}
+         LIMIT ?2 OFFSET ?3",
         sort_column, order
     );
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params![collection_id], |row| {
+    let rows = stmt.query_map(params![collection_id, limit as i64, offset as i64], |row| {
         Ok(Media {
             id: row.get(0)?,
             source_path: row.get(1)?,
@@ -614,6 +617,8 @@ pub fn list_media_path(
     db_path: &Path,
     sort_by: &str,
     descending: bool,
+    offset: u32,
+    limit: u32,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     let conn = Connection::open(db_path)?;
 
@@ -631,12 +636,13 @@ pub fn list_media_path(
         "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id
          FROM media
          WHERE deleted_at IS NULL
-         ORDER BY {} {}",
+         ORDER BY {} {}
+         LIMIT ? OFFSET ?",
         sort_column, order
     );
 
     let mut stmt = conn.prepare(&sql)?;
-    let media_iter = stmt.query_map([], |row| {
+    let media_iter = stmt.query_map(params![limit as i64, offset as i64], |row| {
         Ok(Media {
             id: row.get(0)?,
             source_path: row.get(1)?,
@@ -669,11 +675,24 @@ pub fn list_media(
     app: &AppHandle,
     sort_by: &str,
     descending: bool,
+    offset: u32,
+    limit: u32,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     let path = db_path(app);
-    let mut results = list_media_path(&path, sort_by, descending)?;
+    let mut results = list_media_path(&path, sort_by, descending, offset, limit)?;
     resolve_thumb_paths(app, &mut results);
     Ok(results)
+}
+
+pub fn list_media_count(app: &AppHandle) -> Result<usize, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+    let count: usize = conn.query_row(
+        "SELECT COUNT(*) FROM media WHERE deleted_at IS NULL",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(count)
 }
 
 pub fn media_get_batch(
@@ -981,7 +1000,7 @@ pub fn media_search_by_tags_path(
     mode: TagSearchMode,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     if tag_names.is_empty() {
-        return list_media_path(db_path, sort_by, descending);
+        return list_media_path(db_path, sort_by, descending, 0, u32::MAX);
     }
 
     let conn = Connection::open(db_path)?;
@@ -1062,7 +1081,7 @@ pub fn media_search_by_tags(
     mode: TagSearchMode,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     if tag_names.is_empty() {
-        return list_media(app, sort_by, descending);
+        return list_media(app, sort_by, descending, 0, u32::MAX);
     }
     let path = db_path(app);
     let mut results = media_search_by_tags_path(&path, tag_names, sort_by, descending, mode)?;

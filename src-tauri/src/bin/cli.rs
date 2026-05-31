@@ -77,7 +77,7 @@ fn main() {
             }
         }
         Command::List { sort, descending } => {
-            match db::list_media_path(&db_path, &sort, descending) {
+            match db::list_media_path(&db_path, &sort, descending, 0, u32::MAX) {
                 Ok(results) => {
                     println!("{} media\n", results.len());
                     print_media_list(&results);
@@ -103,7 +103,7 @@ fn main() {
             }
         }
         Command::Stats => {
-            let media = db::list_media_path(&db_path, "imported_at", true).unwrap_or_default();
+            let media = db::list_media_path(&db_path, "imported_at", true, 0, u32::MAX).unwrap_or_default();
             let tags = db::tag_list_path(&db_path).unwrap_or_default();
             // Quick collection count via raw SQL
             let collection_count = {

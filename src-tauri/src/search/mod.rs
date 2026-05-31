@@ -68,7 +68,7 @@ pub fn execute_search(
         && parsed.date_range.is_none()
         && parsed.file_size.is_none()
     {
-        return crate::db::list_media(app, sort_by, descending).map_err(|e| e.to_string());
+        return crate::db::list_media(app, sort_by, descending, 0, u32::MAX).map_err(|e| e.to_string());
     }
 
     // Step 5: Apply metadata filters via SQL
@@ -137,7 +137,7 @@ pub fn execute_search_path(
             // Semantic query without embedding server — return empty rather than all
             return Ok(vec![]);
         }
-        return crate::db::list_media_path(db_path, sort_by, descending)
+        return crate::db::list_media_path(db_path, sort_by, descending, 0, u32::MAX)
             .map_err(|e| e.to_string());
     }
 

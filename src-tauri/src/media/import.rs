@@ -1,6 +1,6 @@
 use sha2::{Sha256, Digest};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Manager};
 use ulid::Ulid;
@@ -73,6 +73,31 @@ fn collect_image_files(
     Ok(())
 }
 
+/// Wraps a reader and computes SHA256 hash of all bytes read.
+struct HashingReader<R: Read> {
+    inner: R,
+    hasher: Sha256,
+}
+
+impl<R: Read> HashingReader<R> {
+    fn new(inner: R) -> Self {
+        Self { inner, hasher: Sha256::new() }
+    }
+    fn finalize(self) -> String {
+        format!("{:x}", self.hasher.finalize())
+    }
+}
+
+impl<R: Read> Read for HashingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if n > 0 {
+            self.hasher.update(&buf[..n]);
+        }
+        Ok(n)
+    }
+}
+
 fn import_single_file(
     app: &AppHandle,
     source_path: &Path,
@@ -98,70 +123,143 @@ fn import_single_file(
         };
     }
 
-    // Compute SHA256 for dedup
-    let sha256 = compute_sha256(source_path);
-    if let Some(ref hash) = sha256 {
-        match crate::db::media_get_by_sha256(app, hash) {
-            Ok(Some(existing)) => {
-                return MediaImportResult {
-                    id: existing.id,
-                    path: path_str,
-                    success: true,
-                    error: Some("已存在（重复文件）".to_string()),
-                };
-            }
-            Err(e) => {
-                eprintln!("[import] sha256 lookup failed: {}", e);
-            }
-            _ => {}
-        }
-    }
-
     let id = Ulid::new().to_string();
     let ext = source_path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("jpg")
         .to_lowercase();
-
     let dest_path = library_dir.join(format!("{}.{}", id, ext));
 
-    if let Err(e) = fs::copy(source_path, &dest_path) {
-        return MediaImportResult {
-            id: String::new(),
-            path: path_str,
-            success: false,
-            error: Some(format!("Failed to copy file: {}", e)),
-        };
-    }
-
-    let (width, height, file_size) = match read_image_info(source_path) {
-        Ok(info) => info,
+    // Step 1: Copy file + compute SHA256 in a single I/O pass
+    let source_file = match fs::File::open(source_path) {
+        Ok(f) => f,
         Err(e) => {
             return MediaImportResult {
-                id: String::new(),
-                path: path_str,
-                success: false,
-                error: Some(format!("Failed to read image: {}", e)),
+                id: String::new(), path: path_str, success: false,
+                error: Some(format!("Failed to open source: {}", e)),
             };
         }
     };
 
-    let (created_at, modified_at) = read_exif_timestamps(source_path);
+    let mut hashing_reader = HashingReader::new(source_file);
+    let mut first_chunk = vec![0u8; 65536]; // 64KB for EXIF header
+    let mut total_read = 0usize;
+
+    // Read first 64KB into buffer (also updates hasher)
+    loop {
+        match hashing_reader.read(&mut first_chunk[total_read..]) {
+            Ok(0) => break,
+            Ok(n) => {
+                total_read += n;
+                if total_read >= first_chunk.len() { break; }
+            }
+            Err(e) => {
+                return MediaImportResult {
+                    id: String::new(), path: path_str, success: false,
+                    error: Some(format!("Failed to read source: {}", e)),
+                };
+            }
+        }
+    }
+    first_chunk.truncate(total_read);
+
+    // Write the buffered first chunk to dest
+    if let Err(e) = fs::write(&dest_path, &first_chunk) {
+        return MediaImportResult {
+            id: String::new(), path: path_str, success: false,
+            error: Some(format!("Failed to write dest: {}", e)),
+        };
+    }
+
+    // Stream remaining bytes to dest (continues hashing)
+    let mut dest_file = match fs::OpenOptions::new().append(true).open(&dest_path) {
+        Ok(f) => f,
+        Err(e) => {
+            return MediaImportResult {
+                id: String::new(), path: path_str, success: false,
+                error: Some(format!("Failed to open dest for append: {}", e)),
+            };
+        }
+    };
+
+    let mut buf = [0u8; 8192];
+    loop {
+        match hashing_reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                if let Err(e) = dest_file.write_all(&buf[..n]) {
+                    return MediaImportResult {
+                        id: String::new(), path: path_str, success: false,
+                        error: Some(format!("Failed to write dest: {}", e)),
+                    };
+                }
+            }
+            Err(e) => {
+                return MediaImportResult {
+                    id: String::new(), path: path_str, success: false,
+                    error: Some(format!("Failed to read source: {}", e)),
+                };
+            }
+        }
+    }
+
+    let sha256 = Some(hashing_reader.finalize());
+
+    // Step 2: Dedup check
+    if let Some(ref hash) = sha256 {
+        match crate::db::media_get_by_sha256(app, hash) {
+            Ok(Some(existing)) => {
+                let _ = fs::remove_file(&dest_path);
+                return MediaImportResult {
+                    id: existing.id, path: path_str, success: true,
+                    error: Some("已存在（重复文件）".to_string()),
+                };
+            }
+            Err(e) => eprintln!("[import] sha256 lookup failed: {}", e),
+            _ => {}
+        }
+    }
+
+    // Step 3: Decode image once — shared across dimensions, pHash, and thumbnails
+    let img = match image::open(&dest_path) {
+        Ok(i) => i,
+        Err(e) => {
+            return MediaImportResult {
+                id: String::new(), path: path_str, success: false,
+                error: Some(format!("Failed to decode image: {}", e)),
+            };
+        }
+    };
+
+    let width = img.width() as i32;
+    let height = img.height() as i32;
+    let canonical_file_size = match fs::metadata(&dest_path) {
+        Ok(m) => m.len() as i64,
+        Err(_) => 0,
+    };
+    let file_size = Some(canonical_file_size);
+
+    // Step 4: EXIF from buffered first chunk
+    let (created_at, modified_at) = read_exif_from_bytes(&first_chunk);
+
+    // Step 5: pHash from shared image
+    let phash = super::phash::compute_phash_from_image(&img)
+        .map(|h| h.to_le_bytes().to_vec());
 
     let media = Media {
         id: id.clone(),
         source_path: Some(path_str.clone()),
         width: Some(width),
         height: Some(height),
-        file_size: Some(file_size),
+        file_size,
         created_at,
         modified_at,
         imported_at: chrono::Utc::now().to_rfc3339(),
         source_url: None,
         page_url: None,
         source: Some("local".to_string()),
-        phash: super::phash::compute_phash(source_path).map(|h| h.to_le_bytes().to_vec()),
+        phash,
         sha256,
         deleted_at: None,
         display_variant_id: None,
@@ -178,19 +276,18 @@ fn import_single_file(
         };
     }
 
-    // Generate thumbnails asynchronously
+    // Step 6: Generate thumbnails from the shared image (async, no re-decode)
     let app_clone = app.clone();
     let media_id = id.clone();
-    let dest_path_clone = dest_path.clone();
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = super::thumbnail::generate_thumbnails(&app_clone, &media_id, &dest_path_clone) {
+        if let Err(e) = super::thumbnail::generate_thumbnails_from_image(&app_clone, &media_id, &img) {
             eprintln!("[thumbnail] failed to generate thumbnails for {}: {}", media_id, e);
         } else {
             println!("[thumbnail] generated for {}", media_id);
         }
     });
 
-    // Trigger AI caption generation asynchronously (fire-and-forget via sync channel)
+    // Step 7: Trigger AI caption generation asynchronously
     let app_clone = app.clone();
     let media_id = id.clone();
     let dest_path_clone = dest_path.clone();
@@ -212,36 +309,10 @@ fn import_single_file(
     }
 }
 
-fn read_image_info(path: &Path) -> Result<(i32, i32, i64), Box<dyn std::error::Error>> {
-    let img = image::open(path)?;
-    let width = img.width() as i32;
-    let height = img.height() as i32;
-    let file_size = fs::metadata(path)?.len() as i64;
-    Ok((width, height, file_size))
-}
-
-fn compute_sha256(path: &Path) -> Option<String> {
-    let mut file = fs::File::open(path).ok()?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        match file.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => hasher.update(&buf[..n]),
-            Err(_) => return None,
-        }
-    }
-    Some(format!("{:x}", hasher.finalize()))
-}
-
-fn read_exif_timestamps(path: &Path) -> (Option<String>, Option<String>) {
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return (None, None),
-    };
-    let mut bufreader = std::io::BufReader::new(&file);
+fn read_exif_from_bytes(bytes: &[u8]) -> (Option<String>, Option<String>) {
     let exifreader = exif::Reader::new();
-    let exif = match exifreader.read_from_container(&mut bufreader) {
+    let mut cursor = std::io::Cursor::new(bytes);
+    let exif = match exifreader.read_from_container(&mut cursor) {
         Ok(e) => e,
         Err(_) => return (None, None),
     };

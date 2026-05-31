@@ -1,8 +1,13 @@
 use std::path::Path;
 
-/// Compute 64-bit perceptual hash (pHash) of an image.
+/// Compute 64-bit perceptual hash (pHash) of an image file.
 pub fn compute_phash(path: &Path) -> Option<u64> {
     let img = image::open(path).ok()?;
+    compute_phash_from_image(&img)
+}
+
+/// Compute pHash from an already-decoded image, avoiding re-decode.
+pub fn compute_phash_from_image(img: &image::DynamicImage) -> Option<u64> {
     let gray = img.grayscale();
 
     // Resize to 32x32 then 8x8 for DCT

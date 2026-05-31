@@ -18,8 +18,10 @@ pub async fn media_list(
     app: AppHandle,
     sort_by: String,
     descending: bool,
+    offset: u32,
+    limit: u32,
 ) -> Result<Vec<Media>, String> {
-    db::list_media(&app, &sort_by, descending).map_err(|e| e.to_string())
+    db::list_media(&app, &sort_by, descending, offset, limit).map_err(|e| e.to_string())
 }
 
 #[command]
@@ -28,12 +30,14 @@ pub async fn media_search(
     query: String,
     sort_by: String,
     descending: bool,
+    offset: u32,
+    limit: u32,
 ) -> Result<Vec<Media>, String> {
     let trimmed = query.trim().to_string();
 
-    // Quick path: empty query returns all
+    // Quick path: empty query returns all (paginated)
     if trimmed.is_empty() {
-        return db::list_media(&app, &sort_by, descending).map_err(|e| e.to_string());
+        return db::list_media(&app, &sort_by, descending, offset, limit).map_err(|e| e.to_string());
     }
 
     // Parse query to check if semantic search is needed

@@ -18,9 +18,11 @@ export function mediaImport(paths: string[]): Promise<MediaImportResult[]> {
 
 export function mediaList(
   sortBy: string = "imported_at",
-  descending: boolean = true
+  descending: boolean = true,
+  offset: number = 0,
+  limit: number = 500,
 ): Promise<Media[]> {
-  return invoke("media_list", { sortBy, descending });
+  return invoke("media_list", { sortBy, descending, offset, limit });
 }
 
 export function mediaThumbnail(id: string): Promise<string> {
@@ -187,8 +189,10 @@ export function mediaListByCollection(
   collectionId: string,
   sortBy: string,
   descending: boolean,
+  offset: number = 0,
+  limit: number = 500,
 ): Promise<Media[]> {
-  return invoke("media_list_by_collection", { collectionId, sortBy, descending });
+  return invoke("media_list_by_collection", { collectionId, sortBy, descending, offset, limit });
 }
 
 export function collectionGetItemIds(collectionId: string): Promise<string[]> {
@@ -204,9 +208,11 @@ export function collectionFirstMediaId(collectionId: string): Promise<string | n
 export function mediaSearch(
   query: string,
   sortBy: string = "imported_at",
-  descending: boolean = true
+  descending: boolean = true,
+  offset: number = 0,
+  limit: number = 500,
 ): Promise<Media[]> {
-  return invoke("media_search", { query, sortBy, descending });
+  return invoke("media_search", { query, sortBy, descending, offset, limit });
 }
 
 // --- Variants ---
