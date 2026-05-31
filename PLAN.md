@@ -292,11 +292,11 @@
 
 > 当前缺失索引导致几乎所有查询都是全表扫描。这三项改动量小（各一行 SQL），但收益巨大。
 
-- [ ] **`sha256` 索引** — 每次导入都全表扫描查重。5000 张图导入 100 张 = 500,000 次比较
+- [x] **`sha256` 索引** — 每次导入都全表扫描查重。5000 张图导入 100 张 = 500,000 次比较
   - 位置：`src-tauri/src/db/mod.rs`，`media_get_by_sha256` 的 `WHERE sha256 = ?1`
-- [ ] **`deleted_at` 索引** — 几乎所有查询都过滤 `WHERE deleted_at IS NULL`，无索引 = 全表扫描
+- [x] **`deleted_at` 索引** — 几乎所有查询都过滤 `WHERE deleted_at IS NULL`，无索引 = 全表扫描
   - 影响 10+ 查询：`list_media`、`media_list_trash`、`media_search_by_tags`、`media_query_filtered`、`media_list_by_collection`、`media_find_similar`、`media_get_by_sha256`、`media_get_batch` 等
-- [ ] **`embeddings.model` 索引** — 每次语义搜索扫描整个 embeddings 表加载所有向量到内存
+- [x] **`embeddings.model` 索引** — 每次语义搜索扫描整个 embeddings 表加载所有向量到内存
   - 位置：`src-tauri/src/db/mod.rs`，`embedding_get_all_by_model` 的 `WHERE model = ?1`
   - 5000 张 × 768 维 × 4 bytes ≈ 15MB per search（无索引时）
 
@@ -306,9 +306,9 @@
 > 同时 `resolve_thumb_paths` 对每条记录做 2× `stat()` 检查（`_256.jpg` + `_512.jpg`）。
 > 5000 张 = 10000 次文件系统调用 + 全量 IPC 序列化。
 
-- [ ] **后端加分页**：`media_list` / `media_search` / `media_list_by_collection` SQL 添加 `LIMIT ? OFFSET ?`
+- [x] **后端加分页**：`media_list` / `media_search` / `media_list_by_collection` SQL 添加 `LIMIT ? OFFSET ?`
   - 位置：`src-tauri/src/db/mod.rs`（`list_media` 约第 610 行、`media_query_filtered` 等）
-- [ ] **前端窗口化加载**：虚拟滚动 + 按需加载下一页（类似无限滚动）
+- [x] **前端窗口化加载**：虚拟滚动 + 按需加载下一页（类似无限滚动）
   - 位置：`src/components/AllMedia/AllMedia.tsx`，`loadMedia` 函数
 
 #### P1 — 缩略图批量 IPC（200 次往返 → 1 次）
@@ -316,11 +316,11 @@
 > 网格视图 ~200 个可见卡片，每个卡片独立调用 `invoke("media_thumbnail", { id })` → 200 次 Tauri IPC 往返。
 > 虽然有前端 Map 缓存，但首次加载/切换视图时仍然全部重新请求。
 
-- [ ] **批量命令**：新增 `media_thumbnail_batch(ids: Vec<String>)` 一次返回所有路径
+- [x] **批量命令**：新增 `media_thumbnail_batch(ids: Vec<String>)` 一次返回所有路径
   - 位置：`src-tauri/src/commands/thumbnail.rs`
-- [ ] **前端批量调用**：`useThumbnail` hook 改为批量预加载模式，或 Gallery 层统一请求
+- [x] **前端批量调用**：`useThumbnail` hook 改为批量预加载模式，或 Gallery 层统一请求
   - 位置：`src/hooks/useThumbnail.ts`、`src/components/Gallery/Gallery.tsx`
-- [ ] **统一缩略图缓存**：合并 Gallery 和 TableView 各自维护的独立 `Map`，提到全局 hook
+- [x] **统一缩略图缓存**：合并 Gallery 和 TableView 各自维护的独立 `Map`，提到全局 hook
   - 位置：`src/hooks/useThumbnail.ts` + `src/components/TableView/TableView.tsx:38`
 
 #### P1 — 批量操作事务包装（N 次 fsync → 1 次）
@@ -328,11 +328,11 @@
 > `media_tag_add_batch`、`collection_add_batch`、`caption_create_batch`、`media_empty_trash` 等
 > 逐个遍历 ID，每次独立的 DB 连接 + 自动提交。批量打 100 个标签 = 100 次 fsync。
 
-- [ ] `media_tag_add_batch` 单连接 + `BEGIN/COMMIT` 包裹所有 INSERT
+- [x] `media_tag_add_batch` 单连接 + `BEGIN/COMMIT` 包裹所有 INSERT
   - 位置：`src-tauri/src/db/mod.rs` 约第 861 行
-- [ ] `collection_add_batch` 同上
+- [x] `collection_add_batch` 同上
   - 位置：`src-tauri/src/db/mod.rs` 约第 419 行
-- [ ] `caption_create_batch` 使用单个 INSERT 多 VALUES
+- [x] `caption_create_batch` 使用单个 INSERT 多 VALUES
   - 位置：`src-tauri/src/commands/caption.rs` 约第 38 行
 
 #### P2 — DB 连接池（消除 per-call Connection::open）
@@ -378,18 +378,18 @@
      → spawn_blocking → 入AI队列
 ```
 
-- [ ] **P0 — SHA256 + copy 合并 I/O**（一次读取完成两件事）
+- [x] **P0 — SHA256 + copy 合并 I/O**（一次读取完成两件事）
   - 当前：`compute_sha256` 读全文件(~50ms)，然后 `fs::copy` 再读全文件(~30ms)，合计 ~80ms 重复 I/O
   - 方案：用 wrapper reader 边读边 hash 边写入目标，一次读取完成 SHA256 + copy
   - 位置：`src-tauri/src/media/import.rs`，`import_single_file` 函数
 
-- [ ] **P0 — 共享一次图片解码**（`image::open` ×3 → ×1）
+- [x] **P0 — 共享一次图片解码**（`image::open` ×3 → ×1）
   - 当前：`read_image_info`(30-80ms) + `compute_phash`(80-150ms) + `generate_thumbnails`(100-200ms) 各自独立解码
   - 合计 ~210-430ms 都在做 JPEG 解压缩
   - 方案：解码一次为 `DynamicImage`，clone 引用（Arc，不复制像素）给各步骤共享
   - 位置：`src-tauri/src/media/import.rs:138-192` + `src-tauri/src/media/thumbnail.rs:7-33` + `src-tauri/src/media/phash.rs:5-49`
 
-- [ ] **P0 — 并行处理**（3-4 路并发导入）
+- [x] **P0 — 并行处理**（3-4 路并发导入）
   - 当前：`for` 循环完全串行，文件 N+1 等文件 N 完成才启动
   - 方案：用 `tokio::task::spawn_blocking` 或 `rayon` 同时处理 3-4 个文件，I/O 和 CPU 交替利用
   - 位置：`src-tauri/src/media/import.rs:46-56`，`import_files` 函数
@@ -399,13 +399,13 @@
   - 可选：用 `rustdct` crate 替换纯 Rust 浮点 DCT（基于 FFT，O(n log n) vs O(n²)）
   - 位置：`src-tauri/src/media/phash.rs:8-10`
 
-- [ ] **P1 — 导入批次内 DB 事务**（100 次 fsync → 1 次）
+- [x] **P1 — 导入批次内 DB 事务**（100 次 fsync → 1 次）
   - 当前：每个文件独立的 `Connection::open` + `INSERT` + 自动提交，100 张 = 100 次 fsync
   - 方案：批次内共享连接 + `BEGIN TRANSACTION` / `COMMIT`
   - 注意：与上述 P1 "批量操作事务包装" 同根因，可一并解决
   - 位置：`src-tauri/src/media/import.rs:46-56` + `src-tauri/src/db/mod.rs:552-575`
 
-- [ ] **P2 — EXIF 复用缓冲区**（减少一次文件打开）
+- [x] **P2 — EXIF 复用缓冲区**（减少一次文件打开）
   - 当前：`read_exif_timestamps` 独立 `fs::File::open`，但 JPEG EXIF 在文件头部(APP1 marker)
   - 方案：从 SHA256/copy 阶段读到的首 64KB 缓冲区中解析 EXIF，不再单独打开文件
   - 位置：`src-tauri/src/media/import.rs:238-260`
@@ -440,13 +440,13 @@
     └── medix_infer_*.jpg × N
 ```
 
-- [ ] **P0 — 去掉 thumb_512**（纯浪费 ~200MB）
+- [x] **P0 — 去掉 thumb_512**（纯浪费 ~200MB）
   - `thumb_512` 只在类型定义中出现（`src/types/media.ts:17`、`src/lib/tauri.ts:60`），**零前端引用**
   - 但后端仍在生成：`generate_thumbnails` 输出两份、`resolve_thumb_paths` 对两种尺寸各做 `stat()`
   - 方案：`THUMB_SIZES` 只保留 256，删除 512 生成逻辑；已有 `_512.jpg` 文件需迁移清理
   - 位置：`src-tauri/src/media/thumbnail.rs:5` + `src-tauri/src/db/mod.rs:577-591` + `src/types/media.ts:17`
 
-- [ ] **P0 — 推理临时文件清理**（泄漏 ~500MB-1GB）
+- [x] **P0 — 推理临时文件清理**（泄漏 ~500MB-1GB）
   - `process_generate_caption` 写入 `%TEMP%/medix_infer_{id}.jpg`，完成后**从未删除**
   - AI 处理 5000 张图 = 5000 个临时文件永久积累
   - 方案：`process_generate_caption` 函数末尾添加 `let _ = tokio::fs::remove_file(&tmp).await;`
@@ -504,21 +504,21 @@
 | Lightbox `VariantThumb` | 每版本一张 | 共享 Gallery 的 Map |
 | DetailPanel `MenuThumb` | 原图 + N 版本 | 共享 Gallery 的 Map；变体绕过缩略图，直接加载原图 |
 
-- [ ] **P0 — 统一缓存，消除双份 Map**
+- [x] **P0 — 统一缓存，消除双份 Map**
   - 当前：`@/hooks/useThumbnail.ts:5` 和 `TableView.tsx:38` 各自维护独立的 `Map<string, string>`
   - TableView 版本还没有重试逻辑，功能不一致
   - 切换网格↔表格视图，相同图片的缩略图全部重新 IPC
   - 方案：删除 TableView 内的重复 hook，统一 import `@/hooks/useThumbnail`
   - 位置：`src/components/TableView/TableView.tsx:38-60`
 
-- [ ] **P0 — 批量缩略图 IPC**（200+ 次 → 1 次）
+- [x] **P0 — 批量缩略图 IPC**（200+ 次 → 1 次）
   - 当前每个 `<ThumbnailCard>` 独立 `invoke("media_thumbnail", { id })` → 200 次 IPC 往返
   - 且每次 `media_thumbnail` 内部都做 `SELECT display_variant_id FROM media WHERE id = ?` → 200 次 DB 查询
   - 方案：新增 `media_thumbnail_batch(ids: Vec<String>)` → 返回 `Vec<{id, path}>`，一次 IPC + 一条 `WHERE id IN (...)` SQL
   - 前端 `useThumbnail` hook 改为批量预加载模式：组件 mount 时注册 ID，父组件统一调用 batch 命令
   - 位置：`src-tauri/src/commands/thumbnail.rs` + `src/hooks/useThumbnail.ts`
 
-- [ ] **P1 — 重试策略：固定间隔 → 指数退避**
+- [x] **P1 — 重试策略：固定间隔 → 指数退避**
   - 当前：`maxRetries = 15`，固定 2 秒间隔 = 最多 30 秒无效 IPC
   - 缩略图在导入时同步生成，3 次重试后仍缺失 = 永久缺失
   - 方案：上限 3 次，指数退避（1s → 2s → 4s = 总共 7 秒），避免突发
@@ -530,7 +530,7 @@
   - 方案：variant 导入/生成时也为变体文件生成 256px 缩略图；`media_thumbnail` 支持传 variant id
   - 位置：`src/components/DetailPanel/DetailPanel.tsx:172-174` + `src-tauri/src/commands/thumbnail.rs:4` + `src-tauri/src/media/thumbnail.rs`
 
-- [ ] **P2 — `<img decoding="async">`** 
+- [x] **P2 — `<img decoding="async">`** 
   - Gallery 的 `<img>` 有 `loading="lazy"` 但无 `decoding="async"`
   - 缺少时图片解码在主线程同步执行，200 张缩略图解码会短暂阻塞 UI
   - 方案：所有缩略图 `<img>` 加 `decoding="async"`
@@ -575,6 +575,24 @@
 ---
 
 ### 已完成（性能相关）
+
+**2026-05-31 性能审计后实施（4 轮，11 commits）**：
+
+- [x] **DB 索引**: `sha256`（导入查重）+ `deleted_at`（所有媒体查询）+ `embeddings.model`（语义搜索）
+- [x] **媒体列表分页**: SQL `LIMIT/OFFSET` + 前端窗口化加载（500 条/页）
+- [x] **去掉 thumb_512**: 零前端引用，节省 ~200MB/5000 张，缩略图生成快一半
+- [x] **推理临时文件清理**: AI 标注后删除 `medix_infer_*.jpg` + 启动时扫描残留
+- [x] **统一缩略图缓存**: TableView 改用共享 `useThumbnail` hook，消除重复 Map + 重复 IPC
+- [x] **缩略图批量 IPC**: `media_thumbnail_batch` — Gallery/TableView 首屏 200→1 次 IPC
+- [x] **批量操作事务包装**: `media_tag_add_batch` / `collection_add_batch` / `caption_create_batch` 全部 `BEGIN/COMMIT`
+- [x] **缩略图重试退避**: 15 次固定 2s → 3 次指数退避（1s/2s/4s）
+- [x] **SHA256 + copy 合并 I/O**: `HashingReader` 边读边 hash 边写，一次 I/O 完成两件事
+- [x] **共享一次图片解码**: `image::open` ×3 → ×1，pHash/thumbnails 直接收 `&DynamicImage`
+- [x] **导入 4 路并行**: `std::thread::scope` 分块并发，I/O/CPU 交替
+- [x] **EXIF 复用缓冲区**: 从 copy 首 64KB 缓冲解析 EXIF，不再单独打开文件
+- [x] **全局 `decoding="async"`**: Gallery/TableView/Lightbox/DetailPanel/CollectionsPage 所有 `<img>`
+
+**此前已完成**：
 
 - [x] 大型网格使用虚拟滚动 + 回收 DOM（@tanstack/react-virtual）— Grid、Table 两种视图
 - [x] AI 标注管道优化 — HTTP client 复用 (`LazyLock<reqwest::Client>`) + tag 缓存 + embedding 合并为单次调用 + VLM 输入默认缩放 768px
