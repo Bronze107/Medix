@@ -1201,6 +1201,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       <ImagineDialog
         mediaId={media.id}
         variantId={targetId}
+        variantPath={targetId ? variants.find((v) => v.id === targetId)?.file_path ?? null : null}
         onClose={() => setShowAiEdit(false)}
         onImported={() => {
           if (media) loadVariants(media.id);

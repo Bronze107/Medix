@@ -7,11 +7,12 @@ import type { StagedImage } from "@/lib/tauri";
 interface Props {
   mediaId: string;
   variantId?: string | null;
+  variantPath?: string | null;
   onClose: () => void;
   onImported?: () => void;
 }
 
-function ImagineDialog({ mediaId, variantId, onClose, onImported }: Props) {
+function ImagineDialog({ mediaId, variantId, variantPath, onClose, onImported }: Props) {
   const [prompt, setPrompt] = useState("");
   const [resolution, setResolution] = useState("1k");
   const [n, setN] = useState(1);
@@ -23,7 +24,7 @@ function ImagineDialog({ mediaId, variantId, onClose, onImported }: Props) {
   const [imported, setImported] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
 
-  const thumbUrl = useThumbnail(mediaId);
+  const thumbUrl = variantPath ? convertFileSrc(variantPath) : useThumbnail(mediaId);
 
   useEffect(() => {
     if (staged.length > 0) setSelectedIds(new Set(staged.map((s) => s.id)));
