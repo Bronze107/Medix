@@ -6,11 +6,12 @@ import type { StagedImage } from "@/lib/tauri";
 
 interface Props {
   mediaId: string;
+  variantId?: string | null;
   onClose: () => void;
   onImported?: () => void;
 }
 
-function ImagineDialog({ mediaId, onClose, onImported }: Props) {
+function ImagineDialog({ mediaId, variantId, onClose, onImported }: Props) {
   const [prompt, setPrompt] = useState("");
   const [resolution, setResolution] = useState("1k");
   const [n, setN] = useState(1);
@@ -37,7 +38,7 @@ function ImagineDialog({ mediaId, onClose, onImported }: Props) {
     setGenerating(true);
     setError(null);
     try {
-      const results = await imageEdit(mediaId, prompt.trim(), resolution, n);
+      const results = await imageEdit(mediaId, variantId ?? null, prompt.trim(), resolution, n);
       setStaged(results);
     } catch (e) {
       setError(String(e));

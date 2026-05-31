@@ -89,16 +89,24 @@ pub async fn image_generate(
     Ok(results)
 }
 
-/// Edit an existing image. Results are staged — call confirm_import to finalize.
+/// Edit an existing image (original or variant). Results are staged.
 #[command]
 pub async fn image_edit(
     app: AppHandle,
     media_id: String,
+    variant_id: Option<String>,
     prompt: String,
     resolution: Option<String>,
     n: Option<u32>,
 ) -> Result<Vec<StagedImage>, String> {
-    let source_path = resolve_media_path(&app, &media_id)?;
+    let source_path = if let Some(ref vid) = variant_id {
+        let variant = crate::db::variant_get_by_id(&app, vid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Variant not found".to_string())?;
+        std::path::PathBuf::from(&variant.file_path)
+    } else {
+        resolve_media_path(&app, &media_id)?
+    };
     let resolution = resolution.unwrap_or_else(|| "1k".to_string());
 
     // Preprocess: resize if needed, keep original format

@@ -377,11 +377,12 @@ export function imageGenerate(
 
 export function imageEdit(
   mediaId: string,
+  variantId: string | null,
   prompt: string,
   resolution?: string,
   n?: number,
 ): Promise<StagedImage[]> {
-  return invoke("image_edit", { mediaId, prompt, resolution, n });
+  return invoke("image_edit", { mediaId, variantId, prompt, resolution, n });
 }
 
 export function imageConfirmImport(
