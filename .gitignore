@@ -3,6 +3,9 @@ node_modules/
 .pnp
 .pnp.js
 package-lock.json
+
+# Superpowers (brainstorming mockups)
+.superpowers/
 yarn.lock
 pnpm-lock.yaml
 
