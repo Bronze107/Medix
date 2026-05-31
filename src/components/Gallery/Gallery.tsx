@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Media } from "@/types/media";
-import { useThumbnail } from "@/hooks/useThumbnail";
+import { useThumbnail, preloadThumbnails } from "@/hooks/useThumbnail";
 
 interface GroupInfo {
   label: string;
@@ -117,6 +117,12 @@ function Gallery({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // Preload thumbnails in batch when media list changes
+  useEffect(() => {
+    const ids = media.map((m) => m.id);
+    preloadThumbnails(ids);
+  }, [media]);
 
   const rows = useMemo(
     () => computeRows(media, containerWidth, gap, scale, groups),

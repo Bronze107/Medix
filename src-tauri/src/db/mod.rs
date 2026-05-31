@@ -438,13 +438,20 @@ pub fn collection_add_item(app: &AppHandle, collection_id: &str, media_id: &str)
 pub fn collection_add_batch(app: &AppHandle, collection_id: &str, media_ids: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let path = db_path(app);
     let conn = Connection::open(&path)?;
-    for mid in media_ids {
-        conn.execute(
-            "INSERT OR IGNORE INTO collection_items (collection_id, media_id) VALUES (?1, ?2)",
-            params![collection_id, mid],
-        )?;
+    conn.execute("BEGIN TRANSACTION", [])?;
+    let result = (|| {
+        for mid in media_ids {
+            conn.execute(
+                "INSERT OR IGNORE INTO collection_items (collection_id, media_id) VALUES (?1, ?2)",
+                params![collection_id, mid],
+            )?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => { conn.execute("COMMIT", [])?; Ok(()) }
+        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
     }
-    Ok(())
 }
 
 pub fn collection_remove_item(app: &AppHandle, collection_id: &str, media_id: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -876,13 +883,20 @@ pub fn media_tag_add_batch(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = db_path(app);
     let conn = Connection::open(&path)?;
-    for media_id in media_ids {
-        conn.execute(
-            "INSERT OR IGNORE INTO media_tags (media_id, tag_id, confidence, source) VALUES (?1, ?2, NULL, NULL)",
-            params![media_id, tag_id],
-        )?;
+    conn.execute("BEGIN TRANSACTION", [])?;
+    let result = (|| {
+        for media_id in media_ids {
+            conn.execute(
+                "INSERT OR IGNORE INTO media_tags (media_id, tag_id, confidence, source) VALUES (?1, ?2, NULL, NULL)",
+                params![media_id, tag_id],
+            )?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => { conn.execute("COMMIT", [])?; Ok(()) }
+        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
     }
-    Ok(())
 }
 
 pub fn media_tag_remove(
@@ -1678,6 +1692,43 @@ pub fn media_get_display_variant(
         return Ok(file_path);
     }
     Ok(None)
+}
+
+/// Batch version of media_get_display_variant — single query for N media IDs.
+pub fn media_get_display_variants_batch(
+    app: &AppHandle,
+    media_ids: &[String],
+) -> Result<std::collections::HashMap<String, String>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let conn = Connection::open(&path)?;
+
+    if media_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let placeholders: Vec<String> = media_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let sql = format!(
+        "SELECT m.id, v.file_path FROM media m LEFT JOIN variants v ON m.display_variant_id = v.id WHERE m.id IN ({})",
+        placeholders.join(", ")
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let params: Vec<&dyn rusqlite::types::ToSql> = media_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let rows = stmt.query_map(params.as_slice(), |row| {
+        let media_id: String = row.get(0)?;
+        let file_path: Option<String> = row.get(1)?;
+        Ok((media_id, file_path))
+    })?;
+
+    let mut map = std::collections::HashMap::new();
+    for row in rows {
+        if let Some((id, file_path)) = row.ok() {
+            if let Some(fp) = file_path {
+                map.insert(id, fp);
+            }
+        }
+    }
+    Ok(map)
 }
 
 pub fn media_set_display_variant(

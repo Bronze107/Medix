@@ -1,4 +1,4 @@
-use tauri::{command, AppHandle};
+use tauri::{command, AppHandle, Manager};
 
 use crate::captions::Caption;
 use crate::db;
@@ -40,8 +40,32 @@ pub fn caption_create_batch(
     media_ids: Vec<String>,
     text: String,
 ) -> Result<(), String> {
-    for id in &media_ids {
-        db::caption_create(&app, id, &text).map_err(|e| e.to_string())?;
+    if media_ids.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_data.join("medix.db");
+    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    conn.execute("BEGIN TRANSACTION", []).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("INSERT INTO captions (id, media_id, text, source) VALUES (?1, ?2, ?3, ?4)")
+        .map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(), String> {
+        for media_id in &media_ids {
+            let id = ulid::Ulid::new().to_string();
+            stmt.execute(rusqlite::params![id, media_id, text, "manual"])
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => {
+            conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
+    }
 }

@@ -1,8 +1,23 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { mediaThumbnail } from "@/lib/tauri";
+import { mediaThumbnail, mediaThumbnailBatch } from "@/lib/tauri";
 
 const cache = new Map<string, string>();
+
+/** Preload thumbnails for a batch of media IDs — one IPC call for all. */
+export async function preloadThumbnails(ids: string[]): Promise<void> {
+  const uncached = ids.filter((id) => !cache.has(id));
+  if (uncached.length === 0) return;
+
+  try {
+    const results = await mediaThumbnailBatch(uncached);
+    for (const r of results) {
+      cache.set(r.id, convertFileSrc(r.path));
+    }
+  } catch {
+    // Silently fail — individual useThumbnail will retry
+  }
+}
 
 export function useThumbnail(id: string | null, displayVariantId?: string | null) {
   const [url, setUrl] = useState<string | null>(null);
@@ -16,11 +31,10 @@ export function useThumbnail(id: string | null, displayVariantId?: string | null
     }
 
     let cancelled = false;
-    let retryCount = 0;
-    const maxRetries = 15;
+    const maxRetries = 3;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const load = () => {
+    const load = (attempt: number) => {
       mediaThumbnail(id)
         .then((path) => {
           if (!cancelled) {
@@ -32,15 +46,16 @@ export function useThumbnail(id: string | null, displayVariantId?: string | null
         .catch(() => {
           if (!cancelled) {
             setUrl(null);
-            retryCount++;
-            if (retryCount <= maxRetries) {
-              retryTimer = setTimeout(load, 2000);
+            if (attempt < maxRetries) {
+              // Exponential backoff: 1s → 2s → 4s
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+              retryTimer = setTimeout(() => load(attempt + 1), delay);
             }
           }
         });
     };
 
-    load();
+    load(1);
 
     return () => {
       cancelled = true;

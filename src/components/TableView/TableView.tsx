@@ -1,7 +1,7 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Media } from "@/types/media";
-import { useThumbnail } from "@/hooks/useThumbnail";
+import { useThumbnail, preloadThumbnails } from "@/hooks/useThumbnail";
 
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
 
@@ -49,6 +49,12 @@ function TableView({
   onAddToCollection,
   onDelete,
 }: TableViewProps) {
+
+  // Preload thumbnails in batch when media list changes
+  useEffect(() => {
+    const ids = media.map((m) => m.id);
+    preloadThumbnails(ids);
+  }, [media]);
 
   const sortArrow = (field: SortField) => {
     if (sortBy !== field) return null;

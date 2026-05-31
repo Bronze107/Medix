@@ -27,6 +27,15 @@ export function mediaThumbnail(id: string): Promise<string> {
   return invoke("media_thumbnail", { id });
 }
 
+export interface ThumbnailResult {
+  id: string;
+  path: string;
+}
+
+export function mediaThumbnailBatch(ids: string[]): Promise<ThumbnailResult[]> {
+  return invoke("media_thumbnail_batch", { ids });
+}
+
 export function mediaSoftDelete(id: string): Promise<void> {
   return invoke("media_soft_delete", { id });
 }
