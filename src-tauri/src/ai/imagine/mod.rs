@@ -11,9 +11,9 @@ use crate::settings;
 #[derive(Debug, thiserror::Error)]
 pub enum ImagineError {
     #[error("HTTP error: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(#[from] #[source] reqwest::Error),
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] #[source] std::io::Error),
     #[error("API error: {0}")]
     Api(String),
     #[error("No image data in response")]

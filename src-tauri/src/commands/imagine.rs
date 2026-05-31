@@ -1,5 +1,6 @@
 use base64::Engine;
 use image::ImageEncoder;
+use std::error::Error;
 use std::fs;
 use std::path::Path;
 use tauri::{command, AppHandle, Manager};
@@ -48,8 +49,14 @@ pub async fn image_generate(
     };
 
     let images = provider.generate(&params).await.map_err(|e| {
-        eprintln!("[imagine] generate error: {}", e);
-        format!("生成失败: {}", e)
+        let mut msg = e.to_string();
+        let mut src = e.source();
+        while let Some(s) = src {
+            msg.push_str(&format!("\n  caused by: {}", s));
+            src = s.source();
+        }
+        eprintln!("[imagine] generate error: {}", msg);
+        format!("生成失败: {}", msg)
     })?;
 
     let staging = staging_dir(&app)?;
@@ -129,8 +136,14 @@ pub async fn image_edit(
     };
 
     let images = provider.edit(&params).await.map_err(|e| {
-        eprintln!("[imagine] edit error: {}", e);
-        format!("编辑失败: {}", e)
+        let mut msg = e.to_string();
+        let mut src = e.source();
+        while let Some(s) = src {
+            msg.push_str(&format!("\n  caused by: {}", s));
+            src = s.source();
+        }
+        eprintln!("[imagine] edit error: {}", msg);
+        format!("编辑失败: {}", msg)
     })?;
 
     let staging = staging_dir(&app)?;
