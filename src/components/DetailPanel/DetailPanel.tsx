@@ -328,6 +328,18 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
     return () => window.removeEventListener("tags-changed", handler);
   }, [media?.id, targetId, loadMediaTags]);
 
+  // Reload variants when AI editing adds new variants
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (media && detail?.mediaId === media.id) {
+        loadVariants(media.id);
+      }
+    };
+    window.addEventListener("variants-changed", handler);
+    return () => window.removeEventListener("variants-changed", handler);
+  }, [media?.id, loadVariants]);
+
   // Click outside target menu → close
   useEffect(() => {
     if (!showTargetMenu) return;
@@ -1190,7 +1202,13 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       />
     </div>
     {showAiEdit && media && (
-      <ImagineDialog mediaId={media.id} onClose={() => setShowAiEdit(false)} />
+      <ImagineDialog
+        mediaId={media.id}
+        onClose={() => setShowAiEdit(false)}
+        onImported={() => {
+          if (media) loadVariants(media.id);
+        }}
+      />
     )}
   </>
   );

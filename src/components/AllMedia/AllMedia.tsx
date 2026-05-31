@@ -1526,7 +1526,13 @@ function AllMedia({ collectionId }: AllMediaProps) {
         onCancel={() => { setDeleteConfirm(null); setPendingDeleteId(null); }}
       />
       {aiEditMediaId && (
-        <ImagineDialog mediaId={aiEditMediaId} onClose={() => setAiEditMediaId(null)} />
+        <ImagineDialog
+          mediaId={aiEditMediaId}
+          onClose={() => setAiEditMediaId(null)}
+          onImported={() => {
+            window.dispatchEvent(new CustomEvent("variants-changed", { detail: { mediaId: aiEditMediaId } }));
+          }}
+        />
       )}
     </div>
   );

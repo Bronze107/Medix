@@ -7,9 +7,10 @@ import type { StagedImage } from "@/lib/tauri";
 interface Props {
   mediaId: string;
   onClose: () => void;
+  onImported?: () => void;
 }
 
-function ImagineDialog({ mediaId, onClose }: Props) {
+function ImagineDialog({ mediaId, onClose, onImported }: Props) {
   const [prompt, setPrompt] = useState("");
   const [resolution, setResolution] = useState("1k");
   const [n, setN] = useState(1);
@@ -52,6 +53,7 @@ function ImagineDialog({ mediaId, onClose }: Props) {
     try {
       await imageConfirmImport(toImport, prompt.trim(), mediaId);
       setImported(true);
+      onImported?.();
     } catch (e) {
       setError(String(e));
     } finally {
