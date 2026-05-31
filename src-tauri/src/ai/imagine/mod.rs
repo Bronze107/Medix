@@ -69,10 +69,11 @@ pub fn create_provider(app: &AppHandle) -> Result<Box<dyn ImageProvider>, String
             let api_key = settings::get_image_api_key(app);
             let base_url = settings::get_image_api_base_url(app);
             let model = settings::get_image_api_model(app);
+            let proxy = settings::get_image_api_proxy(app);
             if api_key.is_empty() {
                 return Err("xAI API key not configured".to_string());
             }
-            Ok(Box::new(xai::XaiProvider::new(api_key, base_url, model)))
+            Ok(Box::new(xai::XaiProvider::new(api_key, base_url, model, proxy)))
         }
         "" => Err("No image API provider configured".to_string()),
         _ => Err(format!("Unknown image provider: {}", provider)),

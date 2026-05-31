@@ -157,6 +157,7 @@ pub const KEY_IMAGE_API_PROVIDER: &str = "image_api_provider";
 pub const KEY_IMAGE_API_KEY: &str = "image_api_key";
 pub const KEY_IMAGE_API_BASE_URL: &str = "image_api_base_url";
 pub const KEY_IMAGE_API_MODEL: &str = "image_api_model";
+pub const KEY_IMAGE_API_PROXY: &str = "image_api_proxy";
 
 pub fn get_image_api_provider(app: &AppHandle) -> String {
     get(app, KEY_IMAGE_API_PROVIDER).unwrap_or_default()
@@ -187,4 +188,17 @@ pub fn get_image_api_model(app: &AppHandle) -> String {
         "xai" => "grok-imagine-image-quality".to_string(),
         _ => String::new(),
     }
+}
+
+pub fn get_image_api_proxy(app: &AppHandle) -> Option<String> {
+    let configured = get(app, KEY_IMAGE_API_PROXY).unwrap_or_default();
+    if !configured.is_empty() {
+        return Some(configured);
+    }
+    // Fall back to env vars
+    std::env::var("HTTPS_PROXY")
+        .or_else(|_| std::env::var("https_proxy"))
+        .or_else(|_| std::env::var("HTTP_PROXY"))
+        .or_else(|_| std::env::var("http_proxy"))
+        .ok()
 }

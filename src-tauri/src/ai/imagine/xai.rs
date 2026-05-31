@@ -1,31 +1,27 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::sync::LazyLock;
 use std::time::Duration;
 
 use super::{EditParams, GenerateParams, GeneratedImage, ImageProvider, ImagineError};
 
 // --- Shared HTTP client ---
+// Using SyncUnsafeCell because the client is mutated during init only, then read-only.
+// Safe as long as init completes before any reads.
 
-static XAI_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+fn build_client(proxy: Option<&str>) -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
         .connect_timeout(Duration::from_secs(15));
 
-    // Honour HTTPS_PROXY / HTTP_PROXY env vars
-    if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
-        .or_else(|_| std::env::var("https_proxy"))
-        .or_else(|_| std::env::var("HTTP_PROXY"))
-        .or_else(|_| std::env::var("http_proxy"))
-    {
-        if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
-            builder = builder.proxy(proxy);
+    if let Some(proxy_url) = proxy {
+        if let Ok(p) = reqwest::Proxy::all(proxy_url) {
             eprintln!("[imagine] using proxy {}", proxy_url);
+            builder = builder.proxy(p);
         }
     }
 
     builder.build().expect("failed to build xAI HTTP client")
-});
+}
 
 // --- Request / Response types ---
 
@@ -77,11 +73,13 @@ pub struct XaiProvider {
     api_key: String,
     base_url: String,
     model: String,
+    client: reqwest::Client,
 }
 
 impl XaiProvider {
-    pub fn new(api_key: String, base_url: String, model: String) -> Self {
-        Self { api_key, base_url, model }
+    pub fn new(api_key: String, base_url: String, model: String, proxy: Option<String>) -> Self {
+        let client = build_client(proxy.as_deref());
+        Self { api_key, base_url, model, client }
     }
 }
 
@@ -100,7 +98,7 @@ impl ImageProvider for XaiProvider {
             response_format: "url".to_string(),
         };
 
-        let resp = XAI_CLIENT
+        let resp = self.client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("User-Agent", "Hermes-Agent/0.14.0")
@@ -115,7 +113,7 @@ impl ImageProvider for XaiProvider {
         }
 
         let body: ImageResponse = resp.json().await?;
-        download_images(&body.data).await
+        download_images(&self.client, &body.data).await
     }
 
     async fn edit(&self, params: &EditParams) -> Result<Vec<GeneratedImage>, ImagineError> {
@@ -131,7 +129,7 @@ impl ImageProvider for XaiProvider {
             response_format: "url".to_string(),
         };
 
-        let resp = XAI_CLIENT
+        let resp = self.client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("User-Agent", "Hermes-Agent/0.14.0")
@@ -146,7 +144,7 @@ impl ImageProvider for XaiProvider {
         }
 
         let body: ImageResponse = resp.json().await?;
-        download_images(&body.data).await
+        download_images(&self.client, &body.data).await
     }
 
     async fn health_check(&self) -> Result<bool, ImagineError> {
@@ -155,7 +153,7 @@ impl ImageProvider for XaiProvider {
             return Ok(false);
         }
         // Light check: try a minimal request
-        let resp = XAI_CLIENT
+        let resp = self.client
             .get(format!("{}/models", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("User-Agent", "Hermes-Agent/0.14.0")
@@ -165,11 +163,11 @@ impl ImageProvider for XaiProvider {
     }
 }
 
-async fn download_images(data: &[ImageData]) -> Result<Vec<GeneratedImage>, ImagineError> {
+async fn download_images(client: &reqwest::Client, data: &[ImageData]) -> Result<Vec<GeneratedImage>, ImagineError> {
     let mut images = Vec::with_capacity(data.len());
     for item in data {
         if let Some(ref url) = item.url {
-            let resp = XAI_CLIENT.get(url)
+            let resp = client.get(url)
                 .header("User-Agent", "Hermes-Agent/0.14.0")
                 .send().await?;
             if !resp.status().is_success() {

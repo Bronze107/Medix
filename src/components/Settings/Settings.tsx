@@ -45,6 +45,7 @@ function Settings() {
   const [imageApiKey, setImageApiKey] = useState("");
   const [imageApiBaseUrl, setImageApiBaseUrl] = useState("");
   const [imageApiModel, setImageApiModel] = useState("");
+  const [imageApiProxy, setImageApiProxy] = useState("");
   const [httpPort, setHttpPort] = useState(8765);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -77,6 +78,7 @@ function Settings() {
       if (settings.image_api_key) setImageApiKey(settings.image_api_key);
       if (settings.image_api_base_url) setImageApiBaseUrl(settings.image_api_base_url);
       if (settings.image_api_model) setImageApiModel(settings.image_api_model);
+      if (settings.image_api_proxy) setImageApiProxy(settings.image_api_proxy);
     } catch (e) {
       console.error("Failed to load settings:", e);
     }
@@ -126,6 +128,7 @@ function Settings() {
       await settingsSet("image_api_key", imageApiKey);
       await settingsSet("image_api_base_url", imageApiBaseUrl);
       await settingsSet("image_api_model", imageApiModel);
+      await settingsSet("image_api_proxy", imageApiProxy);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -656,6 +659,16 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                 value={imageApiModel}
                 onChange={(e) => setImageApiModel(e.target.value)}
                 placeholder={imageApiProvider === "xai" ? "grok-imagine-image-quality" : ""}
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--color-text-muted)]">代理地址 (可选)</label>
+              <input
+                type="text"
+                value={imageApiProxy}
+                onChange={(e) => setImageApiProxy(e.target.value)}
+                placeholder="http://127.0.0.1:7890"
                 className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
               />
             </div>
