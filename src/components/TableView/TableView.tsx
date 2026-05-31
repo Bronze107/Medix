@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Media } from "@/types/media";
-import { mediaThumbnail } from "@/lib/tauri";
+import { useThumbnail } from "@/hooks/useThumbnail";
 
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
 
@@ -33,30 +32,6 @@ function formatFileSize(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-const thumbCache = new Map<string, string>();
-
-function useThumbnail(id: string | null, displayVariantId?: string | null) {
-  const [url, setUrl] = useState<string | null>(null);
-  const cacheKey = id ? (displayVariantId ? `${id}:${displayVariantId}` : id) : null;
-  useEffect(() => {
-    if (!id || !cacheKey) return;
-    if (thumbCache.has(cacheKey)) {
-      setUrl(thumbCache.get(cacheKey)!);
-      return;
-    }
-    let cancelled = false;
-    mediaThumbnail(id).then((path) => {
-      if (!cancelled) {
-        const src = convertFileSrc(path);
-        thumbCache.set(cacheKey, src);
-        setUrl(src);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [id, cacheKey]);
-  return url;
 }
 
 function TableView({

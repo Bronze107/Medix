@@ -14,7 +14,6 @@ export interface Media {
   deleted_at: string | null;
   display_variant_id: string | null;
   thumb_256: string | null;
-  thumb_512: string | null;
 }
 
 export interface MediaImportResult {

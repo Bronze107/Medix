@@ -302,6 +302,25 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         )?;
     }
 
+    // --- 0015_performance_indexes ---
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0015_performance_indexes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0015_performance_indexes');
+                 CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
+                 CREATE INDEX IF NOT EXISTS idx_media_deleted_at ON media(deleted_at);
+                 CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);",
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -485,7 +504,6 @@ pub fn media_list_by_collection(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             thumb_256: None,
-            thumb_512: None,
         })
     })?;
     let mut results = Vec::new();
@@ -540,7 +558,6 @@ pub fn media_get_by_sha256(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             thumb_256: None,
-            thumb_512: None,
         })
     })?;
     if let Some(row) = rows.next() {
@@ -582,10 +599,6 @@ pub(crate) fn resolve_thumb_paths(app: &AppHandle, media_list: &mut [Media]) {
         let thumb_256 = thumbs_dir.join(format!("{}_256.jpg", media.id));
         if thumb_256.exists() {
             media.thumb_256 = Some(thumb_256.to_string_lossy().replace('\\', "/"));
-        }
-        let thumb_512 = thumbs_dir.join(format!("{}_512.jpg", media.id));
-        if thumb_512.exists() {
-            media.thumb_512 = Some(thumb_512.to_string_lossy().replace('\\', "/"));
         }
     }
 }
@@ -634,7 +647,6 @@ pub fn list_media_path(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             thumb_256: None,
-            thumb_512: None,
         })
     })?;
 
@@ -693,7 +705,6 @@ pub fn media_get_batch(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             thumb_256: None,
-            thumb_512: None,
         })
     })?;
     let mut results = Vec::new();
@@ -1018,7 +1029,6 @@ pub fn media_search_by_tags_path(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             thumb_256: None,
-            thumb_512: None,
         })
     })?;
 
@@ -1176,7 +1186,6 @@ pub fn media_query_filtered_path(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             thumb_256: None,
-            thumb_512: None,
         })
     })?;
 
@@ -1772,7 +1781,6 @@ pub fn media_list_trash(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             thumb_256: None,
-            thumb_512: None,
         })
     })?;
 

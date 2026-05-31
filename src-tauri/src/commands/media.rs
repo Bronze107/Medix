@@ -124,7 +124,6 @@ pub fn media_find_duplicates(app: AppHandle) -> Result<Vec<Vec<Media>>, String> 
 pub struct MediaPaths {
     pub original: Option<String>,
     pub thumb_256: Option<String>,
-    pub thumb_512: Option<String>,
 }
 
 #[command]
@@ -156,15 +155,10 @@ pub fn media_get_paths(app: AppHandle, id: String) -> Result<MediaPaths, String>
         let p = thumb_dir.join(format!("{}_256.jpg", &id));
         p.exists().then(|| p.to_string_lossy().replace('\\', "/"))
     };
-    let thumb_512 = {
-        let p = thumb_dir.join(format!("{}_512.jpg", &id));
-        p.exists().then(|| p.to_string_lossy().replace('\\', "/"))
-    };
 
     Ok(MediaPaths {
         original,
         thumb_256,
-        thumb_512,
     })
 }
 

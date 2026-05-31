@@ -249,6 +249,10 @@ async fn process_generate_caption(
     }
 
     println!("[ai] completed processing {}", media_id);
+    // Clean up temp inference file (if any)
+    if inference_path_ref != &image_path {
+        let _ = tokio::fs::remove_file(inference_path_ref).await;
+    }
     Ok(())
 }
 

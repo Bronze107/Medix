@@ -166,7 +166,6 @@ fn import_single_file(
         deleted_at: None,
         display_variant_id: None,
         thumb_256: None,
-        thumb_512: None,
     };
 
     if let Err(e) = db::insert_media(app, &media) {

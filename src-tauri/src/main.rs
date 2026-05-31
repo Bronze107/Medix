@@ -38,6 +38,32 @@ fn main() {
         .setup(|app| {
             db::init(app.handle())?;
 
+            // Clean up residual temp files from previous runs
+            {
+                // Stale inference temp files
+                let temp_dir = std::env::temp_dir();
+                if let Ok(entries) = std::fs::read_dir(&temp_dir) {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+                        if name_str.starts_with("medix_infer_") && name_str.ends_with(".jpg") {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
+                }
+                // Stale staging files
+                if let Ok(app_dir) = app.handle().path().app_data_dir() {
+                    let staging = app_dir.join("staging");
+                    if staging.exists() {
+                        if let Ok(entries) = std::fs::read_dir(&staging) {
+                            for entry in entries.flatten() {
+                                let _ = std::fs::remove_file(entry.path());
+                            }
+                        }
+                    }
+                }
+            }
+
             app.manage(ai::LlamaServer::new());
 
             let ai_queue = ai::init_ai_queue(app.handle().clone());

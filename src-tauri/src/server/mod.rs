@@ -204,7 +204,6 @@ fn download_and_import(
         deleted_at: None,
         display_variant_id: None,
         thumb_256: None,
-        thumb_512: None,
     };
 
     crate::db::insert_media(app, &media).map_err(|e| e.to_string())?;

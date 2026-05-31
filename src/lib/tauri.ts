@@ -57,7 +57,6 @@ export function mediaFindDuplicates(): Promise<Media[][]> {
 export interface MediaPaths {
   original: string | null;
   thumb_256: string | null;
-  thumb_512: string | null;
 }
 
 export function mediaGetPaths(id: string): Promise<MediaPaths> {

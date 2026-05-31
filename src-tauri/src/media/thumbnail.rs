@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use tauri::{AppHandle, Manager};
 
-const THUMB_SIZES: &[(u32, &str)] = &[(256, "256"), (512, "512")];
+const THUMB_SIZES: &[(u32, &str)] = &[(256, "256")];
 
 pub fn generate_thumbnails(
     app: &AppHandle,
