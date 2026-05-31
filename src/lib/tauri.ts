@@ -395,7 +395,3 @@ export function imageConfirmImport(
 export function imageDiscardStaged(stagedIds: string[]): Promise<void> {
   return invoke("image_discard_staged", { stagedIds });
 }
-
-export function stagedImageDataUrl(stagedId: string): Promise<string> {
-  return invoke("staged_image_data_url", { stagedId });
-}

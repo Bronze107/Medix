@@ -2,7 +2,6 @@ use base64::Engine;
 use image::ImageEncoder;
 use std::error::Error;
 use std::fs;
-use std::io::Read;
 use std::path::Path;
 use tauri::{command, AppHandle, Manager};
 use ulid::Ulid;
@@ -340,23 +339,6 @@ pub async fn image_confirm_import(
         }
         Ok(results)
     }
-}
-
-/// Read a staged image as base64 data URL for preview.
-#[command]
-pub fn staged_image_data_url(app: AppHandle, staged_id: String) -> Result<String, String> {
-    let staging = staging_dir(&app)?;
-    let ext = find_staged_ext(&staging, &staged_id)?;
-    let path = staging.join(format!("{}.{}", staged_id, ext));
-    let mut buf = Vec::new();
-    fs::File::open(&path).map_err(|e| e.to_string())?.read_to_end(&mut buf).map_err(|e| e.to_string())?;
-    let mime = match ext.as_str() {
-        "png" => "image/png",
-        "webp" => "image/webp",
-        _ => "image/jpeg",
-    };
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
-    Ok(format!("data:{};base64,{}", mime, b64))
 }
 
 /// Discard staged images — delete temp files without importing.

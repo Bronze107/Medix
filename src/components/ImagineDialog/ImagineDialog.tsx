@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { useThumbnail } from "@/hooks/useThumbnail";
-import { imageEdit, imageConfirmImport, imageDiscardStaged, stagedImageDataUrl } from "@/lib/tauri";
+import { imageEdit, imageConfirmImport, imageDiscardStaged } from "@/lib/tauri";
 import type { StagedImage } from "@/lib/tauri";
 
 interface Props {
@@ -18,7 +19,6 @@ function ImagineDialog({ mediaId, onClose }: Props) {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imported, setImported] = useState(false);
-  const [previewUrls, setPreviewUrls] = useState<Map<string, string>>(new Map());
 
   const thumbUrl = useThumbnail(mediaId);
 
@@ -37,11 +37,6 @@ function ImagineDialog({ mediaId, onClose }: Props) {
     try {
       const results = await imageEdit(mediaId, prompt.trim(), resolution, n);
       setStaged(results);
-      const urls = new Map<string, string>();
-      for (const r of results) {
-        try { urls.set(r.id, await stagedImageDataUrl(r.id)); } catch { /* ignore */ }
-      }
-      setPreviewUrls(urls);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -152,11 +147,7 @@ function ImagineDialog({ mediaId, onClose }: Props) {
                       selectedIds.has(img.id) ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]" : "border-[var(--color-border)] hover:border-[var(--color-accent)]/50"
                     }`}>
                     <div className="aspect-square bg-[var(--color-bg-tertiary)]">
-                      {previewUrls.has(img.id) ? (
-                        <img src={previewUrls.get(img.id)} alt="" className="w-full h-full object-cover" draggable={false} decoding="async" />
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-[11px] text-[var(--color-text-muted)]">{img.width} × {img.height}</div>
-                      )}
+                      <img src={convertFileSrc(img.path)} alt="" className="w-full h-full object-cover" draggable={false} decoding="async" />
                     </div>
                     <div className="px-2 py-1 text-[10px] text-[var(--color-text-muted)] text-center">
                       {img.width} × {img.height}
