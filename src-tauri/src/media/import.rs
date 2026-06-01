@@ -300,29 +300,19 @@ fn import_single_file(
         };
     }
 
-    // Step 6: Generate thumbnails from the shared image (async, no re-decode)
-    let app_clone = app.clone();
-    let media_id = id.clone();
-    tokio::task::spawn_blocking(move || {
-        if let Err(e) = super::thumbnail::generate_thumbnails_from_image(&app_clone, &media_id, &img) {
-            eprintln!("[thumbnail] failed to generate thumbnails for {}: {}", media_id, e);
-        } else {
-            println!("[thumbnail] generated for {}", media_id);
-        }
-    });
+    // Step 6: Generate thumbnails from the shared image
+    // (we're already in an OS thread from std::thread::scope, so call directly)
+    if let Err(e) = super::thumbnail::generate_thumbnails_from_image(app, &id, &img) {
+        eprintln!("[thumbnail] failed to generate thumbnails for {}: {}", id, e);
+    }
 
-    // Step 7: Trigger AI caption generation asynchronously
-    let app_clone = app.clone();
-    let media_id = id.clone();
-    let dest_path_clone = dest_path.clone();
-    tokio::task::spawn_blocking(move || {
-        use tauri::Manager;
-        let queue = app_clone.state::<crate::ai::AiQueue>();
-        let _ = queue.send(crate::ai::AiTask::GenerateCaption {
-            media_id,
-            image_path: dest_path_clone,
-            variant_id: None,
-        });
+    // Step 7: Trigger AI caption generation
+    // AiQueue uses std::sync::mpsc — safe to call from any thread
+    let queue = app.state::<crate::ai::AiQueue>();
+    let _ = queue.send(crate::ai::AiTask::GenerateCaption {
+        media_id: id.clone(),
+        image_path: dest_path.clone(),
+        variant_id: None,
     });
 
     MediaImportResult {
