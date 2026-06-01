@@ -112,12 +112,8 @@ fn download_and_import(
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(60));
 
-    // Honour HTTPS_PROXY / HTTP_PROXY env vars (Clash / V2Ray typical setup)
-    if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
-        .or_else(|_| std::env::var("https_proxy"))
-        .or_else(|_| std::env::var("HTTP_PROXY"))
-        .or_else(|_| std::env::var("http_proxy"))
-    {
+    // Use global proxy setting (or env vars as fallback)
+    if let Some(proxy_url) = crate::settings::get_global_proxy(app) {
         if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
             client_builder = client_builder.proxy(proxy);
             eprintln!("[http] using proxy {}", proxy_url);

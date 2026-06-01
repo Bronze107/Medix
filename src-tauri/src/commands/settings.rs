@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::error::Error;
+use std::time::Duration;
 use tauri::{command, AppHandle};
 
 use crate::settings;
@@ -43,6 +45,7 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_IMAGE_API_BASE_URL,
         settings::KEY_IMAGE_API_MODEL,
         settings::KEY_IMAGE_API_PROXY,
+        settings::KEY_GLOBAL_PROXY,
     ];
     for key in keys {
         if let Some(val) = settings::get(&app, key) {
@@ -72,4 +75,40 @@ pub fn saved_filters_save(
 #[command]
 pub fn saved_filters_delete(app: AppHandle, name: String) -> Result<(), String> {
     crate::db::saved_filters_delete(&app, &name).map_err(|e| e.to_string())
+}
+
+/// Test proxy connectivity by attempting to reach xAI's API through the given proxy.
+#[command]
+pub fn test_proxy(proxy_url: String) -> Result<String, String> {
+    let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| format!("代理地址无效: {}", e))?;
+    let client = reqwest::blocking::Client::builder()
+        .proxy(proxy)
+        .connect_timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("创建客户端失败: {}", e))?;
+
+    match client
+        .get("https://api.x.ai/v1/models")
+        .header("User-Agent", "Hermes-Agent/0.14.0")
+        .send()
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() || status.as_u16() == 401 {
+                Ok(format!("连接成功 (HTTP {})", status))
+            } else {
+                Err(format!("代理可达但 API 返回异常 (HTTP {})", status))
+            }
+        }
+        Err(e) => {
+            let mut msg = format!("连接失败: {e}");
+            let mut src = e.source();
+            while let Some(inner) = src {
+                msg.push_str(&format!("\n  caused by: {inner}"));
+                src = inner.source();
+            }
+            Err(msg)
+        }
+    }
 }

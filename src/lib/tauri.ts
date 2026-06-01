@@ -356,6 +356,10 @@ export function settingsGetAll(): Promise<Record<string, string>> {
   return invoke("settings_get_all");
 }
 
+export function testProxy(proxyUrl: string): Promise<string> {
+  return invoke("test_proxy", { proxyUrl });
+}
+
 // --- AI Image Generation ---
 
 export interface StagedImage {

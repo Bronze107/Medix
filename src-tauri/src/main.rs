@@ -27,7 +27,7 @@ use commands::{
     media_recover, media_soft_delete,
     media_search, media_tag_add, media_tag_add_batch, media_tag_add_for_variant, media_tag_remove, media_tag_remove_batch, media_tag_remove_for_variant, media_tags_get, media_tags_get_for_variant, media_tags_intersect,
     media_thumbnail, media_thumbnail_batch, model_list, saved_filters_delete, saved_filters_list, saved_filters_save,
-    settings_get, settings_get_all, settings_set, tag_create, tag_delete, tag_list, tag_rename,
+    settings_get, settings_get_all, settings_set, test_proxy, tag_create, tag_delete, tag_list, tag_rename,
     variant_annotate, variant_delete, variant_generate, variant_import, variant_list, variant_presets,
     media_set_display_variant,
 };
@@ -171,6 +171,7 @@ fn main() {
             settings_get,
             settings_set,
             settings_get_all,
+            test_proxy,
             saved_filters_list,
             saved_filters_save,
             saved_filters_delete,

@@ -157,7 +157,30 @@ pub const KEY_IMAGE_API_PROVIDER: &str = "image_api_provider";
 pub const KEY_IMAGE_API_KEY: &str = "image_api_key";
 pub const KEY_IMAGE_API_BASE_URL: &str = "image_api_base_url";
 pub const KEY_IMAGE_API_MODEL: &str = "image_api_model";
-pub const KEY_IMAGE_API_PROXY: &str = "image_api_proxy";
+pub const KEY_IMAGE_API_PROXY: &str = "image_api_proxy"; // legacy, migrated to global_proxy
+
+// --- Global proxy ---
+
+pub const KEY_GLOBAL_PROXY: &str = "global_proxy";
+
+/// Returns the configured proxy URL, with fallback: global_proxy → legacy image_api_proxy → env vars.
+pub fn get_global_proxy(app: &AppHandle) -> Option<String> {
+    let configured = get(app, KEY_GLOBAL_PROXY).unwrap_or_default();
+    if !configured.is_empty() {
+        return Some(configured);
+    }
+    // Migration: fall back to old image_api_proxy key
+    let old = get(app, KEY_IMAGE_API_PROXY).unwrap_or_default();
+    if !old.is_empty() {
+        return Some(old);
+    }
+    // Fall back to env vars
+    std::env::var("HTTPS_PROXY")
+        .or_else(|_| std::env::var("https_proxy"))
+        .or_else(|_| std::env::var("HTTP_PROXY"))
+        .or_else(|_| std::env::var("http_proxy"))
+        .ok()
+}
 
 pub fn get_image_api_provider(app: &AppHandle) -> String {
     get(app, KEY_IMAGE_API_PROVIDER).unwrap_or_default()
@@ -191,14 +214,5 @@ pub fn get_image_api_model(app: &AppHandle) -> String {
 }
 
 pub fn get_image_api_proxy(app: &AppHandle) -> Option<String> {
-    let configured = get(app, KEY_IMAGE_API_PROXY).unwrap_or_default();
-    if !configured.is_empty() {
-        return Some(configured);
-    }
-    // Fall back to env vars
-    std::env::var("HTTPS_PROXY")
-        .or_else(|_| std::env::var("https_proxy"))
-        .or_else(|_| std::env::var("HTTP_PROXY"))
-        .or_else(|_| std::env::var("http_proxy"))
-        .ok()
+    get_global_proxy(app)
 }

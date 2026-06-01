@@ -7,6 +7,7 @@ import {
   llamaServerStop,
   settingsGetAll,
   settingsSet,
+  testProxy,
 } from "@/lib/tauri";
 
 type AiMode = "local" | "cloud" | "auto";
@@ -45,7 +46,10 @@ function Settings() {
   const [imageApiKey, setImageApiKey] = useState("");
   const [imageApiBaseUrl, setImageApiBaseUrl] = useState("");
   const [imageApiModel, setImageApiModel] = useState("");
-  const [imageApiProxy, setImageApiProxy] = useState("");
+  const [imageApiProxy, setImageApiProxy] = useState(""); // legacy, synced with globalProxy
+  const [globalProxy, setGlobalProxy] = useState("");
+  const [proxyTesting, setProxyTesting] = useState(false);
+  const [proxyTestResult, setProxyTestResult] = useState<string | null>(null);
   const [httpPort, setHttpPort] = useState(8765);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -79,6 +83,11 @@ function Settings() {
       if (settings.image_api_base_url) setImageApiBaseUrl(settings.image_api_base_url);
       if (settings.image_api_model) setImageApiModel(settings.image_api_model);
       if (settings.image_api_proxy) setImageApiProxy(settings.image_api_proxy);
+      if (settings.global_proxy) {
+        setGlobalProxy(settings.global_proxy);
+      } else if (settings.image_api_proxy) {
+        setGlobalProxy(settings.image_api_proxy); // migrate from legacy key
+      }
     } catch (e) {
       console.error("Failed to load settings:", e);
     }
@@ -129,6 +138,7 @@ function Settings() {
       await settingsSet("image_api_base_url", imageApiBaseUrl);
       await settingsSet("image_api_model", imageApiModel);
       await settingsSet("image_api_proxy", imageApiProxy);
+      await settingsSet("global_proxy", globalProxy);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -466,6 +476,52 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
 
         </section>
 
+        {/* Global Proxy */}
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
+            网络代理
+          </h2>
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <label className="mb-1 block text-xs text-[var(--color-text-muted)]">HTTP 代理地址（可选）</label>
+              <input
+                type="text"
+                value={globalProxy}
+                onChange={(e) => { setGlobalProxy(e.target.value); setProxyTestResult(null); }}
+                placeholder="http://127.0.0.1:7890"
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+              />
+            </div>
+            <button
+              onClick={async () => {
+                if (!globalProxy.trim()) return;
+                setProxyTesting(true);
+                setProxyTestResult(null);
+                try {
+                  const msg = await testProxy(globalProxy.trim());
+                  setProxyTestResult(msg);
+                } catch (e) {
+                  setProxyTestResult(String(e));
+                } finally {
+                  setProxyTesting(false);
+                }
+              }}
+              disabled={proxyTesting || !globalProxy.trim()}
+              className="shrink-0 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] disabled:opacity-50 active:scale-[0.97]"
+            >
+              {proxyTesting ? "测试中..." : "测试连接"}
+            </button>
+          </div>
+          {proxyTestResult && (
+            <p className={`mt-1.5 text-xs ${proxyTestResult.startsWith("连接成功") ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
+              {proxyTestResult}
+            </p>
+          )}
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            所有外部 HTTP 请求（AI 生图、浏览器插件下载图片）均通过此代理。留空则尝试读取 HTTPS_PROXY 环境变量
+          </p>
+        </section>
+
         {/* Browser Extension */}
         <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
@@ -659,16 +715,6 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                 value={imageApiModel}
                 onChange={(e) => setImageApiModel(e.target.value)}
                 placeholder={imageApiProvider === "xai" ? "grok-imagine-image-quality" : ""}
-                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-[var(--color-text-muted)]">代理地址 (可选)</label>
-              <input
-                type="text"
-                value={imageApiProxy}
-                onChange={(e) => setImageApiProxy(e.target.value)}
-                placeholder="http://127.0.0.1:7890"
                 className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
               />
             </div>
