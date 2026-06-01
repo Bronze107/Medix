@@ -198,15 +198,12 @@ impl ImageProvider for XaiProvider {
         }
 
         let body: ImageResponse = resp.json().await?;
-        eprintln!(
-            "[imagine] generate resp: {} images — {}",
-            body.data.len(),
-            body.data
-                .iter()
-                .filter_map(|d| d.url.as_deref())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        for (i, d) in body.data.iter().enumerate() {
+            let url = d.url.as_deref().unwrap_or("-");
+            let mime = d.mime_type.as_deref().unwrap_or("?");
+            let b64 = if d.b64_json.is_some() { " [b64]" } else { "" };
+            eprintln!("[imagine] resp[{i}]: {url} ({mime}){b64}");
+        }
         download_images(&self.client, &body.data).await
     }
 
@@ -234,15 +231,12 @@ impl ImageProvider for XaiProvider {
         }
 
         let body: ImageResponse = resp.json().await?;
-        eprintln!(
-            "[imagine] edit resp: {} images — {}",
-            body.data.len(),
-            body.data
-                .iter()
-                .filter_map(|d| d.url.as_deref())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        for (i, d) in body.data.iter().enumerate() {
+            let url = d.url.as_deref().unwrap_or("-");
+            let mime = d.mime_type.as_deref().unwrap_or("?");
+            let b64 = if d.b64_json.is_some() { " [b64]" } else { "" };
+            eprintln!("[imagine] edit resp[{i}]: {url} ({mime}){b64}");
+        }
         download_images(&self.client, &body.data).await
     }
 
