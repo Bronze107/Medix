@@ -430,6 +430,7 @@ pub fn image_queue_submit_generate(
         created_at: Utc::now().to_rfc3339(),
     });
     queue.send(task).map_err(|e| e.to_string())?;
+    let _ = app.emit("image-queue-updated", serde_json::json!({ "remaining": queue.pending_count() }));
     Ok(task_id)
 }
 
@@ -465,6 +466,7 @@ pub fn image_queue_submit_edit(
         created_at: Utc::now().to_rfc3339(),
     });
     queue.send(task).map_err(|e| e.to_string())?;
+    let _ = app.emit("image-queue-updated", serde_json::json!({ "remaining": queue.pending_count() }));
     Ok(task_id)
 }
 
