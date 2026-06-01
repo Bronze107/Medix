@@ -148,6 +148,13 @@ struct EditImageInput {
 #[derive(Deserialize)]
 struct ImageResponse {
     data: Vec<ImageData>,
+    #[serde(default)]
+    usage: Option<UsageInfo>,
+}
+
+#[derive(Deserialize)]
+struct UsageInfo {
+    cost_in_usd_ticks: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -202,7 +209,11 @@ impl ImageProvider for XaiProvider {
             let url = d.url.as_deref().unwrap_or("-");
             let mime = d.mime_type.as_deref().unwrap_or("?");
             let b64 = if d.b64_json.is_some() { " [b64]" } else { "" };
-            eprintln!("[imagine] resp[{i}]: {url} ({mime}){b64}");
+            eprintln!("[imagine] generate resp[{i}]: {url} ({mime}){b64}");
+        }
+        if let Some(ref usage) = body.usage {
+            let ticks = usage.cost_in_usd_ticks.unwrap_or(0);
+            eprintln!("[imagine] usage: {} ticks (~${:.4})", ticks, ticks as f64 / 10_000_000_000.0);
         }
         download_images(&self.client, &body.data).await
     }
@@ -236,6 +247,10 @@ impl ImageProvider for XaiProvider {
             let mime = d.mime_type.as_deref().unwrap_or("?");
             let b64 = if d.b64_json.is_some() { " [b64]" } else { "" };
             eprintln!("[imagine] edit resp[{i}]: {url} ({mime}){b64}");
+        }
+        if let Some(ref usage) = body.usage {
+            let ticks = usage.cost_in_usd_ticks.unwrap_or(0);
+            eprintln!("[imagine] usage: {} ticks (~${:.4})", ticks, ticks as f64 / 10_000_000_000.0);
         }
         download_images(&self.client, &body.data).await
     }
