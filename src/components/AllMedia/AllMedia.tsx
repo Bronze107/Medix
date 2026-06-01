@@ -1529,9 +1529,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
         <ImagineDialog
           mediaId={aiEditMediaId}
           onClose={() => setAiEditMediaId(null)}
-          onImported={() => {
-            window.dispatchEvent(new CustomEvent("variants-changed", { detail: { mediaId: aiEditMediaId } }));
-          }}
         />
       )}
     </div>

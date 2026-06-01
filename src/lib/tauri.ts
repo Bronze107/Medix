@@ -401,3 +401,59 @@ export function imageConfirmImport(
 export function imageDiscardStaged(stagedIds: string[]): Promise<void> {
   return invoke("image_discard_staged", { stagedIds });
 }
+
+// --- Image Queue ---
+
+export interface ImageTaskInfo {
+  task_id: string;
+  task_type: string; // "generate" | "edit"
+  prompt: string;
+  media_id: string | null;
+  status: string; // "pending" | "running" | "done" | "failed"
+  staged: StagedImage[];
+  error: string | null;
+  created_at: string;
+}
+
+export function imageQueueSubmitGenerate(
+  prompt: string,
+  aspectRatio?: string,
+  resolution?: string,
+  n?: number,
+): Promise<string> {
+  return invoke("image_queue_submit_generate", { prompt, aspectRatio, resolution, n });
+}
+
+export function imageQueueSubmitEdit(
+  mediaId: string,
+  variantId: string | null,
+  prompt: string,
+  aspectRatio?: string,
+  resolution?: string,
+  n?: number,
+): Promise<string> {
+  return invoke("image_queue_submit_edit", { mediaId, variantId, prompt, aspectRatio, resolution, n });
+}
+
+export function imageQueueList(): Promise<ImageTaskInfo[]> {
+  return invoke("image_queue_list");
+}
+
+export function imageQueuePendingCount(): Promise<number> {
+  return invoke("image_queue_pending_count");
+}
+
+export function imageQueueImport(
+  taskId: string,
+  selectedIds: string[],
+): Promise<MediaImportResult[]> {
+  return invoke("image_queue_import", { taskId, selectedIds });
+}
+
+export function imageQueueDiscard(taskId: string): Promise<void> {
+  return invoke("image_queue_discard", { taskId });
+}
+
+export function imageQueueDismiss(taskId: string): Promise<void> {
+  return invoke("image_queue_dismiss", { taskId });
+}

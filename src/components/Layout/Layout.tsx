@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { listen } from "@tauri-apps/api/event";
 import { Images, Tags } from "./icons";
 import { TitleBar } from "@/components/TitleBar/TitleBar";
 import {
@@ -9,6 +10,7 @@ import {
   settingsGet,
   settingsSet,
   mediaListTrash,
+  imageQueuePendingCount,
 } from "@/lib/tauri";
 import type { SavedFilter } from "@/types/search";
 import type { Collection } from "@/types/collection";
@@ -17,6 +19,7 @@ function Layout() {
   const [filters, setFilters] = useState<SavedFilter[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [trashCount, setTrashCount] = useState(0);
+  const [queueCount, setQueueCount] = useState(0);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const location = useLocation();
   const navigate = useNavigate();
@@ -82,6 +85,16 @@ function Layout() {
     return () => window.removeEventListener("saved-filters-changed", handler);
   }, [loadFilters]);
 
+  // Image queue pending count
+  useEffect(() => {
+    const poll = async () => {
+      try { setQueueCount(await imageQueuePendingCount()); } catch { /* ignore */ }
+    };
+    poll();
+    const unlisten = listen("image-queue-updated", () => { poll(); });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
   const toggleTheme = async () => {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
@@ -146,6 +159,9 @@ function Layout() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
             </svg>
             AI 生图
+            {queueCount > 0 && (
+              <span className="ml-auto rounded-full bg-[var(--color-accent-soft)] px-1.5 py-px text-[11px] tabular-nums text-[var(--color-accent)]">{queueCount}</span>
+            )}
           </NavLink>
           <div className="mt-3 border-t border-[var(--color-border)]" />
 

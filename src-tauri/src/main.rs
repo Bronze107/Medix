@@ -13,6 +13,11 @@ mod variants;
 
 use tauri::Manager;
 
+use ai::imagine::queue::{
+    image_queue_discard, image_queue_dismiss, image_queue_import, image_queue_list,
+    image_queue_pending_count, image_queue_submit_edit, image_queue_submit_generate,
+};
+
 use commands::{
     ai_pending_count, auto_detect, caption_create, caption_create_batch,
     caption_create_for_variant, caption_delete, caption_list, caption_update,
@@ -70,6 +75,10 @@ fn main() {
             let ai_queue = ai::init_ai_queue(app.handle().clone());
             app.manage(ai_queue);
 
+            let image_queue =
+                ai::imagine::queue::init_image_queue(app.handle().clone());
+            app.manage(image_queue);
+
             server::start_http_server(app.handle().clone());
 
             // Auto-start llama-server if enabled
@@ -109,6 +118,13 @@ fn main() {
             image_discard_staged,
             image_edit,
             image_generate,
+            image_queue_submit_generate,
+            image_queue_submit_edit,
+            image_queue_list,
+            image_queue_pending_count,
+            image_queue_import,
+            image_queue_discard,
+            image_queue_dismiss,
             media_import,
             media_list,
             media_list_trash,
