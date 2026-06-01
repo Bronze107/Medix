@@ -3,6 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useThumbnail } from "@/hooks/useThumbnail";
 import { imageQueueSubmitEdit } from "@/lib/tauri";
 import { usePromptHistory } from "@/hooks/usePromptHistory";
+import { showToast } from "@/components/Toast/Toast";
 
 interface Props {
   mediaId: string;
@@ -18,7 +19,6 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
   const [n, setN] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
   const { items: history, record, clear } = usePromptHistory("edit");
 
   const thumbUrl = variantPath ? convertFileSrc(variantPath) : useThumbnail(mediaId);
@@ -37,7 +37,8 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
         n,
       );
       record(prompt, aspectRatio, resolution);
-      setSubmitted(true);
+      showToast("已加入队列");
+      onClose();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -49,7 +50,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
     <>
       <div
         className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-bg-overlay)] animate-fade-in"
-        onClick={submitted ? onClose : onClose}
+        onClick={onClose}
       >
         <div
           className="w-[560px] max-h-[85vh] rounded-xl bg-[var(--color-bg-elevated)] border border-[var(--color-border)] shadow-2xl animate-scale-in flex flex-col"
@@ -71,32 +72,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
           </div>
 
           <div className="flex-1 overflow-auto p-5">
-            {submitted ? (
-              <div className="flex flex-col items-center justify-center py-6">
-                <svg
-                  className="mb-3 h-10 w-10 text-[var(--color-success)]"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                </svg>
-                <p className="text-sm text-[var(--color-text-secondary)]">
-                  已加入队列，后台生成中
-                </p>
-                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                  完成后可在 AI 生图页面查看结果
-                </p>
-                <button
-                  onClick={onClose}
-                  className="mt-4 rounded bg-[var(--color-accent)] px-4 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] transition-colors"
-                >
-                  关闭
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-4">
+            <div className="flex gap-4">
                 {/* Thumbnail */}
                 <div className="w-40 h-40 shrink-0 rounded-lg overflow-hidden bg-[var(--color-bg-tertiary)]">
                   {thumbUrl ? (
@@ -199,8 +175,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+            </div>
           </div>
         </div>
       </div>
