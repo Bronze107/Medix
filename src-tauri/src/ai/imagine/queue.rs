@@ -535,11 +535,7 @@ pub fn image_queue_import(
             let decoded = image::open(&dest).map_err(|e| e.to_string())?;
             let file_size = fs::metadata(&dest).map_err(|e| e.to_string())?.len() as i64;
 
-            let label = if task.prompt.len() > 50 {
-                task.prompt[..50].to_string()
-            } else {
-                task.prompt.clone()
-            };
+            let label: String = task.prompt.chars().take(50).collect();
             let variant = crate::variants::Variant {
                 id: variant_id.clone(),
                 media_id: mid.clone(),
