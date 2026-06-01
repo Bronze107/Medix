@@ -283,10 +283,15 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
 
   useEffect(() => {
     if (media) {
-      setTargetId(media.display_variant_id ?? null);
+      setTargetId(null);
       setShowVersionForm(false);
       loadMediaTags(media.id, null);
-      loadVariants(media.id);
+      loadVariants(media.id).then(() => {
+        // Apply display_variant_id after variants are loaded to avoid flash
+        if (media.display_variant_id) {
+          setTargetId(media.display_variant_id);
+        }
+      });
       loadCaptions(media.id);
       loadEmbeddings(media.id);
     } else {
