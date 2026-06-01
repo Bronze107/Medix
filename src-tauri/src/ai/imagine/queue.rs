@@ -485,8 +485,8 @@ pub fn image_queue_import(
     selected_ids: Vec<String>,
 ) -> Result<Vec<crate::media::MediaImportResult>, String> {
     let queue = app.state::<ImageQueue>();
-    let tasks = queue.tasks.lock().unwrap();
-    let task = tasks.get(&task_id).ok_or("Task not found")?;
+    let mut tasks = queue.tasks.lock().unwrap();
+    let task = tasks.get_mut(&task_id).ok_or("Task not found")?;
 
     if selected_ids.is_empty() {
         return Ok(Vec::new());
@@ -565,6 +565,12 @@ pub fn image_queue_import(
                 success: true,
                 error: None,
             });
+        }
+        // Remove imported staged images from task
+        let selected_set: std::collections::HashSet<_> = selected_ids.iter().collect();
+        task.staged.retain(|s| !selected_set.contains(&s.id));
+        if task.staged.is_empty() {
+            task.status = "imported".to_string();
         }
         Ok(results)
     } else {
@@ -672,6 +678,12 @@ pub fn image_queue_import(
                 success: true,
                 error: None,
             });
+        }
+        // Remove imported staged images from task
+        let selected_set: std::collections::HashSet<_> = selected_ids.iter().collect();
+        task.staged.retain(|s| !selected_set.contains(&s.id));
+        if task.staged.is_empty() {
+            task.status = "imported".to_string();
         }
         Ok(results)
     }
