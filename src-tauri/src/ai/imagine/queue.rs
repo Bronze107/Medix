@@ -569,8 +569,10 @@ pub fn image_queue_import(
         // Remove imported staged images from task
         let selected_set: std::collections::HashSet<_> = selected_ids.iter().collect();
         task.staged.retain(|s| !selected_set.contains(&s.id));
+        // If all staged images imported, remove the task entirely
         if task.staged.is_empty() {
-            task.status = "imported".to_string();
+            drop(tasks); // release lock before mutation in remove
+            queue.tasks.lock().unwrap().remove(&task_id);
         }
         Ok(results)
     } else {
@@ -682,8 +684,10 @@ pub fn image_queue_import(
         // Remove imported staged images from task
         let selected_set: std::collections::HashSet<_> = selected_ids.iter().collect();
         task.staged.retain(|s| !selected_set.contains(&s.id));
+        // If all staged images imported, remove the task entirely
         if task.staged.is_empty() {
-            task.status = "imported".to_string();
+            drop(tasks); // release lock before mutation in remove
+            queue.tasks.lock().unwrap().remove(&task_id);
         }
         Ok(results)
     }

@@ -49,7 +49,6 @@ function TaskCard({
     running: { label: "生成中", color: "var(--color-accent)" },
     done: { label: "已完成", color: "var(--color-success)" },
     failed: { label: "失败", color: "var(--color-danger)" },
-    imported: { label: "已导入", color: "var(--color-success)" },
   };
   const sc = statusConfig[task.status] || statusConfig.pending;
   const isRunning = task.status === "pending" || task.status === "running";
