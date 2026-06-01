@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use super::{EditParams, GenerateParams, GeneratedImage, ImageProvider, ImagineError};
 
-// --- Shared HTTP client ---
-// Using SyncUnsafeCell because the client is mutated during init only, then read-only.
-// Safe as long as init completes before any reads.
+const MAX_API_RETRIES: u32 = 2;
+const API_RETRY_BASE_MS: u64 = 2000;
+const MAX_DOWNLOAD_RETRIES: u32 = 2;
+const DOWNLOAD_RETRY_BASE_MS: u64 = 1000;
 
 fn build_client(proxy: Option<&str>) -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
@@ -21,6 +22,93 @@ fn build_client(proxy: Option<&str>) -> reqwest::Client {
     }
 
     builder.build().expect("failed to build xAI HTTP client")
+}
+
+fn truncate_body_for_log(json: &str) -> String {
+    if let Some(b64_pos) = json.find(";base64,") {
+        let payload_start = b64_pos + 8;
+        if let Some(quote) = json[payload_start..].find('"') {
+            let mut s = String::with_capacity(payload_start + 60);
+            s.push_str(&json[..payload_start]);
+            s.push_str(&format!("[{}B base64]", quote));
+            s.push_str(&json[payload_start + quote..]);
+            return s;
+        }
+    }
+    json.to_string()
+}
+
+/// POST JSON — only retries on connect-level errors (DNS, TCP, TLS, proxy).
+/// These happen before the request body is sent, so it's safe — no double billing.
+async fn post_json_with_retry<T: Serialize>(
+    client: &reqwest::Client,
+    url: &str,
+    api_key: &str,
+    body: &T,
+) -> Result<reqwest::Response, ImagineError> {
+    let body_str = serde_json::to_string(body).unwrap_or_default();
+    eprintln!("[imagine] req: {}", truncate_body_for_log(&body_str));
+
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match client
+            .post(url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("User-Agent", "Hermes-Agent/0.14.0")
+            .json(body)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                eprintln!("[imagine] resp: HTTP {}", resp.status());
+                return Ok(resp);
+            }
+            Err(e) if attempt <= MAX_API_RETRIES && e.is_connect() => {
+                let delay = API_RETRY_BASE_MS * attempt as u64;
+                eprintln!(
+                    "[imagine] connect error, retry in {}ms (attempt {}/{})",
+                    delay, attempt, MAX_API_RETRIES
+                );
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+            }
+            Err(e) => return Err(ImagineError::Http(e)),
+        }
+    }
+}
+
+/// Download a single image with retries on any network error.
+/// Downloads are always safe to retry — the image is already generated.
+async fn download_single(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, ImagineError> {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match client
+            .get(url)
+            .header("User-Agent", "Hermes-Agent/0.14.0")
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                if !resp.status().is_success() {
+                    return Err(ImagineError::Api(format!(
+                        "download returned {}",
+                        resp.status()
+                    )));
+                }
+                return Ok(resp.bytes().await?.to_vec());
+            }
+            Err(e) if attempt <= MAX_DOWNLOAD_RETRIES => {
+                let delay = DOWNLOAD_RETRY_BASE_MS * attempt as u64;
+                eprintln!(
+                    "[imagine] download error for {}, retry in {}ms (attempt {}/{})",
+                    url, delay, attempt, MAX_DOWNLOAD_RETRIES
+                );
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+            }
+            Err(e) => return Err(ImagineError::Http(e)),
+        }
+    }
 }
 
 // --- Request / Response types ---
@@ -98,21 +186,25 @@ impl ImageProvider for XaiProvider {
             response_format: "url".to_string(),
         };
 
-        let resp = self.client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("User-Agent", "Hermes-Agent/0.14.0")
-            .json(&req_body)
-            .send()
-            .await?;
+        let resp = post_json_with_retry(&self.client, &url, &self.api_key, &req_body).await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            eprintln!("[imagine] generate error resp ({}): {}", status, text);
             return Err(ImagineError::Api(format!("xAI generate failed ({}): {}", status, text)));
         }
 
         let body: ImageResponse = resp.json().await?;
+        eprintln!(
+            "[imagine] generate resp: {} images — {}",
+            body.data.len(),
+            body.data
+                .iter()
+                .filter_map(|d| d.url.as_deref())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         download_images(&self.client, &body.data).await
     }
 
@@ -129,21 +221,25 @@ impl ImageProvider for XaiProvider {
             response_format: "url".to_string(),
         };
 
-        let resp = self.client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("User-Agent", "Hermes-Agent/0.14.0")
-            .json(&req_body)
-            .send()
-            .await?;
+        let resp = post_json_with_retry(&self.client, &url, &self.api_key, &req_body).await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            eprintln!("[imagine] edit error resp ({}): {}", status, text);
             return Err(ImagineError::Api(format!("xAI edit failed ({}): {}", status, text)));
         }
 
         let body: ImageResponse = resp.json().await?;
+        eprintln!(
+            "[imagine] edit resp: {} images — {}",
+            body.data.len(),
+            body.data
+                .iter()
+                .filter_map(|d| d.url.as_deref())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
         download_images(&self.client, &body.data).await
     }
 
@@ -163,20 +259,28 @@ impl ImageProvider for XaiProvider {
     }
 }
 
-async fn download_images(client: &reqwest::Client, data: &[ImageData]) -> Result<Vec<GeneratedImage>, ImagineError> {
+async fn download_images(
+    client: &reqwest::Client,
+    data: &[ImageData],
+) -> Result<Vec<GeneratedImage>, ImagineError> {
     let mut images = Vec::with_capacity(data.len());
     for item in data {
         if let Some(ref url) = item.url {
-            let resp = client.get(url)
-                .header("User-Agent", "Hermes-Agent/0.14.0")
-                .send().await?;
-            if !resp.status().is_success() {
-                eprintln!("[imagine] failed to download image from {}", url);
-                continue;
+            match download_single(client, url).await {
+                Ok(bytes) => {
+                    let mime = item
+                        .mime_type
+                        .clone()
+                        .unwrap_or_else(|| "image/png".to_string());
+                    images.push(GeneratedImage {
+                        mime_type: mime,
+                        data: bytes,
+                    });
+                }
+                Err(e) => {
+                    eprintln!("[imagine] download failed after retries: {} — {}", url, e);
+                }
             }
-            let bytes = resp.bytes().await?;
-            let mime = item.mime_type.clone().unwrap_or_else(|| "image/png".to_string());
-            images.push(GeneratedImage { mime_type: mime, data: bytes.to_vec() });
         }
     }
     if images.is_empty() && !data.is_empty() {
