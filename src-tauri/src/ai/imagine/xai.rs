@@ -134,6 +134,8 @@ struct ImageEditRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     n: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    aspect_ratio: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     resolution: Option<String>,
     response_format: String,
 }
@@ -217,6 +219,7 @@ impl ImageProvider for XaiProvider {
             prompt: params.prompt.clone(),
             image: EditImageInput { url: params.image_data_url.clone() },
             n: if params.n > 1 { Some(params.n) } else { None },
+            aspect_ratio: if params.aspect_ratio == "auto" || params.aspect_ratio.is_empty() { None } else { Some(params.aspect_ratio.clone()) },
             resolution: Some(params.resolution.clone()),
             response_format: "url".to_string(),
         };

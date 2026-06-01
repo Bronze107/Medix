@@ -14,6 +14,7 @@ interface Props {
 
 function ImagineDialog({ mediaId, variantId, variantPath, onClose, onImported }: Props) {
   const [prompt, setPrompt] = useState("");
+  const [aspectRatio, setAspectRatio] = useState("auto");
   const [resolution, setResolution] = useState("1k");
   const [n, setN] = useState(1);
   const [generating, setGenerating] = useState(false);
@@ -39,7 +40,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose, onImported }:
     setGenerating(true);
     setError(null);
     try {
-      const results = await imageEdit(mediaId, variantId ?? null, prompt.trim(), resolution, n);
+      const results = await imageEdit(mediaId, variantId ?? null, prompt.trim(), aspectRatio, resolution, n);
       setStaged(results);
     } catch (e) {
       setError(String(e));
@@ -117,10 +118,23 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose, onImported }:
                     className="w-full resize-none rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
                   />
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-24">
+                <div className="flex items-center gap-2">
+                  <div className="w-20">
+                    <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)}
+                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1.5 py-1.5 text-xs text-[var(--color-text-primary)] outline-none">
+                      <option value="auto">auto</option>
+                      <option value="1:1">1:1</option>
+                      <option value="4:3">4:3</option>
+                      <option value="3:4">3:4</option>
+                      <option value="16:9">16:9</option>
+                      <option value="9:16">9:16</option>
+                      <option value="3:2">3:2</option>
+                      <option value="2:3">2:3</option>
+                    </select>
+                  </div>
+                  <div className="w-16">
                     <select value={resolution} onChange={(e) => setResolution(e.target.value)}
-                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none">
+                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1.5 py-1.5 text-xs text-[var(--color-text-primary)] outline-none">
                       <option value="1k">1K</option>
                       <option value="2k">2K</option>
                     </select>

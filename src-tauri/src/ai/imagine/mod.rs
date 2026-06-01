@@ -32,6 +32,7 @@ pub struct GenerateParams {
 pub struct EditParams {
     pub prompt: String,
     pub image_data_url: String, // base64 data URL
+    pub aspect_ratio: String,
     pub resolution: String,
     pub n: u32,
 }

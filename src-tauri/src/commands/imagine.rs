@@ -96,6 +96,7 @@ pub async fn image_edit(
     media_id: String,
     variant_id: Option<String>,
     prompt: String,
+    aspect_ratio: Option<String>,
     resolution: Option<String>,
     n: Option<u32>,
 ) -> Result<Vec<StagedImage>, String> {
@@ -140,6 +141,7 @@ pub async fn image_edit(
     let params = EditParams {
         prompt: prompt.clone(),
         image_data_url,
+        aspect_ratio: aspect_ratio.unwrap_or_else(|| "auto".to_string()),
         resolution,
         n: n.unwrap_or(1),
     };

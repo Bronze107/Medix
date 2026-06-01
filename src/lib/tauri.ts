@@ -383,10 +383,11 @@ export function imageEdit(
   mediaId: string,
   variantId: string | null,
   prompt: string,
+  aspectRatio?: string,
   resolution?: string,
   n?: number,
 ): Promise<StagedImage[]> {
-  return invoke("image_edit", { mediaId, variantId, prompt, resolution, n });
+  return invoke("image_edit", { mediaId, variantId, prompt, aspectRatio, resolution, n });
 }
 
 export function imageConfirmImport(
