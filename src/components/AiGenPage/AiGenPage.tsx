@@ -151,7 +151,7 @@ function AiGenPage() {
             disabled={generating || !prompt.trim()}
             className="rounded bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50 active:scale-[0.97]"
           >
-            {generating ? "生成中..." : "生成图片"}
+            {generating ? "生成中..." : prompt.trim() ? "生成图片" : "输入提示词后生成"}
           </button>
 
           {error && (
@@ -201,6 +201,10 @@ function AiGenPage() {
                         decoding="async"
                       />
                     </div>
+                    {/* Metadata */}
+                    <div className="px-2 py-1 text-[11px] text-[var(--color-text-muted)] text-center">
+                      {img.width} × {img.height}
+                    </div>
                     {/* Checkbox */}
                     <div className="absolute top-2 right-2 z-10">
                       <div className={`flex h-5 w-5 items-center justify-center rounded border-2 transition-all ${
@@ -240,8 +244,12 @@ function AiGenPage() {
             </div>
           )}
           {generating && (
-            <div className="flex-1 flex items-center justify-center text-sm text-[var(--color-text-muted)]">
-              <span className="animate-pulse">正在生成中...</span>
+            <div className="flex-1 flex items-center justify-center gap-2 text-sm text-[var(--color-text-muted)]">
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              正在生成中...
             </div>
           )}
         </div>

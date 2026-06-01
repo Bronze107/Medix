@@ -99,7 +99,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose, onImported }:
           ) : (
             <div className="flex gap-4">
               {/* Thumbnail */}
-              <div className="w-28 h-28 shrink-0 rounded-lg overflow-hidden bg-[var(--color-bg-tertiary)]">
+              <div className="w-40 h-40 shrink-0 rounded-lg overflow-hidden bg-[var(--color-bg-tertiary)]">
                 {thumbUrl ? <img src={thumbUrl} alt="" className="w-full h-full object-cover" decoding="async" /> : (
                   <div className="w-full h-full flex items-center justify-center text-[var(--color-text-muted)] text-[11px]">原图</div>
                 )}
@@ -132,7 +132,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose, onImported }:
                   </div>
                   <button onClick={handleGenerate} disabled={generating || !prompt.trim()}
                     className="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50 active:scale-[0.97]">
-                    {generating ? "生成中..." : "生成"}
+                    {generating ? "生成中..." : prompt.trim() ? "生成" : "输入指令后生成"}
                   </button>
                 </div>
                 {error && <div className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-3 py-1.5 text-xs text-[var(--color-danger)]">{error}</div>}
@@ -158,7 +158,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose, onImported }:
                     >
                       <img src={convertFileSrc(img.path)} alt="" className="w-full h-full object-cover" draggable={false} decoding="async" />
                     </div>
-                    <div className="px-2 py-1 text-[10px] text-[var(--color-text-muted)] text-center">
+                    <div className="px-2 py-1 text-[11px] text-[var(--color-text-muted)] text-center">
                       {img.width} × {img.height}
                     </div>
                   </div>
@@ -176,7 +176,13 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose, onImported }:
           )}
 
           {!imported && staged.length === 0 && generating && (
-            <div className="py-8 text-center text-sm text-[var(--color-text-muted)] animate-pulse">正在生成中...</div>
+            <div className="py-8 flex items-center justify-center gap-2 text-sm text-[var(--color-text-muted)]">
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              正在生成中...
+            </div>
           )}
         </div>
       </div>
