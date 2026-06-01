@@ -283,15 +283,10 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
 
   useEffect(() => {
     if (media) {
-      setTargetId(null);
+      setTargetId(media.display_variant_id ?? null);
       setShowVersionForm(false);
       loadMediaTags(media.id, null);
-      loadVariants(media.id).then(() => {
-        // Apply display_variant_id after variants are loaded to avoid flash
-        if (media.display_variant_id) {
-          setTargetId(media.display_variant_id);
-        }
-      });
+      loadVariants(media.id);
       loadCaptions(media.id);
       loadEmbeddings(media.id);
     } else {
@@ -651,6 +646,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
 
       {activeTab === "details" && (() => {
           const t = targetId ? variants.find((v) => v.id === targetId) : null;
+          // Variant selected but not yet loaded — suppress render to avoid flash of original data
+          if (targetId && !t) return null;
           const dimWidth = t?.width ?? media.width;
           const dimHeight = t?.height ?? media.height;
           const fileSize = t?.file_size ?? media.file_size;
