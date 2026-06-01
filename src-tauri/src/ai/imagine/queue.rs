@@ -640,11 +640,11 @@ pub fn image_queue_import(
                 continue;
             }
 
-            // Generate thumbnails
+            // Generate thumbnails (std::thread — no tokio runtime on main thread)
             let img_clone = decoded.clone();
             let app_clone = app.clone();
             let mid = id.clone();
-            tokio::task::spawn_blocking(move || {
+            std::thread::spawn(move || {
                 if let Err(e) = crate::media::thumbnail::generate_thumbnails_from_image(
                     &app_clone, &mid, &img_clone,
                 ) {
@@ -659,11 +659,11 @@ pub fn image_queue_import(
                 eprintln!("[image-queue] failed to save prompt caption: {}", e);
             }
 
-            // Trigger AI annotation
+            // Trigger AI annotation (std::thread — no tokio runtime on main thread)
             let app_clone = app.clone();
             let mid = id.clone();
             let dest_clone = dest.clone();
-            tokio::task::spawn_blocking(move || {
+            std::thread::spawn(move || {
                 let queue = app_clone.state::<crate::ai::AiQueue>();
                 let _ = queue.send(crate::ai::AiTask::GenerateCaption {
                     media_id: mid,
