@@ -2,6 +2,7 @@ import { useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useThumbnail } from "@/hooks/useThumbnail";
 import { imageQueueSubmitEdit } from "@/lib/tauri";
+import { usePromptHistory } from "@/hooks/usePromptHistory";
 
 interface Props {
   mediaId: string;
@@ -18,6 +19,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const { items: history, record, clear } = usePromptHistory("edit");
 
   const thumbUrl = variantPath ? convertFileSrc(variantPath) : useThumbnail(mediaId);
 
@@ -34,6 +36,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
         resolution,
         n,
       );
+      record(prompt, aspectRatio, resolution);
       setSubmitted(true);
     } catch (e) {
       setError(String(e));
@@ -119,10 +122,25 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
-                      placeholder='例如："转为黑白素描风格"'
+                      placeholder='例如："转为黑白素描风格"（Ctrl+Enter 提交）'
                       rows={3}
                       className="w-full resize-none rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
                     />
+                    {history.length > 0 && (
+                      <div className="mt-1.5 flex items-start gap-1.5 flex-wrap">
+                        <span className="text-[10px] text-[var(--color-text-muted)] shrink-0 leading-5">历史</span>
+                        {history.slice(0, 4).map((h) => (
+                          <button key={h.time}
+                            onClick={() => { setPrompt(h.prompt); setResolution(h.resolution); setAspectRatio(h.aspectRatio); }}
+                            className="max-w-[140px] truncate rounded-full border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+                            title={h.prompt}
+                          >{h.prompt}</button>
+                        ))}
+                        <button onClick={clear}
+                          className="shrink-0 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-colors leading-5"
+                        >清除</button>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-20">

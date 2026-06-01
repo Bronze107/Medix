@@ -8,6 +8,7 @@ import {
   imageQueueDiscard,
   imageQueueDismiss,
 } from "@/lib/tauri";
+import { usePromptHistory } from "@/hooks/usePromptHistory";
 import type { ImageTaskInfo } from "@/lib/tauri";
 
 const ASPECT_RATIOS = ["auto", "1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "1:2", "2:1"];
@@ -157,6 +158,7 @@ function AiGenPage() {
   const [tasks, setTasks] = useState<ImageTaskInfo[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const { items: history, record, clear } = usePromptHistory("generate");
 
   const loadTasks = useCallback(async () => {
     try {
@@ -181,6 +183,7 @@ function AiGenPage() {
     setSubmitting(true);
     try {
       await imageQueueSubmitGenerate(prompt.trim(), aspectRatio, resolution, n);
+      record(prompt, aspectRatio, resolution);
       setPrompt("");
       await loadTasks();
     } catch (e) {
@@ -230,10 +233,39 @@ function AiGenPage() {
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="描述你想生成的图片..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    handleSubmit();
+                  }
+                }}
+                placeholder="描述你想生成的图片...（Ctrl+Enter 提交）"
                 rows={5}
                 className="w-full resize-none rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
               />
+              {history.length > 0 && (
+                <div className="mt-1.5 flex items-start gap-1.5 flex-wrap">
+                  <span className="text-[10px] text-[var(--color-text-muted)] shrink-0 leading-6">历史</span>
+                  <div className="flex items-center gap-1 flex-wrap flex-1 min-w-0">
+                    {history.slice(0, 6).map((h) => (
+                      <button
+                        key={h.time}
+                        onClick={() => { setPrompt(h.prompt); setAspectRatio(h.aspectRatio); setResolution(h.resolution); }}
+                        className="max-w-[170px] truncate rounded-full border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+                        title={h.prompt}
+                      >
+                        {h.prompt}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={clear}
+                    className="shrink-0 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-colors leading-6"
+                  >
+                    清除
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3">
