@@ -79,6 +79,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const [aiEditMediaId, setAiEditMediaId] = useState<string | null>(null);
+  const [aiEditVariantId, setAiEditVariantId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [aiRemaining, setAiRemaining] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -1273,7 +1274,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
               </button>
               <div className="my-1 border-t border-[var(--color-border)]" />
               <button
-                onClick={() => { setAiEditMediaId(ctxMenu.media.id); setCtxMenu(null); }}
+                onClick={() => {
+                  setAiEditMediaId(ctxMenu.media.id);
+                  setAiEditVariantId(ctxMenu.media.display_variant_id ?? null);
+                  setCtxMenu(null);
+                }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1528,7 +1533,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
       {aiEditMediaId && (
         <ImagineDialog
           mediaId={aiEditMediaId}
-          onClose={() => setAiEditMediaId(null)}
+          variantId={aiEditVariantId}
+          onClose={() => { setAiEditMediaId(null); setAiEditVariantId(null); }}
         />
       )}
     </div>
