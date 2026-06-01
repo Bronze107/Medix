@@ -175,7 +175,6 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
   useEffect(() => {
     setOriginalUrl(null);
     setVariants([]);
-    setViewState({ type: "single", activeId: null });
     setScale(1);
     setOffset({ x: 0, y: 0 });
 
@@ -186,7 +185,20 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
         setOriginalUrl(convertFileSrc(paths.original));
       }
     });
-    variantList(item.id).then(setVariants);
+    variantList(item.id).then((list) => {
+      setVariants(list);
+      // If display variant is set, show it as the active image
+      if (item.display_variant_id) {
+        const dv = list.find((v) => v.id === item.display_variant_id);
+        if (dv) {
+          setViewState({ type: "single", activeId: dv.id });
+        } else {
+          setViewState({ type: "single", activeId: null });
+        }
+      } else {
+        setViewState({ type: "single", activeId: null });
+      }
+    });
   }, [item]);
 
   // Helper: get file path for an id (null = original)

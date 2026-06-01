@@ -283,7 +283,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
 
   useEffect(() => {
     if (media) {
-      setTargetId(null);
+      setTargetId(media.display_variant_id ?? null);
       setShowVersionForm(false);
       loadMediaTags(media.id, null);
       loadVariants(media.id);
