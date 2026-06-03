@@ -126,7 +126,11 @@ function TargetMenu({
         className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)] ${!targetId ? "bg-[var(--color-accent-soft)]" : ""}`}
       >
         <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
-          <MenuThumb itemId={media.id} filePath={media.thumb_256 ?? undefined} />
+          {media.thumb_256 ? (
+            <img src={convertFileSrc(media.thumb_256)} alt="" className="h-full w-full object-cover" draggable={false} decoding="async" />
+          ) : (
+            <div className="h-full w-full bg-[var(--color-bg-secondary)]" />
+          )}
         </div>
         <span className={`text-xs ${!targetId ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>原图</span>
       </button>
