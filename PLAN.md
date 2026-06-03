@@ -60,7 +60,7 @@
    - [x] `tags`、`media_tags` 表（`confidence`/`source` 字段支持 AI）
    - [x] `embeddings` 表 (media_id, model, content_type, vector)
    - [x] `settings` 表（AI 模式/路径/云端配置持久化）
-   - [ ] FTS5 虚拟表（推迟到 Phase 6）
+   - [x] **2026-06-02** FTS5 虚拟表（migration 0017_fts5，搜索集成）
 2. [x] AI 推理引擎（本地优先，云端后备）
    - [x] 本地 VLM：`llama-server` + MiniCPM-V 2.6 (~1GB Q4 GGUF)
      - [x] OpenAI `/v1/chat/completions` 生成 dense caption + 结构化 tags
@@ -195,8 +195,11 @@
 4. [x] 搜索前端
    - [x] SearchBar 组件：彩色 pill 标签显示活跃过滤器 + 清除按钮
    - [x] 空搜索结果友好提示 + 重置按钮
-5. [ ] 全文搜索（推迟）
-   - [ ] SQLite FTS5（语义搜索已覆盖 caption/tags 文本匹配，优先级降低）
+5. [x] **2026-06-02** 全文搜索
+   - [x] SQLite FTS5 — migration 0017_fts5，unicode61 tokenizer
+   - [x] caption/tag CRUD 后自动增量同步 search_text
+   - [x] 启动时检查 FTS 空则全量重建已有数据
+   - [x] 与语义搜索结果合并（OR），设置页可独立开关
    - [ ] 搜索建议 (debounce 200ms)
 
 ### 验证标准
@@ -565,13 +568,9 @@
 
 ---
 
-#### P3 — FTS5 全文搜索
+#### ✅ P3 — FTS5 全文搜索
 
-> caption/tags 文本无 FTS 索引，只能通过 embedding 语义搜索匹配。
-> 无法做精确文本匹配搜索（如搜索包含特定关键词的 caption）。
-
-- [ ] SQLite FTS5 虚拟表：`CREATE VIRTUAL TABLE captions_fts USING fts5(text, content=captions, content_rowid=rowid)`
-  - 位置：`src-tauri/src/db/mod.rs`，migration 中追加
+> **2026-06-02 已实现**：migration 0017_fts5 + `fts_sync` 增量同步 + `fts_search` BM25 查询 + `fts_rebuild_all` 首次全量回填。与语义搜索结果合并（OR），设置页可独立开关，默认开启。
 
 ---
 
@@ -600,6 +599,8 @@
 - [x] **缩略图缓存 LRU 淘汰**: Map 上限 2000 条，get/set 时维护访问顺序
 - [x] **LQIP 低质量占位图**: 导入时生成 20px base64 JPEG（~300B），Gallery/TableView 模糊背景占位
 - [x] **DB 连接池 (r2d2)**: `r2d2_sqlite 0.27` + `rusqlite 0.34`，max_size=4，~30 个 db 函数改用 `get_conn(app)`
+- [x] **FTS5 全文搜索**: migration 0017，`media_fts` 虚拟表 unicode61 分词，caption/tag CRUD 自动增量同步，BM25 排序，与语义搜索结果合并
+- [x] **搜索设置重构**: 语义搜索 / FTS5 独立开关 + 阈值滑块，区域改名"搜索"
 
 **此前已完成**：
 
