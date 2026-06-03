@@ -62,6 +62,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [selected, setSelected] = useState<Media | null>(null);
   const detailCollapsed = useAppStore((s) => s.detailCollapsed);
   const setDetailCollapsed = useAppStore((s) => s.setDetailCollapsed);
+  const selectedMediaId = useAppStore((s) => s.selectedMediaId);
+  const setSelectedMediaId = useAppStore((s) => s.setSelectedMediaId);
   const [isImporting, setIsImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
@@ -217,11 +219,16 @@ function AllMedia({ collectionId }: AllMediaProps) {
         setMedia((prev) => [...prev, ...list]);
       } else {
         setMedia(list);
+        // Restore previously selected media on initial load
+        if (selectedMediaId && !selected) {
+          const found = list.find((m) => m.id === selectedMediaId);
+          if (found) setSelected(found);
+        }
       }
     } catch (e) {
       console.error("Failed to load media:", e);
     }
-  }, [sortBy, descending, debouncedSearch, collectionId, media.length]);
+  }, [sortBy, descending, debouncedSearch, collectionId, media.length, selectedMediaId, selected]);
 
   useEffect(() => {
     loadMedia();
@@ -346,6 +353,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
       unlistenImportProgress.then((f) => f());
     };
   }, [doImport, loadMedia]);
+
+  // Sync selected media ID to store for cross-page persistence
+  useEffect(() => {
+    setSelectedMediaId(selected?.id ?? null);
+  }, [selected, setSelectedMediaId]);
 
   // When grouping by date, sort media by imported_at descending for correct grouping
   const displayMedia = useMemo(() => {

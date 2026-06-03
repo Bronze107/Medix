@@ -7,6 +7,8 @@ interface AppState {
   detailCollapsed: boolean;
   toggleDetail: () => void;
   setDetailCollapsed: (v: boolean) => void;
+  selectedMediaId: string | null;
+  setSelectedMediaId: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -19,11 +21,14 @@ export const useAppStore = create<AppState>()(
       toggleDetail: () =>
         set((state) => ({ detailCollapsed: !state.detailCollapsed })),
       setDetailCollapsed: (v) => set({ detailCollapsed: v }),
+      selectedMediaId: null,
+      setSelectedMediaId: (id) => set({ selectedMediaId: id }),
     }),
     {
       name: "medix-app-store",
       partialize: (state) => ({
         detailCollapsed: state.detailCollapsed,
+        selectedMediaId: state.selectedMediaId,
       }),
     },
   ),
