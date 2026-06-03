@@ -357,6 +357,27 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         }
     }
 
+    // --- 0017_fts5 ---
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0017_fts5'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0017_fts5');
+                 CREATE VIRTUAL TABLE IF NOT EXISTS media_fts USING fts5(
+                     media_id UNINDEXED,
+                     search_text,
+                     tokenize='unicode61 remove_diacritics 1'
+                 );",
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -915,6 +936,9 @@ fn media_tag_add_internal(
         "INSERT OR REPLACE INTO media_tags (media_id, variant_id, tag_id, confidence, source) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![media_id, variant_id, tag_id, confidence, source],
     )?;
+    let mid = media_id.to_string();
+    drop(conn);
+    let _ = fts_sync(app, &mid);
     Ok(())
 }
 
@@ -935,7 +959,14 @@ pub fn media_tag_add_batch(
         Ok(())
     })();
     match result {
-        Ok(()) => { conn.execute("COMMIT", [])?; Ok(()) }
+        Ok(()) => {
+            conn.execute("COMMIT", [])?;
+            drop(conn);
+            for mid in media_ids {
+                let _ = fts_sync(app, mid);
+            }
+            Ok(())
+        }
         Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
     }
 }
@@ -966,6 +997,9 @@ pub fn media_tag_remove_with_variant(
             params![media_id, tag_id],
         )?;
     }
+    let mid = media_id.to_string();
+    drop(conn);
+    let _ = fts_sync(app, &mid);
     Ok(())
 }
 
@@ -1091,6 +1125,112 @@ pub fn media_search_by_tags_path(
         results.push(media?);
     }
 
+    Ok(results)
+}
+
+// --- FTS5 full-text search ---
+
+/// Rebuild the FTS index for a single media_id from all its captions and tags.
+pub fn fts_sync(app: &AppHandle, media_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+
+    // Gather all captions and tags for this media
+    let mut captions = Vec::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT text FROM captions WHERE media_id = ?1",
+        )?;
+        for row in stmt.query_map(params![media_id], |r| r.get::<_, String>(0))? {
+            captions.push(row?);
+        }
+    }
+    let mut tags = Vec::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT t.name FROM tags t JOIN media_tags mt ON t.id = mt.tag_id WHERE mt.media_id = ?1",
+        )?;
+        for row in stmt.query_map(params![media_id], |r| r.get::<_, String>(0))? {
+            tags.push(row?);
+        }
+    }
+
+    let search_text = if captions.is_empty() && tags.is_empty() {
+        String::new()
+    } else {
+        let mut parts = captions;
+        parts.extend(tags);
+        parts.join(" ")
+    };
+
+    // Delete existing entry and insert new
+    conn.execute("DELETE FROM media_fts WHERE media_id = ?1", params![media_id])?;
+    if !search_text.is_empty() {
+        conn.execute(
+            "INSERT INTO media_fts (media_id, search_text) VALUES (?1, ?2)",
+            params![media_id, search_text],
+        )?;
+    }
+    Ok(())
+}
+
+/// Rebuild FTS index for all media — only if empty (first run after migration).
+pub fn fts_rebuild_all(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    let count: i64 = {
+        let conn = get_conn(app)?;
+        conn.query_row("SELECT COUNT(*) FROM media_fts", [], |r| r.get(0))?
+    };
+    if count > 0 {
+        return Ok(());
+    }
+
+    let conn = get_conn(app)?;
+    let mut stmt = conn.prepare("SELECT id FROM media WHERE deleted_at IS NULL")?;
+    let ids: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+    drop(conn);
+
+    eprintln!("[fts] rebuilding index for {} media...", ids.len());
+    for id in &ids {
+        fts_sync(app, id)?;
+    }
+    eprintln!("[fts] rebuild complete");
+    Ok(())
+}
+
+/// Search media via FTS5. Returns media_ids ranked by BM25, up to `limit` results.
+pub fn fts_search(
+    app: &AppHandle,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+
+    // Simple query — escape FTS5 special chars
+    let cleaned: String = query
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect();
+    if cleaned.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Use double-quoted terms for better matching
+    let fts_query = cleaned
+        .split_whitespace()
+        .map(|w| format!("\"{}\"", w))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+
+    let mut stmt = conn.prepare(
+        "SELECT media_id FROM media_fts WHERE media_fts MATCH ?1 ORDER BY rank LIMIT ?2",
+    )?;
+    let results = stmt
+        .query_map(params![fts_query, limit as i64], |r| r.get::<_, String>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
     Ok(results)
 }
 
@@ -1464,6 +1604,9 @@ fn caption_create_internal(
         "INSERT INTO captions (id, media_id, variant_id, text, source) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![&id, media_id, variant_id, text, source],
     )?;
+    let mid = media_id.to_string();
+    drop(conn);
+    let _ = fts_sync(app, &mid);
     Ok(Caption {
         id,
         media_id: media_id.to_string(),
@@ -1481,16 +1624,31 @@ pub fn caption_update(
     text: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
+    // Look up media_id before updating
+    let mid: String = conn.query_row(
+        "SELECT media_id FROM captions WHERE id = ?1",
+        params![id],
+        |r| r.get(0),
+    )?;
     conn.execute(
         "UPDATE captions SET text = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
         params![text, id],
     )?;
+    drop(conn);
+    let _ = fts_sync(app, &mid);
     Ok(())
 }
 
 pub fn caption_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
+    let mid: String = conn.query_row(
+        "SELECT media_id FROM captions WHERE id = ?1",
+        params![id],
+        |r| r.get(0),
+    )?;
     conn.execute("DELETE FROM captions WHERE id = ?1", params![id])?;
+    drop(conn);
+    let _ = fts_sync(app, &mid);
     Ok(())
 }
 

@@ -58,9 +58,14 @@ pub fn caption_create_batch(
         }
         Ok(())
     })();
+    drop(stmt);
     match result {
         Ok(()) => {
             conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
+            drop(conn);
+            for mid in &media_ids {
+                let _ = db::fts_sync(&app, mid);
+            }
             Ok(())
         }
         Err(e) => {

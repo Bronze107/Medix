@@ -148,7 +148,7 @@ pub fn is_semantic_search_enabled(app: &AppHandle) -> bool {
 pub fn is_fts5_search_enabled(app: &AppHandle) -> bool {
     get(app, KEY_SEARCH_FTS5_ENABLED)
         .map(|v| v == "true")
-        .unwrap_or(false)
+        .unwrap_or(true) // enabled by default after FTS5 implementation
 }
 
 pub const KEY_THEME: &str = "theme";

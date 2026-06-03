@@ -41,7 +41,7 @@ function Settings() {
   const [llamaMaxTokens, setLlamaMaxTokens] = useState(1024);
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [searchSemanticEnabled, setSearchSemanticEnabled] = useState(true);
-  const [searchFts5Enabled, setSearchFts5Enabled] = useState(false);
+  const [searchFts5Enabled, setSearchFts5Enabled] = useState(true);
 
   // Image generation API
   const [imageApiProvider, setImageApiProvider] = useState("");
@@ -582,7 +582,7 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
             <div>
               <span className="text-xs text-[var(--color-text-primary)]">FTS5 全文搜索</span>
               <p className="text-[11px] text-[var(--color-text-muted)]">
-                基于 SQLite FTS5 的精确文本匹配，速度更快（尚未实现）
+                基于 SQLite FTS5 的精确文本匹配，索引所有 caption 和标签
               </p>
             </div>
           </label>

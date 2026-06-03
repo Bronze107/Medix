@@ -47,6 +47,11 @@ fn main() {
             let db_pool = db::init_pool(app.handle());
             app.manage(db_pool);
 
+            // Rebuild FTS index (idempotent — only rebuilds if needed)
+            if let Err(e) = db::fts_rebuild_all(app.handle()) {
+                eprintln!("[fts] rebuild failed: {}", e);
+            }
+
             // Clean up residual temp files from previous runs
             {
                 // Stale inference temp files

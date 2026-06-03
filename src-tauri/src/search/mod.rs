@@ -3,6 +3,7 @@ pub mod semantic;
 
 use crate::db::TagSearchMode;
 use crate::media::Media;
+use crate::settings;
 use std::collections::{HashMap, HashSet};
 use tauri::AppHandle;
 
@@ -33,6 +34,22 @@ pub fn execute_search(
                 }
             });
 
+    // Step 1b: FTS5 full-text search (runs alongside semantic, results merged)
+    let fts_ids: Option<HashSet<String>> = if crate::settings::is_fts5_search_enabled(app) {
+        parsed.semantic_text.as_ref().and_then(|text| {
+            match crate::db::fts_search(app, text, 500) {
+                Ok(ids) if !ids.is_empty() => Some(ids.into_iter().collect()),
+                Ok(_) => None,
+                Err(e) => {
+                    eprintln!("[search] fts5 search failed: {}", e);
+                    None
+                }
+            }
+        })
+    } else {
+        None
+    };
+
     // Step 2: Tag filter
     let tag_ids: Option<HashSet<String>> = parsed
         .tag_group
@@ -48,18 +65,32 @@ pub fn execute_search(
         .transpose()
         .map_err(|e| e.to_string())?;
 
-    // Step 3: Combine candidates (intersection of semantic and tag results)
-    let candidate_ids: Option<Vec<String>> = match (&semantic_map, &tag_ids) {
-        (Some(sem), Some(tag)) => {
-            let ids: Vec<String> = sem.keys().filter(|id| tag.contains(*id)).cloned().collect();
-            if ids.is_empty() {
-                return Ok(vec![]);
+    // Step 3: Combine candidates (intersection of semantic + FTS + tag results)
+    let candidate_ids: Option<Vec<String>> = {
+        // Merge semantic and FTS results
+        let text_ids: Option<HashSet<String>> = match (&semantic_map, &fts_ids) {
+            (Some(sem), Some(fts)) => {
+                let mut merged: HashSet<String> = sem.keys().cloned().collect();
+                merged.extend(fts.iter().cloned());
+                Some(merged)
             }
-            Some(ids)
+            (Some(sem), None) => Some(sem.keys().cloned().collect()),
+            (None, Some(fts)) => Some(fts.clone()),
+            (None, None) => None,
+        };
+        // Intersect with tag filter
+        match (&text_ids, &tag_ids) {
+            (Some(txt), Some(tag)) => {
+                let ids: Vec<String> = txt.iter().filter(|id| tag.contains(*id)).cloned().collect();
+                if ids.is_empty() {
+                    return Ok(vec![]);
+                }
+                Some(ids)
+            }
+            (Some(txt), None) => Some(txt.iter().cloned().collect()),
+            (None, Some(tag)) => Some(tag.iter().cloned().collect()),
+            (None, None) => None,
         }
-        (Some(sem), None) => Some(sem.keys().cloned().collect()),
-        (None, Some(tag)) => Some(tag.iter().cloned().collect()),
-        (None, None) => None,
     };
 
     // Step 4: If no filters at all, return all media
