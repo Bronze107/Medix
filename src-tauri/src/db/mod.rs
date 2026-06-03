@@ -321,6 +321,23 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         }
     }
 
+    // --- 0016_lqip ---
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0016_lqip'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0016_lqip');
+                 ALTER TABLE media ADD COLUMN lqip TEXT;",
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -487,7 +504,7 @@ pub fn media_list_by_collection(
         "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
                 m.created_at, m.modified_at, m.imported_at,
                 m.source_url, m.page_url, m.source, m.sha256, m.deleted_at,
-                m.display_variant_id
+                m.display_variant_id, m.lqip
          FROM media m
          JOIN collection_items ci ON ci.media_id = m.id
          WHERE ci.collection_id = ?1 AND m.deleted_at IS NULL
@@ -513,6 +530,7 @@ pub fn media_list_by_collection(
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
+            lqip: row.get(14)?,
             thumb_256: None,
         })
     })?;
@@ -547,7 +565,7 @@ pub fn media_get_by_sha256(
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
          FROM media WHERE sha256 = ?1 AND deleted_at IS NULL LIMIT 1",
     )?;
     let mut rows = stmt.query_map(params![hash], |row| {
@@ -567,6 +585,7 @@ pub fn media_get_by_sha256(
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
+            lqip: row.get(14)?,
             thumb_256: None,
         })
     })?;
@@ -580,8 +599,8 @@ pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::e
     let path = db_path(app);
     let conn = Connection::open(&path)?;
     conn.execute(
-        "INSERT INTO media (id, source_path, phash, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        "INSERT INTO media (id, source_path, phash, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, lqip)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             &media.id,
             media.source_path.as_ref(),
@@ -596,6 +615,7 @@ pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::e
             media.page_url.as_ref(),
             media.source.as_ref(),
             media.sha256.as_ref(),
+            media.lqip.as_ref(),
         ],
     )?;
     Ok(())
@@ -637,7 +657,7 @@ pub fn list_media_path(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
          FROM media
          WHERE deleted_at IS NULL
          ORDER BY {} {}
@@ -663,6 +683,7 @@ pub fn list_media_path(
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
+            lqip: row.get(14)?,
             thumb_256: None,
         })
     })?;
@@ -710,7 +731,7 @@ pub fn media_get_batch(
     let conn = Connection::open(&path)?;
     let placeholders: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 1)).collect();
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
          FROM media WHERE deleted_at IS NULL AND id IN ({})",
         placeholders.join(",")
     );
@@ -734,6 +755,7 @@ pub fn media_get_batch(
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
+            lqip: row.get(14)?,
             thumb_256: None,
         })
     })?;
@@ -1022,7 +1044,7 @@ pub fn media_search_by_tags_path(
     let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = match mode {
         TagSearchMode::Intersection => format!(
-            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id
+            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
@@ -1033,7 +1055,7 @@ pub fn media_search_by_tags_path(
             placeholders, tag_names.len(), sort_column, order
         ),
         TagSearchMode::Union => format!(
-            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id
+            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
@@ -1065,6 +1087,7 @@ pub fn media_search_by_tags_path(
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
+            lqip: row.get(14)?,
             thumb_256: None,
         })
     })?;
@@ -1196,7 +1219,7 @@ pub fn media_query_filtered_path(
         "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
                 m.created_at, m.modified_at, m.imported_at,
                 m.source_url, m.page_url, m.source, m.sha256, m.deleted_at,
-                m.display_variant_id
+                m.display_variant_id, m.lqip
          FROM media m {} ORDER BY {} {}",
         where_clause, sort_column, order
     );
@@ -1222,6 +1245,7 @@ pub fn media_query_filtered_path(
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
+            lqip: row.get(14)?,
             thumb_256: None,
         })
     })?;
@@ -1829,7 +1853,7 @@ pub fn media_list_trash(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
          FROM media
          WHERE deleted_at IS NOT NULL
          ORDER BY {} {}",
@@ -1854,6 +1878,7 @@ pub fn media_list_trash(
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
+            lqip: row.get(14)?,
             thumb_256: None,
         })
     })?;

@@ -271,6 +271,12 @@ fn import_single_file(
     let phash = super::phash::compute_phash_from_image(&img)
         .map(|h| h.to_le_bytes().to_vec());
 
+    // Step 5.5: LQIP placeholder (20px base64, ~300 bytes)
+    let lqip = {
+        let data_url = super::thumbnail::generate_lqip(&img);
+        if data_url.is_empty() { None } else { Some(data_url) }
+    };
+
     let media = Media {
         id: id.clone(),
         source_path: Some(path_str.clone()),
@@ -288,6 +294,7 @@ fn import_single_file(
         deleted_at: None,
         display_variant_id: None,
         thumb_256: None,
+        lqip,
     };
 
     if let Err(e) = db::insert_media(app, &media) {

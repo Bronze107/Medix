@@ -22,6 +22,7 @@ pub struct Media {
     pub deleted_at: Option<String>,
     pub display_variant_id: Option<String>,
     pub thumb_256: Option<String>,
+    pub lqip: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -310,13 +310,22 @@ function ThumbnailCard({
 
       {/* Image area */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-[var(--color-bg-tertiary)]/30">
+        {/* LQIP blurred background — visible while thumbnail loads */}
+        {item.lqip && !loaded && (
+          <img
+            src={item.lqip}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover blur-md scale-110"
+            draggable={false}
+          />
+        )}
         {thumbUrl ? (
           <img
             src={thumbUrl}
             alt=""
             loading="lazy"
             decoding="async"
-            className={`h-full w-full object-contain transition-all duration-500 ease-out group-hover:scale-105 ${
+            className={`relative z-10 h-full w-full object-contain transition-all duration-500 ease-out group-hover:scale-105 ${
               loaded ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-95 blur-sm"
             }`}
             draggable={false}

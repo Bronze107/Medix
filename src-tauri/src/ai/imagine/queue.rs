@@ -618,6 +618,11 @@ pub fn image_queue_import(
             };
             let file_size = fs::metadata(&dest).map(|m| m.len() as i64).unwrap_or(0);
 
+            let lqip = {
+                let data_url = crate::media::thumbnail::generate_lqip(&decoded);
+                if data_url.is_empty() { None } else { Some(data_url) }
+            };
+
             let media = crate::media::Media {
                 id: id.clone(),
                 source_path: None,
@@ -635,6 +640,7 @@ pub fn image_queue_import(
                 deleted_at: None,
                 display_variant_id: None,
                 thumb_256: None,
+                lqip,
             };
 
             if let Err(e) = crate::db::insert_media(&app, &media) {

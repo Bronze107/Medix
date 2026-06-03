@@ -1,3 +1,4 @@
+use base64::Engine;
 use std::fs;
 use std::path::Path;
 use tauri::{AppHandle, Manager};
@@ -65,4 +66,17 @@ pub fn generate_variant_thumbnail(
     fs::write(&thumb_path, output)?;
 
     Ok(())
+}
+
+/// Generate a 20px JPEG placeholder and return as base64 data URL (~300 bytes).
+pub fn generate_lqip(img: &image::DynamicImage) -> String {
+    let thumb = img.resize_exact(20, 20, image::imageops::FilterType::Nearest);
+    let rgb = thumb.to_rgb8();
+    let mut output = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 30);
+    if encoder.encode_image(&rgb).is_err() {
+        return String::new();
+    }
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&output);
+    format!("data:image/jpeg;base64,{}", b64)
 }

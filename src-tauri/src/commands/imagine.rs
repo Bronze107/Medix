@@ -309,6 +309,7 @@ pub async fn image_confirm_import(
                 deleted_at: None,
                 display_variant_id: None,
                 thumb_256: None,
+                lqip: None,
             };
 
             if let Err(e) = crate::db::insert_media(&app, &media) {

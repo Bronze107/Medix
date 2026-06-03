@@ -223,9 +223,13 @@ function TableRow({
     >
       {/* Checkbox + thumbnail */}
       <div className="relative w-8 shrink-0">
-        <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
+        <div className="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
+          {/* LQIP placeholder */}
+          {item.lqip && (
+            <img src={item.lqip} alt="" className="absolute inset-0 h-full w-full object-cover blur-sm scale-110" draggable={false} />
+          )}
           {thumbUrl ? (
-            <img src={thumbUrl} alt="" className="h-full w-full object-cover" draggable={false} decoding="async" />
+            <img src={thumbUrl} alt="" className="relative h-full w-full object-cover" draggable={false} decoding="async" />
           ) : (
             <div className="h-4 w-4 text-[var(--color-text-muted)]" />
           )}
