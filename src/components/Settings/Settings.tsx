@@ -40,6 +40,8 @@ function Settings() {
   const [llamaRepeatPenalty, setLlamaRepeatPenalty] = useState(1.05);
   const [llamaMaxTokens, setLlamaMaxTokens] = useState(1024);
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
+  const [searchSemanticEnabled, setSearchSemanticEnabled] = useState(true);
+  const [searchFts5Enabled, setSearchFts5Enabled] = useState(false);
 
   // Image generation API
   const [imageApiProvider, setImageApiProvider] = useState("");
@@ -77,6 +79,8 @@ function Settings() {
       if (settings.llama_repeat_penalty) setLlamaRepeatPenalty(parseFloat(settings.llama_repeat_penalty) || 1.05);
       if (settings.llama_max_tokens) setLlamaMaxTokens(parseInt(settings.llama_max_tokens) || 1024);
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
+      if (settings.search_semantic_enabled) setSearchSemanticEnabled(settings.search_semantic_enabled === "true");
+      if (settings.search_fts5_enabled) setSearchFts5Enabled(settings.search_fts5_enabled === "true");
       if (settings.http_port) setHttpPort(parseInt(settings.http_port) || 8765);
       if (settings.image_api_provider) setImageApiProvider(settings.image_api_provider);
       if (settings.image_api_key) setImageApiKey(settings.image_api_key);
@@ -132,6 +136,8 @@ function Settings() {
       await settingsSet("llama_repeat_penalty", String(llamaRepeatPenalty));
       await settingsSet("llama_max_tokens", String(llamaMaxTokens));
       await settingsSet("semantic_threshold", String(semanticThreshold));
+      await settingsSet("search_semantic_enabled", searchSemanticEnabled ? "true" : "false");
+      await settingsSet("search_fts5_enabled", searchFts5Enabled ? "true" : "false");
       await settingsSet("http_port", String(httpPort));
       await settingsSet("image_api_provider", imageApiProvider);
       await settingsSet("image_api_key", imageApiKey);
@@ -543,14 +549,48 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
           </div>
         </section>
 
-        {/* Semantic Search Settings */}
+        {/* Search Settings */}
         <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
-            语义搜索
+            搜索
           </h2>
-          <div className="mb-3">
+
+          {/* Semantic search toggle */}
+          <label className="mb-3 flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={searchSemanticEnabled}
+              onChange={(e) => setSearchSemanticEnabled(e.target.checked)}
+              className="h-4 w-4 rounded accent-[var(--color-accent)]"
+            />
+            <div>
+              <span className="text-xs text-[var(--color-text-primary)]">语义搜索</span>
+              <p className="text-[11px] text-[var(--color-text-muted)]">
+                基于 embedding 向量相似度匹配，支持自然语言描述搜索
+              </p>
+            </div>
+          </label>
+
+          {/* FTS5 toggle */}
+          <label className="mb-3 flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={searchFts5Enabled}
+              onChange={(e) => setSearchFts5Enabled(e.target.checked)}
+              className="h-4 w-4 rounded accent-[var(--color-accent)]"
+            />
+            <div>
+              <span className="text-xs text-[var(--color-text-primary)]">FTS5 全文搜索</span>
+              <p className="text-[11px] text-[var(--color-text-muted)]">
+                基于 SQLite FTS5 的精确文本匹配，速度更快（尚未实现）
+              </p>
+            </div>
+          </label>
+
+          {/* Threshold slider */}
+          <div>
             <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-              最低相似度阈值: {semanticThreshold.toFixed(2)}
+              语义相似度阈值: {semanticThreshold.toFixed(2)}
             </label>
             <input
               type="range"

@@ -130,11 +130,25 @@ pub fn get_llama_max_tokens(app: &AppHandle) -> u32 {
 }
 
 pub const KEY_SEMANTIC_THRESHOLD: &str = "semantic_threshold";
+pub const KEY_SEARCH_SEMANTIC_ENABLED: &str = "search_semantic_enabled";
+pub const KEY_SEARCH_FTS5_ENABLED: &str = "search_fts5_enabled";
 
 pub fn get_semantic_threshold(app: &AppHandle) -> f64 {
     get(app, KEY_SEMANTIC_THRESHOLD)
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.25)
+}
+
+pub fn is_semantic_search_enabled(app: &AppHandle) -> bool {
+    get(app, KEY_SEARCH_SEMANTIC_ENABLED)
+        .map(|v| v == "true")
+        .unwrap_or(true)
+}
+
+pub fn is_fts5_search_enabled(app: &AppHandle) -> bool {
+    get(app, KEY_SEARCH_FTS5_ENABLED)
+        .map(|v| v == "true")
+        .unwrap_or(false)
 }
 
 pub const KEY_THEME: &str = "theme";
