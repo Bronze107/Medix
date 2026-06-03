@@ -229,16 +229,26 @@ function AllMedia({ collectionId }: AllMediaProps) {
     loadMedia();
   }, [loadMedia]);
 
+  // Wrap setSelected to also persist the ID
+  const selectMedia = useCallback(
+    (m: Media | null) => {
+      setSelected(m);
+      setSelectedMediaId(m?.id ?? null);
+    },
+    [setSelectedMediaId],
+  );
+
   // Restore previously selected media after initial load
   const restoredRef = useRef(false);
   useEffect(() => {
-    if (restoredRef.current || media.length === 0 || !selectedMediaId || selected) return;
-    const found = media.find((m) => m.id === selectedMediaId);
-    if (found) {
-      setSelected(found);
-      restoredRef.current = true;
+    if (!restoredRef.current && media.length > 0 && selectedMediaId) {
+      const found = media.find((m) => m.id === selectedMediaId);
+      if (found) {
+        setSelected(found);
+        restoredRef.current = true;
+      }
     }
-  }, [media, selectedMediaId, selected]);
+  }, [media, selectedMediaId]);
 
   const loadAllTags = useCallback(async () => {
     try {
@@ -360,13 +370,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
     };
   }, [doImport, loadMedia]);
 
-  // Sync selected media ID to store for cross-page persistence
-  const syncRef = useRef(false);
-  useEffect(() => {
-    if (!syncRef.current) { syncRef.current = true; return; } // skip mount
-    setSelectedMediaId(selected?.id ?? null);
-  }, [selected, setSelectedMediaId]);
-
   // When grouping by date, sort media by imported_at descending for correct grouping
   const displayMedia = useMemo(() => {
     if (groupBy !== "date") return media;
@@ -430,7 +433,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
         if (selectedIdsRef2.current.size > 0) {
           setSelectedIds(new Set());
         } else {
-          setSelected(null);
+          selectMedia(null);
         }
       }
       if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
@@ -463,7 +466,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
         ),
       );
       if (selectedRefForVariant.current?.id === detail.mediaId) {
-        setSelected((prev) => prev ? { ...prev, display_variant_id: detail.variantId } : null);
+        setSelected((prev) => {
+          const next = prev ? { ...prev, display_variant_id: detail.variantId } : null;
+          setSelectedMediaId(next?.id ?? null);
+          return next;
+        });
       }
     };
     window.addEventListener("display-variant-changed", handler);
@@ -536,7 +543,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       }
     }
     setSelectedIds(new Set());
-    setSelected(null);
+    selectMedia(null);
         setDeleteConfirm(null);
     loadMedia();
     window.dispatchEvent(new CustomEvent("collections-changed"));
@@ -786,7 +793,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               media={displayMedia}
               groups={groups}
               selectedId={selected?.id ?? null}
-              onSelect={setSelected}
+              onSelect={selectMedia}
               onDoubleClick={(item) => {
                 const idx = displayMedia.findIndex((m) => m.id === item.id);
                 if (idx >= 0) setLightboxIndex(idx);
@@ -822,7 +829,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               groups={groups}
               scale={gridScale}
               selectedId={selected?.id ?? null}
-              onSelect={setSelected}
+              onSelect={selectMedia}
               onDoubleClick={(item) => {
                 const idx = displayMedia.findIndex((m) => m.id === item.id);
                 if (idx >= 0) setLightboxIndex(idx);
@@ -840,7 +847,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           media={selected}
           collapsed={detailCollapsed}
           onToggleCollapse={() => setDetailCollapsed(!detailCollapsed)}
-          onDeleted={() => { setSelected(null); setDetailCollapsed(false); loadMedia(); }}
+          onDeleted={() => { selectMedia(null); setDetailCollapsed(false); loadMedia(); }}
         />
       </div>
 
@@ -1284,7 +1291,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 查看原图
               </button>
               <button
-                onClick={() => { setSelected(ctxMenu.media); setCtxMenu(null); }}
+                onClick={() => { selectMedia(ctxMenu.media); setCtxMenu(null); }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1538,7 +1545,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           if (!pendingDeleteId) return;
           try {
             await mediaSoftDelete(pendingDeleteId);
-            setSelected(null);
+            selectMedia(null);
             loadMedia();
             window.dispatchEvent(new CustomEvent("collections-changed"));
           } catch (e) {
