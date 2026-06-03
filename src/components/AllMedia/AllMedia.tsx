@@ -361,7 +361,9 @@ function AllMedia({ collectionId }: AllMediaProps) {
   }, [doImport, loadMedia]);
 
   // Sync selected media ID to store for cross-page persistence
+  const syncRef = useRef(false);
   useEffect(() => {
+    if (!syncRef.current) { syncRef.current = true; return; } // skip mount
     setSelectedMediaId(selected?.id ?? null);
   }, [selected, setSelectedMediaId]);
 
