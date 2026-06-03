@@ -10,9 +10,10 @@ pub fn compute_phash(path: &Path) -> Option<u64> {
 pub fn compute_phash_from_image(img: &image::DynamicImage) -> Option<u64> {
     let gray = img.grayscale();
 
-    // Resize to 32x32 then 8x8 for DCT
+    // Resize to 32x32 (anti-aliased) then 8x8 for DCT
+    // Nearest is fine for 32→8: at 8×8 every pixel goes through DCT, filter quality irrelevant
     let small = image::imageops::resize(&gray, 32, 32, image::imageops::FilterType::Lanczos3);
-    let tiny = image::imageops::resize(&small, 8, 8, image::imageops::FilterType::Lanczos3);
+    let tiny = image::imageops::resize(&small, 8, 8, image::imageops::FilterType::Nearest);
 
     // Get pixel values (Luma<u8> -> f64)
     let pixels: Vec<f64> = tiny

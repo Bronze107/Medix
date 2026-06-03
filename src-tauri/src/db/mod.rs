@@ -2044,52 +2044,109 @@ pub fn media_find_similar(
 ) -> Result<Vec<Vec<Media>>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT id, source_path, phash, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source
+        "SELECT id, phash, width, height, file_size
          FROM media WHERE phash IS NOT NULL AND deleted_at IS NULL",
     )?;
 
-    let rows: Vec<(String, Option<Vec<u8>>)> = stmt
+    struct Item {
+        id: String,
+        hash: u64,
+        width: i32,
+        height: i32,
+        file_size: i64,
+    }
+
+    let items: Vec<Item> = stmt
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<Vec<u8>>>(2)?))
+            let phash_bytes: Option<Vec<u8>> = row.get(2)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, i32>(4)?,
+                row.get::<_, i64>(5)?,
+                phash_bytes,
+            ))
         })?
         .filter_map(|r| r.ok())
-        .collect();
-
-    // Convert to u64 hashes
-    let items: Vec<(String, u64)> = rows
-        .into_iter()
-        .filter_map(|(id, phash_bytes)| {
+        .filter_map(|(id, width, height, file_size, phash_bytes)| {
             phash_bytes.and_then(|bytes| {
                 let arr: [u8; 8] = bytes.try_into().ok()?;
-                Some((id, u64::from_le_bytes(arr)))
+                Some(Item {
+                    id,
+                    hash: u64::from_le_bytes(arr),
+                    width,
+                    height,
+                    file_size,
+                })
             })
         })
         .collect();
 
-    // Build similarity graph (union-find style)
+    drop(stmt);
+    drop(conn);
+
+    // Pre-filter: group by file_size bucket to avoid comparing completely different images
+    // Bucket = floor(log2(file_size)), so 100KB and 200KB are in same bucket, 100KB and 10MB are not
+    use std::collections::HashMap;
+    let mut buckets: HashMap<u32, Vec<usize>> = HashMap::new();
+    for (i, item) in items.iter().enumerate() {
+        let bucket = if item.file_size > 0 {
+            (item.file_size as f64).log2().floor() as u32
+        } else {
+            0
+        };
+        buckets.entry(bucket).or_default().push(i);
+    }
+
     let mut groups: Vec<Vec<String>> = Vec::new();
-    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut used: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
-    for i in 0..items.len() {
-        if used.contains(&items[i].0) {
-            continue;
+    // Compare within each bucket + adjacent buckets (±1)
+    for (&bucket, indices) in &buckets {
+        // Collect candidates: current bucket + adjacent
+        let mut candidates: Vec<usize> = indices.clone();
+        for adj in &[bucket.wrapping_sub(1), bucket + 1] {
+            if let Some(extra) = buckets.get(adj) {
+                candidates.extend(extra);
+            }
         }
-        let mut group = vec![items[i].0.clone()];
-        used.insert(items[i].0.clone());
 
-        for j in (i + 1)..items.len() {
-            if used.contains(&items[j].0) {
+        for &i in indices {
+            if used.contains(&i) {
                 continue;
             }
-            let dist = crate::media::phash::hamming_distance(items[i].1, items[j].1);
-            if dist <= threshold {
-                group.push(items[j].0.clone());
-                used.insert(items[j].0.clone());
-            }
-        }
+            let mut group = vec![items[i].id.clone()];
+            used.insert(i);
 
-        if group.len() > 1 {
-            groups.push(group);
+            for &j in &candidates {
+                if used.contains(&j) || j <= i {
+                    continue;
+                }
+                // Pre-filter: skip if aspect ratios differ by > 2x (e.g., landscape vs portrait)
+                let ar_i = items[i].width as f64 / items[i].height.max(1) as f64;
+                let ar_j = items[j].width as f64 / items[j].height.max(1) as f64;
+                let ar_ratio = if ar_i > ar_j { ar_i / ar_j } else { ar_j / ar_i };
+                if ar_ratio > 2.0 {
+                    continue;
+                }
+                // Pre-filter: skip if file sizes differ by > 4x
+                let fs_i = items[i].file_size.max(1) as f64;
+                let fs_j = items[j].file_size.max(1) as f64;
+                let fs_ratio = if fs_i > fs_j { fs_i / fs_j } else { fs_j / fs_i };
+                if fs_ratio > 4.0 {
+                    continue;
+                }
+
+                let dist = crate::media::phash::hamming_distance(items[i].hash, items[j].hash);
+                if dist <= threshold {
+                    group.push(items[j].id.clone());
+                    used.insert(j);
+                }
+            }
+
+            if group.len() > 1 {
+                groups.push(group);
+            }
         }
     }
 
