@@ -358,9 +358,8 @@
 > 每次列表查询后，对所有结果做 2× `path.exists()` 检查。
 > 5000 张 = 10000 次 stat 系统调用。
 
-- [ ] 方案 A：依赖 DB 记录的 `has_thumbnail` 字段（导入时设置为 true），不再 stat
-- [ ] 方案 B：前端按需检查（缩略图加载失败时 fallback），后端列表不再预检查
-  - 位置：`src-tauri/src/db/mod.rs` 约第 577 行
+- [x] 方案 B：`resolve_thumb_paths` 直接设预期路径不做 stat()，前端 `useThumbnail` 有重试兜底
+  - 位置：`src-tauri/src/db/mod.rs` 约第 604 行
 
 #### 导入管道优化（2026-05-31 审计）
 
@@ -453,10 +452,10 @@
   - 位置：`src-tauri/src/ai/mod.rs:144` + 约第 249 行（函数返回前）
   - 另需：启动时扫描并清理残留的 `medix_infer_*.jpg`
 
-- [ ] **P1 — 缩略图格式 JPEG → WebP**（节省 ~35MB / 5000 张）
+- [ ] **🐢 P1 — 缩略图格式 JPEG → WebP**（节省 ~35MB / 5000 张）
   - 256px JPEG Q85 ~15KB → WebP 同质量 ~8KB（小 40-50%）
-  - WebView2 完全支持 WebP，`image` crate 需开启 `webp` feature
-  - 位置：`src-tauri/src/media/thumbnail.rs:27` + `Cargo.toml`
+  - WebView2 完全支持 WebP
+  - **阻塞**：`image` v0.25 的 `webp` feature 仅支持解码。有损编码需要 `webp` crate（包装 libwebp C 库），纯 Rust 的 `image-webp` 也不支持有损编码。引入 C 库依赖会增加 Windows 交叉编译复杂度，且节省空间有限（5000 张仅省 ~35MB），优先级下调。
 
 - [ ] **P1 — Embedding 存储 f32 → f16**（节省 ~15MB / 5000 张）
   - 当前：`f32::to_le_bytes()` 每维 4 字节，768 维 × 2 向量 = 6144 字节/张
@@ -524,7 +523,7 @@
   - 方案：上限 3 次，指数退避（1s → 2s → 4s = 总共 7 秒），避免突发
   - 位置：`src/hooks/useThumbnail.ts:20-21`
 
-- [ ] **P1 — 变体缩略图应使用缩略图，非原图**
+- [x] **P1 — 变体缩略图应使用缩略图，非原图**
   - `MenuThumb` 对 variant 用 `convertFileSrc(v.file_path)` 直接加载完整原图
   - 50 个变体 36×36px CSS 框里加载数 MB 大图 → 浏览器全解码到内存 → 数百 MB 浪费
   - 方案：variant 导入/生成时也为变体文件生成 256px 缩略图；`media_thumbnail` 支持传 variant id
@@ -541,7 +540,7 @@
   - 方案：导入时生成 ~20px 内联 base64 缩略图存 DB（<1KB），作为模糊占位图实现渐进加载
   - 位置：`src-tauri/src/media/thumbnail.rs` + 前端 `<img>` 的 `background-image`
 
-- [ ] **P3 — 缓存 LRU 淘汰**
+- [x] **P3 — 缓存 LRU 淘汰**
   - 当前 cache Map 无限增长，浏览数万张图后累积大量 URL 字符串
   - 内存影响小（~100 字节/条），但干净起见可加 LRU 限制（如 2000 条）
   - 位置：`src/hooks/useThumbnail.ts:5`
