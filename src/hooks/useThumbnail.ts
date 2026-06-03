@@ -2,7 +2,28 @@ import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { mediaThumbnail, mediaThumbnailBatch } from "@/lib/tauri";
 
+const MAX_CACHE_SIZE = 2000;
 const cache = new Map<string, string>();
+
+function cacheGet(key: string): string | undefined {
+  const val = cache.get(key);
+  if (val !== undefined) {
+    // Move to end (most recently used)
+    cache.delete(key);
+    cache.set(key, val);
+  }
+  return val;
+}
+
+function cacheSet(key: string, value: string) {
+  if (cache.has(key)) cache.delete(key);
+  else while (cache.size >= MAX_CACHE_SIZE) {
+    // Evict least recently used (first key in insertion order)
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, value);
+}
 
 /** Preload thumbnails for a batch of media IDs — one IPC call for all. */
 export async function preloadThumbnails(ids: string[]): Promise<void> {
@@ -12,7 +33,7 @@ export async function preloadThumbnails(ids: string[]): Promise<void> {
   try {
     const results = await mediaThumbnailBatch(uncached);
     for (const r of results) {
-      cache.set(r.id, convertFileSrc(r.path));
+      cacheSet(r.id, convertFileSrc(r.path));
     }
   } catch {
     // Silently fail — individual useThumbnail will retry
@@ -25,8 +46,9 @@ export function useThumbnail(id: string | null, displayVariantId?: string | null
 
   useEffect(() => {
     if (!id || !cacheKey) return;
-    if (cache.has(cacheKey)) {
-      setUrl(cache.get(cacheKey)!);
+    const cached = cacheGet(cacheKey);
+    if (cached) {
+      setUrl(cached);
       return;
     }
 
@@ -39,7 +61,7 @@ export function useThumbnail(id: string | null, displayVariantId?: string | null
         .then((path) => {
           if (!cancelled) {
             const src = convertFileSrc(path);
-            cache.set(cacheKey, src);
+            cacheSet(cacheKey, src);
             setUrl(src);
           }
         })
