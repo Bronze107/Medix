@@ -143,6 +143,26 @@ function AllMedia({ collectionId }: AllMediaProps) {
 
   // Context menu
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; media: Media } | null>(null);
+  const ctxMenuRef = useRef<HTMLDivElement>(null);
+  const [ctxMenuAdj, setCtxMenuAdj] = useState<{ left: number; top: number } | null>(null);
+
+  // Edge-aware context menu positioning
+  useEffect(() => {
+    if (!ctxMenu || !ctxMenuRef.current) return;
+    setCtxMenuAdj(null); // reset for measurement
+    requestAnimationFrame(() => {
+      if (!ctxMenuRef.current) return;
+      const rect = ctxMenuRef.current.getBoundingClientRect();
+      const pad = 8;
+      let left = ctxMenu.x;
+      let top = ctxMenu.y;
+      if (left + rect.width > window.innerWidth - pad) left = ctxMenu.x - rect.width;
+      if (top + rect.height > window.innerHeight - pad) top = ctxMenu.y - rect.height;
+      if (left < pad) left = pad;
+      if (top < pad) top = pad;
+      setCtxMenuAdj({ left, top });
+    });
+  }, [ctxMenu]);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Add to collection dialog (shared between context menu and batch)
@@ -1269,8 +1289,9 @@ function AllMedia({ collectionId }: AllMediaProps) {
       {/* Context menu */}
       {ctxMenu && (
         <div
+          ref={ctxMenuRef}
           className="fixed z-[60] min-w-[150px] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)]/95 backdrop-blur-xl py-1.5 shadow-2xl shadow-black/30 animate-scale-in"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          style={ctxMenuAdj ?? { left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Single-item actions */}
