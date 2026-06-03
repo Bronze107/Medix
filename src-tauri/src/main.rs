@@ -44,6 +44,9 @@ fn main() {
         .setup(|app| {
             db::init(app.handle())?;
 
+            let db_pool = db::init_pool(app.handle());
+            app.manage(db_pool);
+
             // Clean up residual temp files from previous runs
             {
                 // Stale inference temp files

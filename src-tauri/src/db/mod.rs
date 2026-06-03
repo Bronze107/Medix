@@ -1,3 +1,5 @@
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,10 +11,27 @@ use crate::media::Media;
 use crate::tag::Tag;
 use crate::variants::Variant;
 
+pub type DbPool = Pool<SqliteConnectionManager>;
+
+/// Initialize the connection pool and return it for Tauri managed state.
+pub fn init_pool(app: &AppHandle) -> DbPool {
+    let path = db_path(app);
+    let manager = SqliteConnectionManager::file(&path);
+    Pool::builder()
+        .max_size(4)
+        .build(manager)
+        .expect("failed to build DB connection pool")
+}
+
 pub fn db_path(app: &AppHandle) -> PathBuf {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
     app_dir.join("medix.db")
+}
+
+/// Get a pooled connection from the Tauri managed state.
+fn get_conn(app: &AppHandle) -> Result<r2d2::PooledConnection<SqliteConnectionManager>, String> {
+    app.state::<DbPool>().get().map_err(|e| e.to_string())
 }
 
 /// Standalone DB path for CLI / testing (no Tauri AppHandle required).
@@ -354,8 +373,7 @@ pub struct Collection {
 }
 
 pub fn collection_list(app: &AppHandle) -> Result<Vec<Collection>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT c.id, c.name, c.description, c.pinned_at, c.created_at,
                 (SELECT COUNT(*) FROM collection_items ci
@@ -379,8 +397,7 @@ pub fn collection_list(app: &AppHandle) -> Result<Vec<Collection>, Box<dyn std::
 }
 
 pub fn collection_get(app: &AppHandle, id: &str) -> Result<Option<Collection>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT c.id, c.name, c.description, c.pinned_at, c.created_at,
                 (SELECT COUNT(*) FROM collection_items ci
@@ -405,8 +422,7 @@ pub fn collection_get(app: &AppHandle, id: &str) -> Result<Option<Collection>, B
 pub fn collection_create(app: &AppHandle, name: &str, description: &str) -> Result<String, Box<dyn std::error::Error>> {
     let id = ulid::Ulid::new().to_string();
     let desc = if description.is_empty() { None } else { Some(description.to_string()) };
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "INSERT INTO collections (id, name, description) VALUES (?1, ?2, ?3)",
         params![&id, name, desc],
@@ -415,36 +431,31 @@ pub fn collection_create(app: &AppHandle, name: &str, description: &str) -> Resu
 }
 
 pub fn collection_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
     Ok(())
 }
 
 pub fn collection_rename(app: &AppHandle, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("UPDATE collections SET name = ?2 WHERE id = ?1", params![id, name])?;
     Ok(())
 }
 
 pub fn collection_pin(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("UPDATE collections SET pinned_at = datetime('now') WHERE id = ?1", params![id])?;
     Ok(())
 }
 
 pub fn collection_unpin(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("UPDATE collections SET pinned_at = NULL WHERE id = ?1", params![id])?;
     Ok(())
 }
 
 pub fn collection_add_item(app: &AppHandle, collection_id: &str, media_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "INSERT OR IGNORE INTO collection_items (collection_id, media_id) VALUES (?1, ?2)",
         params![collection_id, media_id],
@@ -453,8 +464,7 @@ pub fn collection_add_item(app: &AppHandle, collection_id: &str, media_id: &str)
 }
 
 pub fn collection_add_batch(app: &AppHandle, collection_id: &str, media_ids: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("BEGIN TRANSACTION", [])?;
     let result = (|| {
         for mid in media_ids {
@@ -472,8 +482,7 @@ pub fn collection_add_batch(app: &AppHandle, collection_id: &str, media_ids: &[S
 }
 
 pub fn collection_remove_item(app: &AppHandle, collection_id: &str, media_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "DELETE FROM collection_items WHERE collection_id = ?1 AND media_id = ?2",
         params![collection_id, media_id],
@@ -489,8 +498,7 @@ pub fn media_list_by_collection(
     offset: u32,
     limit: u32,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let order = if descending { "DESC" } else { "ASC" };
     let sort_column = match sort_by {
         "created_at" => "m.created_at",
@@ -540,8 +548,7 @@ pub fn media_list_by_collection(
 }
 
 pub fn collection_get_item_ids(app: &AppHandle, collection_id: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare("SELECT media_id FROM collection_items WHERE collection_id = ?1")?;
     let rows = stmt.query_map(params![collection_id], |row| row.get::<_, String>(0))?;
     let mut results = Vec::new();
@@ -550,8 +557,7 @@ pub fn collection_get_item_ids(app: &AppHandle, collection_id: &str) -> Result<V
 }
 
 pub fn collection_first_media_id(app: &AppHandle, collection_id: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare("SELECT media_id FROM collection_items WHERE collection_id = ?1 ORDER BY created_at LIMIT 1")?;
     let mut rows = stmt.query_map(params![collection_id], |row| row.get::<_, String>(0))?;
     if let Some(r) = rows.next() { return Ok(Some(r?)); }
@@ -562,8 +568,7 @@ pub fn media_get_by_sha256(
     app: &AppHandle,
     hash: &str,
 ) -> Result<Option<Media>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
          FROM media WHERE sha256 = ?1 AND deleted_at IS NULL LIMIT 1",
@@ -596,8 +601,7 @@ pub fn media_get_by_sha256(
 }
 
 pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "INSERT INTO media (id, source_path, phash, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, lqip)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
@@ -710,8 +714,7 @@ pub fn list_media(
 }
 
 pub fn list_media_count(app: &AppHandle) -> Result<usize, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let count: usize = conn.query_row(
         "SELECT COUNT(*) FROM media WHERE deleted_at IS NULL",
         [],
@@ -727,8 +730,7 @@ pub fn media_get_batch(
     if ids.is_empty() {
         return Ok(vec![]);
     }
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let placeholders: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 1)).collect();
     let sql = format!(
         "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
@@ -802,8 +804,7 @@ pub fn tag_create(
     app: &AppHandle,
     name: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let id = Ulid::new().to_string();
     let name_lower = name.to_lowercase();
     conn.execute(
@@ -814,8 +815,7 @@ pub fn tag_create(
 }
 
 pub fn tag_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("DELETE FROM tags WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -825,8 +825,7 @@ pub fn tag_rename(
     id: &str,
     name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let name_lower = name.to_lowercase();
     conn.execute(
         "UPDATE tags SET name = ?1 WHERE id = ?2",
@@ -847,8 +846,7 @@ pub fn media_tags_get_with_variant(
     media_id: &str,
     variant_id: Option<&str>,
 ) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut results = Vec::new();
     if let Some(vid) = variant_id {
         let mut stmt = conn.prepare(
@@ -912,8 +910,7 @@ fn media_tag_add_internal(
     confidence: Option<f64>,
     source: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "INSERT OR REPLACE INTO media_tags (media_id, variant_id, tag_id, confidence, source) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![media_id, variant_id, tag_id, confidence, source],
@@ -926,8 +923,7 @@ pub fn media_tag_add_batch(
     media_ids: &[String],
     tag_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("BEGIN TRANSACTION", [])?;
     let result = (|| {
         for media_id in media_ids {
@@ -958,8 +954,7 @@ pub fn media_tag_remove_with_variant(
     variant_id: Option<&str>,
     tag_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     if let Some(vid) = variant_id {
         conn.execute(
             "DELETE FROM media_tags WHERE media_id = ?1 AND variant_id = ?2 AND tag_id = ?3",
@@ -981,8 +976,7 @@ pub fn media_tags_intersect(
     if media_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let placeholders: Vec<String> = media_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
     let sql = format!(
         "SELECT t.id, t.name, mt.source, mt.confidence
@@ -1275,8 +1269,7 @@ pub fn variant_list(
     app: &AppHandle,
     media_id: &str,
 ) -> Result<Vec<Variant>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source
          FROM variants WHERE media_id = ?1 ORDER BY created_at",
@@ -1307,8 +1300,7 @@ pub fn variant_insert(
     app: &AppHandle,
     variant: &Variant,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "INSERT OR REPLACE INTO variants (id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
@@ -1330,8 +1322,7 @@ pub fn variant_insert(
 }
 
 pub fn variant_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("DELETE FROM variants WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -1340,8 +1331,7 @@ pub fn variant_get_by_id(
     app: &AppHandle,
     id: &str,
 ) -> Result<Option<Variant>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source
          FROM variants WHERE id = ?1",
@@ -1372,8 +1362,7 @@ pub fn variant_get_by_media_and_preset(
     media_id: &str,
     preset_name: &str,
 ) -> Result<Option<Variant>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source
          FROM variants WHERE media_id = ?1 AND preset_name = ?2",
@@ -1469,8 +1458,7 @@ fn caption_create_internal(
     source: Option<&str>,
     variant_id: Option<&str>,
 ) -> Result<Caption, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let id = Ulid::new().to_string();
     conn.execute(
         "INSERT INTO captions (id, media_id, variant_id, text, source) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1492,8 +1480,7 @@ pub fn caption_update(
     id: &str,
     text: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "UPDATE captions SET text = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
         params![text, id],
@@ -1502,8 +1489,7 @@ pub fn caption_update(
 }
 
 pub fn caption_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("DELETE FROM captions WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -1517,8 +1503,7 @@ pub fn embedding_insert(
     content_type: &str,
     vector: &[f32],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let bytes: Vec<u8> = vector.iter().flat_map(|v| v.to_le_bytes()).collect();
     conn.execute(
         "INSERT OR REPLACE INTO embeddings (media_id, model, content_type, vector)
@@ -1534,8 +1519,7 @@ pub fn embedding_get(
     model: &str,
     content_type: &str,
 ) -> Result<Option<Vec<f32>>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT vector FROM embeddings WHERE media_id = ?1 AND model = ?2 AND content_type = ?3",
     )?;
@@ -1559,8 +1543,7 @@ pub fn embedding_delete_for_media(
     app: &AppHandle,
     media_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "DELETE FROM embeddings WHERE media_id = ?1",
         params![media_id],
@@ -1572,8 +1555,7 @@ pub fn embedding_info_list(
     app: &AppHandle,
     media_id: &str,
 ) -> Result<Vec<EmbeddingInfo>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT model, content_type, length(vector) / 4 as vec_len, created_at
          FROM embeddings WHERE media_id = ?1 ORDER BY content_type",
@@ -1607,8 +1589,7 @@ pub fn embedding_get_all_by_model(
     app: &AppHandle,
     model: &str,
 ) -> Result<Vec<(String, String, Vec<f32>)>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT media_id, content_type, vector FROM embeddings WHERE model = ?1",
     )?;
@@ -1667,8 +1648,7 @@ pub fn saved_filters_delete(app: &AppHandle, name: &str) -> Result<(), Box<dyn s
 // --- Settings operations ---
 
 pub fn setting_get(app: &AppHandle, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
     let mut rows = stmt.query_map(params![key], |row| Ok(row.get::<_, String>(0)?))?;
     if let Some(row) = rows.next() {
@@ -1682,8 +1662,7 @@ pub fn setting_set(
     key: &str,
     value: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
         params![key, value],
@@ -1694,8 +1673,7 @@ pub fn setting_set(
 // --- Soft delete / trash ---
 
 pub fn media_soft_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "UPDATE media SET deleted_at = ?1 WHERE id = ?2",
         params![chrono::Utc::now().to_rfc3339(), id],
@@ -1704,8 +1682,7 @@ pub fn media_soft_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::e
 }
 
 pub fn media_recover(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "UPDATE media SET deleted_at = NULL WHERE id = ?1",
         params![id],
@@ -1717,8 +1694,7 @@ pub fn media_get_display_variant(
     app: &AppHandle,
     media_id: &str,
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let display_id: Option<String> = conn
         .query_row(
             "SELECT display_variant_id FROM media WHERE id = ?1",
@@ -1746,8 +1722,7 @@ pub fn media_get_display_variants_batch(
     app: &AppHandle,
     media_ids: &[String],
 ) -> Result<std::collections::HashMap<String, String>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
 
     if media_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
@@ -1783,8 +1758,7 @@ pub fn media_set_display_variant(
     media_id: &str,
     variant_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute(
         "UPDATE media SET display_variant_id = ?1 WHERE id = ?2",
         params![variant_id, media_id],
@@ -1828,8 +1802,7 @@ pub fn media_permanent_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn s
     }
 
     // Delete DB record (cascades to tags/captions/embeddings/variants)
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     conn.execute("DELETE FROM media WHERE id = ?1", params![id])?;
 
     Ok(())
@@ -1840,8 +1813,7 @@ pub fn media_list_trash(
     sort_by: &str,
     descending: bool,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
 
     let order = if descending { "DESC" } else { "ASC" };
     let sort_column = match sort_by {
@@ -1893,8 +1865,7 @@ pub fn media_list_trash(
 }
 
 pub fn media_empty_trash(app: &AppHandle) -> Result<usize, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare("SELECT id FROM media WHERE deleted_at IS NOT NULL")?;
     let ids: Vec<String> = stmt
         .query_map([], |row| row.get::<_, String>(0))?
@@ -1913,8 +1884,7 @@ pub fn media_find_similar(
     app: &AppHandle,
     threshold: u32,
 ) -> Result<Vec<Vec<Media>>, Box<dyn std::error::Error>> {
-    let path = db_path(app);
-    let conn = Connection::open(&path)?;
+    let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT id, source_path, phash, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source
          FROM media WHERE phash IS NOT NULL AND deleted_at IS NULL",
