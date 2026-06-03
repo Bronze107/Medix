@@ -340,9 +340,11 @@
 > 当前每个 DB 函数都 `Connection::open(&path)?`，离开作用域关闭。
 > SQLite 页面缓存在连接关闭后丢失，跨函数无法共享。
 
-- [ ] 引入 `r2d2` + `r2d2_sqlite`，Tauri 中作为 managed state
-  - 位置：`src-tauri/src/db/mod.rs`（全局连接获取模式）
-- [ ] 重构 DB 函数签名：`fn xxx(app: &AppHandle, ...)` → 通过 app state 获取 pool
+- [x] **2026-06-02** 引入 `r2d2` + `r2d2_sqlite 0.27`，Tauri 中作为 managed state
+  - `init_pool(app)` → `Pool<SqliteConnectionManager>`, max_size=4
+  - ~30 个 db 函数 `Connection::open(&db_path(app))` → `get_conn(app)` 从池获取
+  - `_path` 变体函数保持不变（CLI 测试无 AppHandle）
+  - 位置：`src-tauri/src/db/mod.rs`
 
 #### P2 — pHash 去重 O(n²) 优化
 
@@ -590,6 +592,14 @@
 - [x] **导入 4 路并行**: `std::thread::scope` 分块并发，I/O/CPU 交替
 - [x] **EXIF 复用缓冲区**: 从 copy 首 64KB 缓冲解析 EXIF，不再单独打开文件
 - [x] **全局 `decoding="async"`**: Gallery/TableView/Lightbox/DetailPanel/CollectionsPage 所有 `<img>`
+
+**2026-06-02 补充优化**：
+
+- [x] **变体缩略图**: 变体创建时生成 256px 缩略图，`media_thumbnail` 支持变体 ID 懒生成，`MenuThumb` 缩略图优先于原图
+- [x] **消除 `resolve_thumb_paths` stat()**: 直接设预期路径，前端 `useThumbnail` 有重试兜底
+- [x] **缩略图缓存 LRU 淘汰**: Map 上限 2000 条，get/set 时维护访问顺序
+- [x] **LQIP 低质量占位图**: 导入时生成 20px base64 JPEG（~300B），Gallery/TableView 模糊背景占位
+- [x] **DB 连接池 (r2d2)**: `r2d2_sqlite 0.27` + `rusqlite 0.34`，max_size=4，~30 个 db 函数改用 `get_conn(app)`
 
 **此前已完成**：
 
