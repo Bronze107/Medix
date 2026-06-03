@@ -219,20 +219,26 @@ function AllMedia({ collectionId }: AllMediaProps) {
         setMedia((prev) => [...prev, ...list]);
       } else {
         setMedia(list);
-        // Restore previously selected media on initial load
-        if (selectedMediaId && !selected) {
-          const found = list.find((m) => m.id === selectedMediaId);
-          if (found) setSelected(found);
-        }
       }
     } catch (e) {
       console.error("Failed to load media:", e);
     }
-  }, [sortBy, descending, debouncedSearch, collectionId, media.length, selectedMediaId, selected]);
+  }, [sortBy, descending, debouncedSearch, collectionId, media.length]);
 
   useEffect(() => {
     loadMedia();
   }, [loadMedia]);
+
+  // Restore previously selected media after initial load
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || media.length === 0 || !selectedMediaId || selected) return;
+    const found = media.find((m) => m.id === selectedMediaId);
+    if (found) {
+      setSelected(found);
+      restoredRef.current = true;
+    }
+  }, [media, selectedMediaId, selected]);
 
   const loadAllTags = useCallback(async () => {
     try {
