@@ -196,9 +196,9 @@ async fn process_generate_caption(
 
     // Load all existing tags once, then do in-memory lookups per tag.
     // Saves ~10-15 `SELECT * FROM tags` round trips per image.
-    let all_tags = crate::db::tag_list(&app).map_err(|e| e.to_string())?;
+    let mut all_tags = crate::db::tag_list(&app).map_err(|e| e.to_string())?;
     for tag_name in &result.tags {
-        let tag_id = match ensure_tag_cached(&app, &all_tags, tag_name) {
+        let tag_id = match ensure_tag_cached(&app, &mut all_tags, tag_name) {
             Ok(id) => id,
             Err(e) => {
                 eprintln!("[ai] failed to ensure tag '{}': {}", tag_name, e);
@@ -259,12 +259,21 @@ async fn process_generate_caption(
 
 fn ensure_tag_cached(
     app: &AppHandle,
-    existing: &[crate::tag::Tag],
+    existing: &mut Vec<crate::tag::Tag>,
     name: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let name_lower = name.to_lowercase();
     if let Some(tag) = existing.iter().find(|t| t.name == name_lower) {
         return Ok(tag.id.clone());
     }
-    crate::db::tag_create(app, &name_lower)
+    let id = crate::db::tag_create(app, &name_lower)?;
+    // Push to local cache so subsequent lookups in this batch find it
+    existing.push(crate::tag::Tag {
+        id: id.clone(),
+        name: name_lower,
+        source: Some("ai".to_string()),
+        confidence: None,
+        item_count: Some(1i64),
+    });
+    Ok(id)
 }

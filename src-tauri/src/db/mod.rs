@@ -826,13 +826,24 @@ pub fn tag_create(
     name: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    let id = Ulid::new().to_string();
     let name_lower = name.to_lowercase();
-    conn.execute(
-        "INSERT INTO tags (id, name) VALUES (?1, ?2)",
+    // INSERT OR IGNORE — if tag already exists (e.g. AI returns duplicate),
+    // silently skip and return the existing id
+    let id = Ulid::new().to_string();
+    let affected = conn.execute(
+        "INSERT OR IGNORE INTO tags (id, name) VALUES (?1, ?2)",
         params![&id, &name_lower],
     )?;
-    Ok(id)
+    if affected > 0 {
+        return Ok(id);
+    }
+    // Tag already exists — look up its id
+    let existing: String = conn.query_row(
+        "SELECT id FROM tags WHERE name = ?1",
+        params![&name_lower],
+        |r| r.get(0),
+    )?;
+    Ok(existing)
 }
 
 pub fn tag_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
