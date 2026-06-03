@@ -1204,7 +1204,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       <ImagineDialog
         mediaId={media.id}
         variantId={targetId}
-        variantPath={targetId ? variants.find((v) => v.id === targetId)?.file_path ?? null : null}
+        variantPath={targetId
+          ? variants.find((v) => v.id === targetId)?.file_path ?? null
+          : media.thumb_256 ?? null}
         onClose={() => setShowAiEdit(false)}
       />
     )}
