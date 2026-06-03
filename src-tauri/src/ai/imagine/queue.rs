@@ -551,6 +551,14 @@ pub fn image_queue_import(
             };
             crate::db::variant_insert(&app, &variant).map_err(|e| e.to_string())?;
 
+            // Generate thumbnail for the variant
+            let dest_clone = dest.clone();
+            if let Err(e) = crate::media::thumbnail::generate_variant_thumbnail(
+                &app, &variant_id, &dest_clone,
+            ) {
+                eprintln!("[image-queue] variant thumbnail failed: {}", e);
+            }
+
             if let Err(e) = crate::db::caption_create_for_variant(
                 &app, mid, &variant_id, &task.prompt, Some("ai-edit"),
             ) {

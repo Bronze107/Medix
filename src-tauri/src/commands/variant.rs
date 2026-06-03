@@ -3,6 +3,7 @@ use std::path::Path;
 use tauri::{command, AppHandle, Emitter, Manager};
 
 use crate::db;
+use crate::media;
 use crate::variants::{list_presets, generate_variant, Variant, VariantPreset};
 
 fn resolve_source_path(app: &AppHandle, media_id: &str) -> Result<std::path::PathBuf, String> {
@@ -35,11 +36,18 @@ pub async fn variant_generate(
 ) -> Result<Variant, String> {
     tokio::task::spawn_blocking(move || {
         let source_path = resolve_source_path(&app, &media_id)?;
-        generate_variant(
+        let variant = generate_variant(
             &app, &media_id, &source_path,
             &label, &format, max_width, max_height, quality,
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+        // Generate thumbnail for the variant
+        if let Err(e) = media::thumbnail::generate_variant_thumbnail(
+            &app, &variant.id, Path::new(&variant.file_path),
+        ) {
+            eprintln!("[variant] thumbnail failed for {}: {}", variant.id, e);
+        }
+        Ok(variant)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -97,6 +105,12 @@ pub fn variant_import(
     };
 
     db::variant_insert(&app, &variant).map_err(|e| e.to_string())?;
+    // Generate thumbnail for the variant
+    if let Err(e) = media::thumbnail::generate_variant_thumbnail(
+        &app, &variant.id, Path::new(&variant.file_path),
+    ) {
+        eprintln!("[variant] thumbnail failed for imported {}: {}", variant.id, e);
+    }
     Ok(variant)
 }
 

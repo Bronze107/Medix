@@ -22,11 +22,25 @@ pub fn media_thumbnail(app: AppHandle, id: String) -> Result<String, String> {
 
     let thumb_path = app_dir.join("thumbnails").join(format!("{}_256.jpg", id));
 
-    if !thumb_path.exists() {
-        return Err("Thumbnail not found".to_string());
+    if thumb_path.exists() {
+        return Ok(thumb_path.to_string_lossy().replace('\\', "/"));
     }
 
-    Ok(thumb_path.to_string_lossy().replace('\\', "/"))
+    // Lazy variant thumbnail generation
+    if let Ok(Some(variant)) = crate::db::variant_get_by_id(&app, &id) {
+        if let Err(e) = crate::media::thumbnail::generate_variant_thumbnail(
+            &app, &id, std::path::Path::new(&variant.file_path),
+        ) {
+            eprintln!("[thumbnail] lazy variant thumb fail: {}", e);
+            return Ok(variant.file_path); // fall back to full image
+        }
+        if thumb_path.exists() {
+            return Ok(thumb_path.to_string_lossy().replace('\\', "/"));
+        }
+        return Ok(variant.file_path); // fall back to full image
+    }
+
+    return Err("Thumbnail not found".to_string());
 }
 
 /// Batch thumbnail resolution — single IPC + single DB query instead of N.

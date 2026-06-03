@@ -605,11 +605,15 @@ pub(crate) fn resolve_thumb_paths(app: &AppHandle, media_list: &mut [Media]) {
     let Ok(app_dir) = app.path().app_data_dir() else { return };
     let thumbs_dir = app_dir.join("thumbnails");
 
+    // Always set the expected path — thumbnails are generated synchronously during import.
+    // Frontend useThumbnail hook handles missing files with retry/fallback.
     for media in media_list {
-        let thumb_256 = thumbs_dir.join(format!("{}_256.jpg", media.id));
-        if thumb_256.exists() {
-            media.thumb_256 = Some(thumb_256.to_string_lossy().replace('\\', "/"));
-        }
+        media.thumb_256 = Some(
+            thumbs_dir
+                .join(format!("{}_256.jpg", media.id))
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
     }
 }
 

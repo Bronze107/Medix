@@ -172,7 +172,8 @@ function TargetMenu({
 
 function MenuThumb({ itemId, filePath }: { itemId: string; filePath?: string }) {
   const thumbUrl = useThumbnail(itemId, undefined);
-  const url = filePath ? convertFileSrc(filePath) : thumbUrl;
+  // Prefer thumbnail over full-size variant image
+  const url = thumbUrl || (filePath ? convertFileSrc(filePath) : null);
   const [loaded, setLoaded] = useState(false);
 
   if (!url) return <div className="h-full w-full bg-[var(--color-bg-secondary)]" />;

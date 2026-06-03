@@ -39,3 +39,30 @@ pub fn generate_thumbnails_from_image(
 
     Ok(())
 }
+
+/// Generate a 256px thumbnail for a variant file.
+/// Uses the variant's ID as the thumbnail filename.
+pub fn generate_variant_thumbnail(
+    app: &AppHandle,
+    variant_id: &str,
+    source_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let app_dir = app.path().app_data_dir()?;
+    let thumbs_dir = app_dir.join("thumbnails");
+    fs::create_dir_all(&thumbs_dir)?;
+
+    let thumb_path = thumbs_dir.join(format!("{}_256.jpg", variant_id));
+    if thumb_path.exists() {
+        return Ok(());
+    }
+
+    let img = image::open(source_path)?;
+    let thumb = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
+    let rgb_thumb = thumb.to_rgb8();
+    let mut output = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
+    encoder.encode_image(&rgb_thumb)?;
+    fs::write(&thumb_path, output)?;
+
+    Ok(())
+}
