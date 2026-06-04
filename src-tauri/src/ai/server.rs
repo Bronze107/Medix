@@ -76,6 +76,7 @@ impl LlamaServer {
         cmd.arg("--parallel").arg("2");
         cmd.arg("--embeddings");
         cmd.arg("--pooling").arg("mean");
+        cmd.arg("--reasoning").arg("off"); // MiniCPM-V Instruct outputs broken text if thinking is enabled
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 

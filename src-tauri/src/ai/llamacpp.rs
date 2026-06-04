@@ -41,12 +41,6 @@ struct ChatCompletionRequest {
     repeat_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
-    // Disable reasoning/thinking — caption generation doesn't need it.
-    // Different models use different keys: Qwen→enable_thinking, DeepSeek→thinking.
-    #[serde(rename = "enable_thinking")]
-    enable_thinking: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    thinking: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -203,8 +197,6 @@ pub async fn generate_caption(
         min_p: Some(sampling.min_p),
         repeat_penalty: Some(sampling.repeat_penalty),
         max_tokens: Some(sampling.max_tokens),
-        enable_thinking: Some(false),
-        thinking: Some(false),
     };
 
     let max_attempts = 2;
