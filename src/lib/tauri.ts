@@ -116,6 +116,10 @@ export function mediaTagRemoveBatch(mediaIds: string[], tagId: string): Promise<
   return invoke("media_tag_remove_batch", { mediaIds, tagId });
 }
 
+export function mediaTagsClear(mediaId: string): Promise<void> {
+  return invoke("media_tags_clear", { mediaId });
+}
+
 export function mediaTagsIntersect(mediaIds: string[]): Promise<Tag[]> {
   return invoke("media_tags_intersect", { mediaIds });
 }

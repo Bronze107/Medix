@@ -68,6 +68,11 @@ pub fn media_tag_remove_batch(
 }
 
 #[command]
+pub fn media_tags_clear(app: AppHandle, media_id: String) -> Result<(), String> {
+    db::media_tags_clear(&app, &media_id).map_err(|e| e.to_string())
+}
+
+#[command]
 pub fn media_tags_intersect(
     app: AppHandle,
     media_ids: Vec<String>,

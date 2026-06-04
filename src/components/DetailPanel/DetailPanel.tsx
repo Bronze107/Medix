@@ -14,6 +14,7 @@ import {
   mediaTagsGetForVariant,
   mediaTagAddForVariant,
   mediaTagRemoveForVariant,
+  mediaTagsClear,
   tagList,
   tagCreate,
   variantList,
@@ -198,6 +199,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
   const [activeTab, setActiveTab] = useState<"details" | "captions" | "tags">("details");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDeleteVariantConfirm, setShowDeleteVariantConfirm] = useState(false);
+  const [showClearTagsConfirm, setShowClearTagsConfirm] = useState(false);
 
   // Tags state
   const [tags, setTags] = useState<Tag[]>([]);
@@ -412,6 +414,17 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       await mediaTagRemoveForVariant(media.id, targetId, tagId);
       await loadMediaTags(media.id, targetId);
       showToast("已移除标签");
+    } catch (e) {
+      console.error("Failed to remove tag:", e);
+    }
+  };
+
+  const handleClearAllTags = async () => {
+    if (!media || tags.length === 0) return;
+    try {
+      await mediaTagsClear(media.id);
+      await loadMediaTags(media.id, targetId);
+      showToast(`已清除 ${tags.length} 个标签`);
     } catch (e) {
       console.error("Failed to remove tag:", e);
     }
@@ -815,6 +828,17 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               }
               return (
                 <>
+                  {tags.length > 0 && (
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-[11px] text-[var(--color-text-muted)]">{tags.length} 个标签</span>
+                      <button
+                        onClick={() => setShowClearTagsConfirm(true)}
+                        className="text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-colors"
+                      >
+                        清除全部
+                      </button>
+                    </div>
+                  )}
                   <div className="mb-2 flex flex-wrap gap-1.5">
                     {tags.length === 0 && (
                       <span className="text-xs text-[var(--color-text-muted)]">暂无标签</span>
@@ -1202,6 +1226,19 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
         confirmLabel="删除"
         onConfirm={handleDeleteVariant}
         onCancel={() => setShowDeleteVariantConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showClearTagsConfirm}
+        title="清除所有标签"
+        message={`确定要清除这张图片的所有标签吗？将移除 ${tags.length} 个标签，此操作不可撤销。`}
+        variant="danger"
+        confirmLabel="清除"
+        onConfirm={async () => {
+          await handleClearAllTags();
+          setShowClearTagsConfirm(false);
+        }}
+        onCancel={() => setShowClearTagsConfirm(false)}
       />
     </div>
     {showAiEdit && media && (

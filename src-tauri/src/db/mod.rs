@@ -1014,6 +1014,21 @@ pub fn media_tag_remove_with_variant(
     Ok(())
 }
 
+pub fn media_tags_clear(
+    app: &AppHandle,
+    media_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+    conn.execute(
+        "DELETE FROM media_tags WHERE media_id = ?1",
+        params![media_id],
+    )?;
+    let mid = media_id.to_string();
+    drop(conn);
+    let _ = fts_sync(app, &mid);
+    Ok(())
+}
+
 pub fn media_tags_intersect(
     app: &AppHandle,
     media_ids: &[String],
