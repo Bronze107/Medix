@@ -69,7 +69,7 @@
      - [x] caption 和 tags 分别向量化
      - [x] blob 存储 f32 向量到 `embeddings` 表
      - [x] `--embeddings --pooling mean` 参数启用
-     - [ ] 后续优化：支持专用 embedding 模型（nomic-embed-text）独立实例（见 Phase 6）
+     - [x] 后续优化：支持专用 embedding 模型（Qwen3-Embedding）独立实例（见 Phase 6）
    - [x] llama-server 子进程生命周期管理（启动/健康检查/关闭）
    - [x] `--mmproj` 视觉投影器支持
    - [x] 自动检测二进制路径 + 扫描 models/ 目录下 GGUF/mmproj 文件
@@ -178,7 +178,7 @@
    - [x] 与 `embeddings` 表中 caption/tags 向量做余弦相似度排序
    - [x] 最低相似度阈值 0.25 过滤噪声
    - [x] 与现有 `tag:` 语法共存，可混合使用
-   - [ ] **后续优化**：支持专用 embedding 模型（如 nomic-embed-text）独立实例/端口
+   - [x] **后续优化**：支持专用 embedding 模型（如 Qwen3-Embedding）独立实例/端口
      - 当前共用 MiniCPM-V 做 embedding，语义质量不如专用模型
      - 方案：设置页支持配置第二个模型 + 端口，llama-server 启动两个实例
 2. [x] 高级过滤语法
@@ -466,11 +466,6 @@
   - 余弦相似度对 f16 精度下降不敏感，实际搜索质量几乎无影响
   - 位置：`src-tauri/src/db/mod.rs:1452`（写入）+ `db/mod.rs:1478/1553`（读取）
   - 迁移：新 embedding 用 f16 存储，读取时兼容旧 f32 数据
-
-- [ ] **P2 — caption/tags embedding 去重**（节省 ~7.5MB / 5000 张）
-  - 当前同一张图的 caption 和 tags 存了两份**完全相同的向量 BLOB**
-  - 方案：改为 `content_type = "all"`，存一次；搜索时只查一行
-  - 位置：`src-tauri/src/ai/mod.rs:232-243`
 
 - [ ] **P3 — 可选的原始文件无损压缩**（节省 1-3GB / 5000 张）
   - JPEG 可通过优化 Huffman 表、去除无关元数据做到无损压缩（通常 5-15%）
