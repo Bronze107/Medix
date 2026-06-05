@@ -24,7 +24,7 @@ use commands::{
     collection_add_batch, collection_add_item, collection_create, collection_delete,
     collection_first_media_id, collection_get, collection_get_item_ids, collection_list,
     collection_pin, collection_remove_item, collection_rename, collection_unpin,
-    embedding_info, export_dataset, greet, image_confirm_import, image_discard_staged, image_edit,
+    embedding_info, embedding_rebuild_all, embedding_server_status, export_dataset, greet, image_confirm_import, image_discard_staged, image_edit,
     image_generate, import_zip, llama_server_start, llama_server_status,
     llama_server_stop, media_ai_annotate, media_empty_trash, media_find_duplicates,
     media_get_paths, media_import, media_list, media_list_by_collection, media_list_trash,
@@ -79,6 +79,7 @@ fn main() {
             }
 
             app.manage(ai::LlamaServer::new());
+            app.manage(ai::EmbeddingServer::new());
 
             let ai_queue = ai::init_ai_queue(app.handle().clone());
             app.manage(ai_queue);
@@ -101,11 +102,12 @@ fn main() {
                 let gpu = settings::get_llama_gpu_layers(&handle);
 
                 if !model.is_empty() {
+                    let vlm_handle = handle.clone();
                     tauri::async_runtime::spawn(async move {
-                        let server = handle.state::<ai::LlamaServer>();
+                        let server = vlm_handle.state::<ai::LlamaServer>();
                         println!("[auto-start] starting llama-server on port {}...", port);
-                        let cache_k = settings::get_llama_cache_type_k(&handle);
-                        let cache_v = settings::get_llama_cache_type_v(&handle);
+                        let cache_k = settings::get_llama_cache_type_k(&vlm_handle);
+                        let cache_v = settings::get_llama_cache_type_v(&vlm_handle);
                         match server.start(&bin, &model, &mmproj, port, ctx, threads, gpu, &cache_k, &cache_v) {
                             Ok(()) => {
                                 if let Err(e) = server.wait_until_ready(port).await {
@@ -118,6 +120,29 @@ fn main() {
                         }
                     });
                 }
+            }
+
+            // Auto-start embedding server if model configured
+            let emb_model = settings::get_embedding_model(&handle);
+            if !emb_model.is_empty() {
+                let emb_bin = settings::get_llama_bin_path(&handle);
+                let emb_port = settings::get_embedding_port(&handle);
+                let emb_threads = settings::get_embedding_threads(&handle);
+                let emb_handle = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    let server = emb_handle.state::<ai::EmbeddingServer>();
+                    println!("[auto-start] starting embedding server on port {}...", emb_port);
+                    match server.start(&emb_bin, &emb_model, emb_port, emb_threads) {
+                        Ok(()) => {
+                            if let Err(e) = server.wait_until_ready(emb_port).await {
+                                eprintln!("[auto-start] embedding server ready check failed: {}", e);
+                            } else {
+                                println!("[auto-start] embedding server ready");
+                            }
+                        }
+                        Err(e) => eprintln!("[auto-start] embedding server failed: {}", e),
+                    }
+                });
             }
 
             Ok(())
@@ -191,6 +216,8 @@ fn main() {
             llama_server_status,
             llama_server_start,
             llama_server_stop,
+            embedding_server_status,
+            embedding_rebuild_all,
             model_list,
             ai_pending_count,
             auto_detect,
@@ -210,6 +237,9 @@ fn main() {
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(server) = app_handle.try_state::<ai::LlamaServer>() {
+                    let _ = server.stop();
+                }
+                if let Some(server) = app_handle.try_state::<ai::EmbeddingServer>() {
                     let _ = server.stop();
                 }
             }

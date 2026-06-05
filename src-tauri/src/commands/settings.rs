@@ -51,6 +51,9 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_IMAGE_API_MODEL,
         settings::KEY_IMAGE_API_PROXY,
         settings::KEY_GLOBAL_PROXY,
+        settings::KEY_EMBEDDING_MODEL,
+        settings::KEY_EMBEDDING_PORT,
+        settings::KEY_EMBEDDING_THREADS,
     ];
     for key in keys {
         if let Some(val) = settings::get(&app, key) {

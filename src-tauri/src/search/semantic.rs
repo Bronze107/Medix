@@ -15,9 +15,9 @@ pub fn semantic_search_by_vector(
     limit: usize,
     min_score: f64,
 ) -> Result<Vec<ScoredMedia>, String> {
-    let model = crate::settings::get_llama_model(app);
+    let model = crate::settings::get_embedding_model(app);
     if model.is_empty() {
-        return Err("no model configured".to_string());
+        return Err("no embedding model configured".to_string());
     }
     let model_short = std::path::Path::new(&model)
         .file_name()

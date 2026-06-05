@@ -43,17 +43,20 @@ pub async fn media_search(
     // Parse query to check if semantic search is needed
     let parsed = crate::search::parser::parse(&trimmed);
 
-    // If semantic text present, get embedding (async, outside spawn_blocking)
+    // If semantic text present, get embedding via dedicated embedding server
     let query_embedding: Option<Vec<f32>> = if parsed.semantic_text.is_some() {
-        let model = crate::settings::get_llama_model(&app);
-        let port = crate::settings::get_llama_port(&app);
-        if !model.is_empty() {
-            let server = app.state::<crate::ai::LlamaServer>();
-            if server.health_check(port).await {
+        let emb_model = crate::settings::get_embedding_model(&app);
+        if emb_model.is_empty() {
+            eprintln!("[search] no embedding model configured, skipping semantic search");
+            None
+        } else {
+            let emb_port = crate::settings::get_embedding_port(&app);
+            let server = app.state::<crate::ai::EmbeddingServer>();
+            if server.health_check(emb_port).await {
                 match crate::ai::llamacpp::embed_text(
                     parsed.semantic_text.as_ref().unwrap(),
-                    &model,
-                    port,
+                    &emb_model,
+                    emb_port,
                 )
                 .await
                 {
@@ -64,10 +67,9 @@ pub async fn media_search(
                     }
                 }
             } else {
+                eprintln!("[search] embedding server not running, skipping semantic search");
                 None
             }
-        } else {
-            None
         }
     } else {
         None

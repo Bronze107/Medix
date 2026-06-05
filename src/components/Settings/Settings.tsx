@@ -8,6 +8,7 @@ import {
   settingsGetAll,
   settingsSet,
   testProxy,
+  embeddingRebuildAll,
 } from "@/lib/tauri";
 
 type AiMode = "local" | "cloud" | "auto";
@@ -42,6 +43,14 @@ function Settings() {
   const [llamaRepeatPenalty, setLlamaRepeatPenalty] = useState(1.05);
   const [llamaMaxTokens, setLlamaMaxTokens] = useState(1024);
   const [llamaSeed, setLlamaSeed] = useState(-1);
+
+  // Embedding model
+  const [embeddingModel, setEmbeddingModel] = useState("");
+  const [embeddingPort, setEmbeddingPort] = useState(8081);
+  const [embeddingThreads, setEmbeddingThreads] = useState(2);
+  const [embRebuilding, setEmbRebuilding] = useState(false);
+  const [embRebuildResult, setEmbRebuildResult] = useState<string | null>(null);
+
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [searchSemanticEnabled, setSearchSemanticEnabled] = useState(true);
   const [searchFts5Enabled, setSearchFts5Enabled] = useState(true);
@@ -84,6 +93,9 @@ function Settings() {
       if (settings.llama_repeat_penalty) setLlamaRepeatPenalty(parseFloat(settings.llama_repeat_penalty) || 1.05);
       if (settings.llama_max_tokens) setLlamaMaxTokens(parseInt(settings.llama_max_tokens) || 1024);
       if (settings.llama_seed) setLlamaSeed(parseInt(settings.llama_seed) || -1);
+      if (settings.embedding_model) setEmbeddingModel(settings.embedding_model);
+      if (settings.embedding_port) setEmbeddingPort(parseInt(settings.embedding_port) || 8081);
+      if (settings.embedding_threads) setEmbeddingThreads(parseInt(settings.embedding_threads) || 2);
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
       if (settings.search_semantic_enabled) setSearchSemanticEnabled(settings.search_semantic_enabled === "true");
       if (settings.search_fts5_enabled) setSearchFts5Enabled(settings.search_fts5_enabled === "true");
@@ -144,6 +156,9 @@ function Settings() {
       await settingsSet("llama_repeat_penalty", String(llamaRepeatPenalty));
       await settingsSet("llama_max_tokens", String(llamaMaxTokens));
       await settingsSet("llama_seed", String(llamaSeed));
+      await settingsSet("embedding_model", embeddingModel);
+      await settingsSet("embedding_port", String(embeddingPort));
+      await settingsSet("embedding_threads", String(embeddingThreads));
       await settingsSet("semantic_threshold", String(semanticThreshold));
       await settingsSet("search_semantic_enabled", searchSemanticEnabled ? "true" : "false");
       await settingsSet("search_fts5_enabled", searchFts5Enabled ? "true" : "false");
@@ -732,6 +747,88 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
             <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
               使用 VLM 模型时需要配套的 mmproj 文件
             </p>
+          </div>
+        </section>
+
+        {/* Embedding Model */}
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
+            Embedding 模型
+          </h2>
+          <p className="mb-3 text-[11px] text-[var(--color-text-muted)]">
+            专用 embedding 模型用于语义搜索，不配置则跳过语义搜索功能。推荐 nomic-embed-text-v1.5（~270MB）。
+          </p>
+
+          <div className="mb-3">
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">模型文件路径</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={embeddingModel}
+                onChange={(e) => setEmbeddingModel(e.target.value)}
+                placeholder="留空则不启用专用 embedding 模型"
+                className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+              />
+              <button
+                onClick={async () => {
+                  const path = await open({
+                    filters: [{ name: "GGUF 模型", extensions: ["gguf"] }],
+                  });
+                  if (path) setEmbeddingModel(path);
+                }}
+                className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+                title="选择模型文件"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-[var(--color-text-muted)]">端口</label>
+              <input
+                type="number"
+                value={embeddingPort}
+                onChange={(e) => setEmbeddingPort(parseInt(e.target.value) || 8081)}
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--color-text-muted)]">CPU 线程数</label>
+              <input
+                type="number"
+                value={embeddingThreads}
+                onChange={(e) => setEmbeddingThreads(parseInt(e.target.value) || 2)}
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+            <button
+              onClick={async () => {
+                setEmbRebuilding(true);
+                setEmbRebuildResult(null);
+                try {
+                  const result = await embeddingRebuildAll();
+                  setEmbRebuildResult(result);
+                } catch (e) {
+                  setEmbRebuildResult(`错误: ${e}`);
+                } finally {
+                  setEmbRebuilding(false);
+                }
+              }}
+              disabled={embRebuilding}
+              className="rounded bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] disabled:opacity-50 active:scale-[0.97]"
+            >
+              {embRebuilding ? "重建中..." : "重建全部 Embedding"}
+            </button>
+            {embRebuildResult && (
+              <p className="mt-2 text-xs text-[var(--color-text-muted)]">{embRebuildResult}</p>
+            )}
           </div>
         </section>
 

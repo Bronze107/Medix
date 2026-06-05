@@ -318,6 +318,18 @@ export function embeddingInfo(mediaId: string): Promise<EmbeddingInfo[]> {
   return invoke("embedding_info", { mediaId });
 }
 
+export function embeddingServerStatus(): Promise<{
+  running: boolean;
+  port: number;
+  pid: number | null;
+}> {
+  return invoke("embedding_server_status");
+}
+
+export function embeddingRebuildAll(): Promise<string> {
+  return invoke("embedding_rebuild_all");
+}
+
 export function aiPendingCount(): Promise<number> {
   return invoke("ai_pending_count");
 }

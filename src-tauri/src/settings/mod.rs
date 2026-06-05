@@ -210,6 +210,28 @@ pub fn get_http_port(app: &AppHandle) -> u16 {
         .unwrap_or(8765)
 }
 
+// --- Dedicated embedding model ---
+
+pub const KEY_EMBEDDING_MODEL: &str = "embedding_model";
+pub const KEY_EMBEDDING_PORT: &str = "embedding_port";
+pub const KEY_EMBEDDING_THREADS: &str = "embedding_threads";
+
+pub fn get_embedding_model(app: &AppHandle) -> String {
+    get(app, KEY_EMBEDDING_MODEL).unwrap_or_default()
+}
+
+pub fn get_embedding_port(app: &AppHandle) -> u16 {
+    get(app, KEY_EMBEDDING_PORT)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8081)
+}
+
+pub fn get_embedding_threads(app: &AppHandle) -> u32 {
+    get(app, KEY_EMBEDDING_THREADS)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2)
+}
+
 // --- Image generation API ---
 
 pub const KEY_IMAGE_API_PROVIDER: &str = "image_api_provider";

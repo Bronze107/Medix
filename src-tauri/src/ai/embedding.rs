@@ -4,17 +4,17 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize)]
-pub struct LlamaServerStatus {
+pub struct EmbeddingServerStatus {
     pub running: bool,
     pub port: u16,
     pub pid: Option<u32>,
 }
 
-pub struct LlamaServer {
+pub struct EmbeddingServer {
     process: Mutex<Option<Child>>,
 }
 
-impl LlamaServer {
+impl EmbeddingServer {
     pub fn new() -> Self {
         Self {
             process: Mutex::new(None),
@@ -25,13 +25,8 @@ impl LlamaServer {
         &self,
         bin_path: &str,
         model_path: &str,
-        mmproj_path: &str,
         port: u16,
-        ctx_size: u32,
         threads: u32,
-        gpu_layers: i32,
-        cache_type_k: &str,
-        cache_type_v: &str,
     ) -> Result<(), String> {
         let mut guard = self
             .process
@@ -39,7 +34,6 @@ impl LlamaServer {
             .map_err(|e| format!("lock error: {}", e))?;
 
         if guard.is_some() {
-            // Already running — check if still alive
             if let Some(ref mut child) = *guard {
                 match child.try_wait() {
                     Ok(Some(_)) => {
@@ -56,7 +50,7 @@ impl LlamaServer {
         }
 
         if model_path.is_empty() {
-            return Err("no GGUF model selected".to_string());
+            return Err("no embedding model selected".to_string());
         }
 
         let model_full = if std::path::Path::new(model_path).is_absolute() {
@@ -69,22 +63,15 @@ impl LlamaServer {
         cmd.arg("-m").arg(&model_full);
         cmd.arg("--host").arg("127.0.0.1");
         cmd.arg("--port").arg(port.to_string());
-        cmd.arg("--ctx-size").arg(ctx_size.to_string());
         cmd.arg("--threads").arg(threads.to_string());
-        cmd.arg("--n-gpu-layers").arg(gpu_layers.to_string());
-        if !mmproj_path.is_empty() {
-            cmd.arg("--mmproj").arg(mmproj_path);
-        }
-        cmd.arg("--parallel").arg("2");
-        cmd.arg("--reasoning").arg("off"); // MiniCPM-V Instruct: broken output with thinking
-        cmd.arg("--flash-attn").arg("on"); // significant speedup for VLM inference
-        cmd.arg("--cache-type-k").arg(cache_type_k);
-        cmd.arg("--cache-type-v").arg(cache_type_v);
-        cmd.arg("--mlock"); // keep model in RAM, prevent OS swap
+        cmd.arg("--ctx-size").arg("512");
+        cmd.arg("--n-gpu-layers").arg("0");
+        cmd.arg("--embeddings");
+        cmd.arg("--pooling").arg("mean");
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        let child = cmd.spawn().map_err(|e| format!("failed to spawn llama-server: {}", e))?;
+        let child = cmd.spawn().map_err(|e| format!("failed to spawn embedding server: {}", e))?;
 
         *guard = Some(child);
         Ok(())
@@ -107,7 +94,7 @@ impl LlamaServer {
                 }
             }
         }
-        Err("llama-server did not become ready within 30 seconds".to_string())
+        Err("embedding server did not become ready within 30 seconds".to_string())
     }
 
     pub fn stop(&self) -> Result<(), String> {
@@ -124,11 +111,11 @@ impl LlamaServer {
         Ok(())
     }
 
-    pub fn status(&self, port: u16) -> LlamaServerStatus {
+    pub fn status(&self, port: u16) -> EmbeddingServerStatus {
         let guard = match self.process.lock() {
             Ok(g) => g,
             Err(_) => {
-                return LlamaServerStatus {
+                return EmbeddingServerStatus {
                     running: false,
                     port,
                     pid: None,
@@ -136,13 +123,13 @@ impl LlamaServer {
             }
         };
         if let Some(ref child) = *guard {
-            LlamaServerStatus {
+            EmbeddingServerStatus {
                 running: true,
                 port,
                 pid: Some(child.id()),
             }
         } else {
-            LlamaServerStatus {
+            EmbeddingServerStatus {
                 running: false,
                 port,
                 pid: None,
@@ -163,9 +150,5 @@ impl LlamaServer {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
         }
-    }
-
-    pub fn is_port_available(&self, port: u16) -> bool {
-        std::net::TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
     }
 }

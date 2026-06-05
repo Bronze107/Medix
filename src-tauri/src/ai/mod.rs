@@ -1,7 +1,9 @@
+pub mod embedding;
 pub mod imagine;
 pub mod llamacpp;
 pub mod server;
 
+pub use embedding::EmbeddingServer;
 pub use llamacpp::{embed_text, generate_caption, AiResult, SamplingParams};
 pub use server::LlamaServer;
 
@@ -108,11 +110,6 @@ async fn process_generate_caption(
     }
 
     let model = crate::settings::get_llama_model(&app);
-    let model_short = std::path::Path::new(&model)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(&model)
-        .to_string();
     if model.is_empty() {
         eprintln!("[ai] no GGUF model configured, skipping {}", media_id);
         return Ok(());
@@ -219,33 +216,46 @@ async fn process_generate_caption(
         }
     }
 
-    // Generate embeddings (only for original, not variants).
-    // Batch caption + tags into a single embedding call instead of two round trips.
+    // Generate embeddings via dedicated embedding server (only for original, not variants).
     if variant_id.is_none() {
-        let embed_text_input: String = if result.tags.is_empty() {
-            result.caption.clone()
+        let emb_model = crate::settings::get_embedding_model(&app);
+        if emb_model.is_empty() {
+            eprintln!("[ai] no embedding model configured, skipping embedding for {}", media_id);
         } else {
-            format!("{}\n{}", result.caption, result.tags.join(", "))
-        };
-        match embed_text(&embed_text_input, &model, port).await {
-            Ok(vector) => {
-                // Store the same vector for both "caption" and "tags" slots so
-                // semantic search can match against either.
-                if let Err(e) =
-                    crate::db::embedding_insert(&app, &media_id, &model_short, "caption", &vector)
-                {
-                    eprintln!("[ai] failed to store caption embedding: {}", e);
-                }
-                if !result.tags.is_empty() {
-                    if let Err(e) =
-                        crate::db::embedding_insert(&app, &media_id, &model_short, "tags", &vector)
-                    {
-                        eprintln!("[ai] failed to store tags embedding: {}", e);
+            let emb_port = crate::settings::get_embedding_port(&app);
+            let emb_server = app.state::<EmbeddingServer>();
+            if emb_server.health_check(emb_port).await {
+                let embed_text_input: String = if result.tags.is_empty() {
+                    result.caption.clone()
+                } else {
+                    format!("{}\n{}", result.caption, result.tags.join(", "))
+                };
+                let emb_model_short = std::path::Path::new(&emb_model)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&emb_model)
+                    .to_string();
+                match embed_text(&embed_text_input, &emb_model, emb_port).await {
+                    Ok(vector) => {
+                        if let Err(e) =
+                            crate::db::embedding_insert(&app, &media_id, &emb_model_short, "caption", &vector)
+                        {
+                            eprintln!("[ai] failed to store caption embedding: {}", e);
+                        }
+                        if !result.tags.is_empty() {
+                            if let Err(e) =
+                                crate::db::embedding_insert(&app, &media_id, &emb_model_short, "tags", &vector)
+                            {
+                                eprintln!("[ai] failed to store tags embedding: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[ai] embedding failed: {}", e);
                     }
                 }
-            }
-            Err(e) => {
-                eprintln!("[ai] embedding failed: {}", e);
+            } else {
+                eprintln!("[ai] embedding server not running, skipping embedding for {}", media_id);
             }
         }
     }
