@@ -10,6 +10,42 @@ use crate::db;
 
 const SUPPORTED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
 
+/// Detect image format from magic bytes (file header).
+/// Returns the canonical extension (without dot): "jpg", "png", "webp", "gif", "bmp".
+fn detect_format_from_bytes(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() >= 12 {
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        if bytes[0..8] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+            return Some("png");
+        }
+        // WebP: RIFF....WEBP (52 49 46 46 ... 57 45 42 50)
+        if &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+            return Some("webp");
+        }
+    }
+    if bytes.len() >= 8 {
+        // GIF: GIF8 (47 49 46 38)
+        if &bytes[0..4] == b"GIF8" {
+            return Some("gif");
+        }
+    }
+    if bytes.len() >= 3 {
+        // JPEG: FF D8 FF
+        if bytes[0..3] == [0xFF, 0xD8, 0xFF] {
+            return Some("jpg");
+        }
+    }
+    if bytes.len() >= 2 {
+        // BMP: 42 4D
+        if bytes[0..2] == [0x42, 0x4D] {
+            return Some("bmp");
+        }
+    }
+    None
+}
+
+/// Quick extension-based pre-filter for directory scanning.
+/// Actual format detection is done via magic bytes in `import_single_file`.
 pub fn is_supported(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -138,24 +174,9 @@ fn import_single_file(
         };
     }
 
-    if !is_supported(source_path) {
-        return MediaImportResult {
-            id: String::new(),
-            path: path_str,
-            success: false,
-            error: Some("Unsupported file type".to_string()),
-        };
-    }
-
     let id = Ulid::new().to_string();
-    let ext = source_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
-        .to_lowercase();
-    let dest_path = library_dir.join(format!("{}.{}", id, ext));
 
-    // Step 1: Copy file + compute SHA256 in a single I/O pass
+    // Step 1: Open source and read first 64KB for magic-byte detection + EXIF + hashing
     let source_file = match fs::File::open(source_path) {
         Ok(f) => f,
         Err(e) => {
@@ -187,6 +208,18 @@ fn import_single_file(
         }
     }
     first_chunk.truncate(total_read);
+
+    // Step 2: Detect actual format from magic bytes (NOT from file extension)
+    let ext = match detect_format_from_bytes(&first_chunk) {
+        Some(e) => e,
+        None => {
+            return MediaImportResult {
+                id: String::new(), path: path_str, success: false,
+                error: Some("Unsupported file type (unrecognized format)".to_string()),
+            };
+        }
+    };
+    let dest_path = library_dir.join(format!("{}.{}", id, ext));
 
     // Write the buffered first chunk to dest
     if let Err(e) = fs::write(&dest_path, &first_chunk) {
@@ -230,7 +263,7 @@ fn import_single_file(
 
     let sha256 = Some(hashing_reader.finalize());
 
-    // Step 2: Dedup check
+    // Step 3: Dedup check
     if let Some(ref hash) = sha256 {
         match crate::db::media_get_by_sha256(app, hash) {
             Ok(Some(existing)) => {
@@ -245,7 +278,7 @@ fn import_single_file(
         }
     }
 
-    // Step 3: Decode image once — shared across dimensions, pHash, and thumbnails
+    // Step 4: Decode image once — shared across dimensions, pHash, and thumbnails
     let img = match image::open(&dest_path) {
         Ok(i) => i,
         Err(e) => {
@@ -264,14 +297,14 @@ fn import_single_file(
     };
     let file_size = Some(canonical_file_size);
 
-    // Step 4: EXIF from buffered first chunk
+    // Step 5: EXIF from buffered first chunk
     let (created_at, modified_at) = read_exif_from_bytes(&first_chunk);
 
-    // Step 5: pHash from shared image
+    // Step 6: pHash from shared image
     let phash = super::phash::compute_phash_from_image(&img)
         .map(|h| h.to_le_bytes().to_vec());
 
-    // Step 5.5: LQIP placeholder (20px base64, ~300 bytes)
+    // Step 6.5: LQIP placeholder (20px base64, ~300 bytes)
     let lqip = {
         let data_url = super::thumbnail::generate_lqip(&img);
         if data_url.is_empty() { None } else { Some(data_url) }
@@ -307,13 +340,13 @@ fn import_single_file(
         };
     }
 
-    // Step 6: Generate thumbnails from the shared image
+    // Step 7: Generate thumbnails from the shared image
     // (we're already in an OS thread from std::thread::scope, so call directly)
     if let Err(e) = super::thumbnail::generate_thumbnails_from_image(app, &id, &img) {
         eprintln!("[thumbnail] failed to generate thumbnails for {}: {}", id, e);
     }
 
-    // Step 7: Trigger AI caption generation
+    // Step 8: Trigger AI caption generation
     // AiQueue uses std::sync::mpsc — safe to call from any thread
     let queue = app.state::<crate::ai::AiQueue>();
     let _ = queue.send(crate::ai::AiTask::GenerateCaption {
