@@ -30,6 +30,7 @@ import {
   captionUpdate,
   captionDelete,
   embeddingInfo,
+  embeddingDelete,
   mediaAiAnnotate,
   aiPendingCount,
   mediaSoftDelete,
@@ -516,6 +517,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
         await captionCreate(media.id, text);
       }
       await loadCaptions(media.id);
+      loadEmbeddings(media.id);
       setNewCaptionText("");
     } catch (e) {
       console.error("Failed to add caption:", e);
@@ -535,6 +537,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       await captionUpdate(editingCaptionId, text);
       if (media) {
         await loadCaptions(media.id);
+        loadEmbeddings(media.id);
       }
       setEditingCaptionId(null);
       setEditingText("");
@@ -553,6 +556,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       await captionDelete(id);
       if (media) {
         await loadCaptions(media.id);
+        loadEmbeddings(media.id);
       }
       showToast("已删除描述");
     } catch (e) {
@@ -565,6 +569,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
     try {
       await captionCreate(media.id, text);
       await loadCaptions(media.id);
+      loadEmbeddings(media.id);
     } catch (e) {
       console.error("Failed to adopt AI caption:", e);
     }
@@ -788,30 +793,40 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
             )}
           </div>
 
-            {!isVar && (
+            {!isVar && embeddings.length > 0 && (
           <div className="mt-6 border-t border-[var(--color-border)] pt-4">
             <p className="mb-2 text-xs text-[var(--color-text-muted)]">向量嵌入</p>
-            {embeddings.length === 0 ? (
-              <p className="text-xs text-[var(--color-text-muted)]">
-                {media ? "暂无 embedding" : "—"}
-              </p>
-            ) : (
-              <div className="space-y-1.5">
-                {embeddings.map((e) => (
-                  <div
-                    key={e.content_type}
-                    className="flex items-center justify-between rounded bg-[var(--color-bg-tertiary)]/50 px-2 py-1.5"
-                  >
-                    <span className="text-xs text-[var(--color-text-secondary)]">
-                      {e.content_type === "caption" ? "描述向量" : "标签向量"}
-                    </span>
+            <div className="space-y-1.5">
+              {embeddings.map((e) => (
+                <div
+                  key={e.content_type}
+                  className="flex items-center justify-between rounded bg-[var(--color-bg-tertiary)]/50 px-2 py-1.5 group"
+                >
+                  <span className="text-xs text-[var(--color-text-secondary)]">描述向量</span>
+                  <div className="flex items-center gap-2">
                     <span className="text-[10px] text-[var(--color-text-muted)]">
                       {e.vec_dim}d · {e.model}
                     </span>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await embeddingDelete(media.id);
+                          setEmbeddings([]);
+                        } catch (err) {
+                          console.error("Failed to delete embedding:", err);
+                        }
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-all"
+                      title="删除向量"
+                    >
+                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              ))}
+            </div>
           </div>
             )}
           </div>

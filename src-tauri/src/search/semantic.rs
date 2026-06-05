@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use tauri::AppHandle;
 
 #[derive(Debug)]
@@ -27,34 +26,12 @@ pub fn semantic_search_by_vector(
     let all_embs = crate::db::embedding_get_all_by_model(app, model_short)
         .map_err(|e| e.to_string())?;
 
-    // Group by media_id: (caption_vec, tags_vec)
-    let mut per_media: HashMap<String, (Option<Vec<f32>>, Option<Vec<f32>>)> = HashMap::new();
-    for (media_id, content_type, vec) in all_embs {
-        let entry = per_media.entry(media_id).or_insert((None, None));
-        match content_type.as_str() {
-            "caption" => entry.0 = Some(vec),
-            "tags" => entry.1 = Some(vec),
-            _ => {}
-        }
-    }
-
-    let mut scored: Vec<ScoredMedia> = per_media
+    let mut scored: Vec<ScoredMedia> = all_embs
         .into_iter()
-        .filter_map(|(media_id, (caption_emb, tags_emb))| {
-            let caption_score = caption_emb
-                .as_ref()
-                .map(|v| cosine_similarity(query_vec, v))
-                .unwrap_or(0.0);
-            let tags_score = tags_emb
-                .as_ref()
-                .map(|v| cosine_similarity(query_vec, v))
-                .unwrap_or(0.0);
-            let combined = caption_score.max(tags_score);
-            if combined > min_score {
-                Some(ScoredMedia {
-                    media_id,
-                    score: combined,
-                })
+        .filter_map(|(media_id, _content_type, vec)| {
+            let score = cosine_similarity(query_vec, &vec);
+            if score > min_score {
+                Some(ScoredMedia { media_id, score })
             } else {
                 None
             }

@@ -318,6 +318,10 @@ export function embeddingInfo(mediaId: string): Promise<EmbeddingInfo[]> {
   return invoke("embedding_info", { mediaId });
 }
 
+export function embeddingDelete(mediaId: string): Promise<void> {
+  return invoke("embedding_delete", { mediaId });
+}
+
 export function embeddingServerStatus(): Promise<{
   running: boolean;
   port: number;

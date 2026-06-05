@@ -51,6 +51,11 @@ pub fn embedding_info(app: AppHandle, media_id: String) -> Result<Vec<crate::db:
 }
 
 #[command]
+pub fn embedding_delete(app: AppHandle, media_id: String) -> Result<(), String> {
+    crate::db::embedding_delete_for_media(&app, &media_id).map_err(|e| e.to_string())
+}
+
+#[command]
 pub fn ai_pending_count(app: AppHandle) -> usize {
     let queue = app.state::<crate::ai::AiQueue>();
     queue.pending_count()
@@ -94,47 +99,25 @@ pub async fn embedding_rebuild_all(app: AppHandle) -> Result<String, String> {
         .to_string();
 
     for (i, media) in all_media.iter().enumerate() {
-        // Get latest caption + tags for this media
+        // Get latest caption for this media
         let caption = crate::db::caption_list(&app, &media.id)
             .ok()
             .and_then(|list| list.into_iter().next())
             .map(|c| c.text)
             .unwrap_or_default();
-        let tags = crate::db::media_tags_get(&app, &media.id)
-            .map(|tags| {
-                tags.iter()
-                    .map(|t| t.name.clone())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
 
-        let embed_input = if tags.is_empty() {
-            caption.clone()
-        } else if caption.is_empty() {
-            tags.clone()
-        } else {
-            format!("{}\n{}", caption, tags)
-        };
-
-        if embed_input.trim().is_empty() {
+        if caption.trim().is_empty() {
             continue;
         }
 
-        match crate::ai::llamacpp::embed_text(&embed_input, &emb_model, emb_port).await {
+        match crate::ai::llamacpp::embed_text(&caption, &emb_model, emb_port).await {
             Ok(vector) => {
-                // Insert both caption and tags embeddings with same vector
                 if let Err(e) = crate::db::embedding_insert(
                     &app, &media.id, &model_short, "caption", &vector,
                 ) {
                     eprintln!("[embedding-rebuild] failed to store caption embedding for {}: {}", media.id, e);
-                }
-                if !tags.is_empty() {
-                    if let Err(e) = crate::db::embedding_insert(
-                        &app, &media.id, &model_short, "tags", &vector,
-                    ) {
-                        eprintln!("[embedding-rebuild] failed to store tags embedding for {}: {}", media.id, e);
-                    }
+                } else {
+                    println!("[embedding-rebuild] embedding stored for {} ({}d)", media.id, vector.len());
                 }
             }
             Err(e) => {

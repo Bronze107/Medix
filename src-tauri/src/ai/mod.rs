@@ -216,8 +216,8 @@ async fn process_generate_caption(
         }
     }
 
-    // Generate embeddings via dedicated embedding server (only for original, not variants).
-    if variant_id.is_none() {
+    // Generate caption embedding via dedicated embedding server (only for original, not variants).
+    if variant_id.is_none() && !result.caption.is_empty() {
         let emb_model = crate::settings::get_embedding_model(&app);
         if emb_model.is_empty() {
             eprintln!("[ai] no embedding model configured, skipping embedding for {}", media_id);
@@ -225,29 +225,19 @@ async fn process_generate_caption(
             let emb_port = crate::settings::get_embedding_port(&app);
             let emb_server = app.state::<EmbeddingServer>();
             if emb_server.health_check(emb_port).await {
-                let embed_text_input: String = if result.tags.is_empty() {
-                    result.caption.clone()
-                } else {
-                    format!("{}\n{}", result.caption, result.tags.join(", "))
-                };
                 let emb_model_short = std::path::Path::new(&emb_model)
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(&emb_model)
                     .to_string();
-                match embed_text(&embed_text_input, &emb_model, emb_port).await {
+                match embed_text(&result.caption, &emb_model, emb_port).await {
                     Ok(vector) => {
                         if let Err(e) =
                             crate::db::embedding_insert(&app, &media_id, &emb_model_short, "caption", &vector)
                         {
                             eprintln!("[ai] failed to store caption embedding: {}", e);
-                        }
-                        if !result.tags.is_empty() {
-                            if let Err(e) =
-                                crate::db::embedding_insert(&app, &media_id, &emb_model_short, "tags", &vector)
-                            {
-                                eprintln!("[ai] failed to store tags embedding: {}", e);
-                            }
+                        } else {
+                            println!("[ai] embedding stored for {} ({}d)", media_id, vector.len());
                         }
                     }
                     Err(e) => {

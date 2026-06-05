@@ -1775,7 +1775,7 @@ pub fn embedding_get_all_by_model(
 ) -> Result<Vec<(String, String, Vec<f32>)>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT media_id, content_type, vector FROM embeddings WHERE model = ?1",
+        "SELECT media_id, content_type, vector FROM embeddings WHERE model = ?1 AND content_type = 'caption'",
     )?;
     let iter = stmt.query_map(params![model], |row| {
         let media_id: String = row.get(0)?;
