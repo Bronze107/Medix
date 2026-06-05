@@ -41,6 +41,7 @@ function Settings() {
   const [llamaMinP, setLlamaMinP] = useState(0.05);
   const [llamaRepeatPenalty, setLlamaRepeatPenalty] = useState(1.05);
   const [llamaMaxTokens, setLlamaMaxTokens] = useState(1024);
+  const [llamaSeed, setLlamaSeed] = useState(-1);
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [searchSemanticEnabled, setSearchSemanticEnabled] = useState(true);
   const [searchFts5Enabled, setSearchFts5Enabled] = useState(true);
@@ -82,6 +83,7 @@ function Settings() {
       if (settings.llama_min_p) setLlamaMinP(parseFloat(settings.llama_min_p) || 0.05);
       if (settings.llama_repeat_penalty) setLlamaRepeatPenalty(parseFloat(settings.llama_repeat_penalty) || 1.05);
       if (settings.llama_max_tokens) setLlamaMaxTokens(parseInt(settings.llama_max_tokens) || 1024);
+      if (settings.llama_seed) setLlamaSeed(parseInt(settings.llama_seed) || -1);
       if (settings.semantic_threshold) setSemanticThreshold(parseFloat(settings.semantic_threshold) || 0.25);
       if (settings.search_semantic_enabled) setSearchSemanticEnabled(settings.search_semantic_enabled === "true");
       if (settings.search_fts5_enabled) setSearchFts5Enabled(settings.search_fts5_enabled === "true");
@@ -141,6 +143,7 @@ function Settings() {
       await settingsSet("llama_min_p", String(llamaMinP));
       await settingsSet("llama_repeat_penalty", String(llamaRepeatPenalty));
       await settingsSet("llama_max_tokens", String(llamaMaxTokens));
+      await settingsSet("llama_seed", String(llamaSeed));
       await settingsSet("semantic_threshold", String(semanticThreshold));
       await settingsSet("search_semantic_enabled", searchSemanticEnabled ? "true" : "false");
       await settingsSet("search_fts5_enabled", searchFts5Enabled ? "true" : "false");
@@ -513,6 +516,17 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                     onChange={(e) => setLlamaMaxTokens(parseInt(e.target.value) || 1024)}
                     className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none" />
                   <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">最大输出 token 数。caption+tags 通常 150~300 token 足够</p>
+                </div>
+
+                {/* Seed */}
+                <div>
+                  <label className="mb-0.5 block text-[11px] text-[var(--color-text-muted)]">
+                    Seed: {llamaSeed === -1 ? "随机" : llamaSeed}
+                  </label>
+                  <input type="number" min={-1} max={2147483647} value={llamaSeed}
+                    onChange={(e) => setLlamaSeed(parseInt(e.target.value) || -1)}
+                    className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none" />
+                  <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">随机种子，-1 表示随机。固定值可复现结果</p>
                 </div>
               </div>
             </>

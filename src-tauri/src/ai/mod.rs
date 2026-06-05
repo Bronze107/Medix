@@ -166,6 +166,7 @@ async fn process_generate_caption(
         min_p: crate::settings::get_llama_min_p(&app),
         repeat_penalty: crate::settings::get_llama_repeat_penalty(&app),
         max_tokens: crate::settings::get_llama_max_tokens(&app),
+        seed: crate::settings::get_llama_seed(&app),
     };
     let result = generate_caption(
         inference_path_ref,

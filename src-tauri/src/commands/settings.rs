@@ -39,6 +39,7 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_LLAMA_MIN_P,
         settings::KEY_LLAMA_REPEAT_PENALTY,
         settings::KEY_LLAMA_MAX_TOKENS,
+        settings::KEY_LLAMA_SEED,
         settings::KEY_SEMANTIC_THRESHOLD,
         settings::KEY_SEARCH_SEMANTIC_ENABLED,
         settings::KEY_SEARCH_FTS5_ENABLED,

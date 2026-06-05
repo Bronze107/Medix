@@ -136,6 +136,7 @@ pub const KEY_LLAMA_TOP_P: &str = "llama_top_p";
 pub const KEY_LLAMA_MIN_P: &str = "llama_min_p";
 pub const KEY_LLAMA_REPEAT_PENALTY: &str = "llama_repeat_penalty";
 pub const KEY_LLAMA_MAX_TOKENS: &str = "llama_max_tokens";
+pub const KEY_LLAMA_SEED: &str = "llama_seed";
 
 pub fn get_llama_temperature(app: &AppHandle) -> f32 {
     get(app, KEY_LLAMA_TEMPERATURE)
@@ -165,6 +166,12 @@ pub fn get_llama_max_tokens(app: &AppHandle) -> u32 {
     get(app, KEY_LLAMA_MAX_TOKENS)
         .and_then(|v| v.parse().ok())
         .unwrap_or(1024)
+}
+
+pub fn get_llama_seed(app: &AppHandle) -> i32 {
+    get(app, KEY_LLAMA_SEED)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(-1) // -1 = random
 }
 
 pub const KEY_SEMANTIC_THRESHOLD: &str = "semantic_threshold";

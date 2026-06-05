@@ -43,6 +43,8 @@ struct ChatCompletionRequest {
     repeat_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +134,7 @@ pub struct SamplingParams {
     pub min_p: f32,
     pub repeat_penalty: f32,
     pub max_tokens: u32,
+    pub seed: i32,
 }
 
 impl Default for SamplingParams {
@@ -142,6 +145,7 @@ impl Default for SamplingParams {
             min_p: 0.05,
             repeat_penalty: 1.05,
             max_tokens: 1024,
+            seed: -1, // random
         }
     }
 }
@@ -200,6 +204,7 @@ pub async fn generate_caption(
         min_p: Some(sampling.min_p),
         repeat_penalty: Some(sampling.repeat_penalty),
         max_tokens: Some(sampling.max_tokens),
+        seed: if sampling.seed >= 0 { Some(sampling.seed) } else { None },
     };
 
     let max_attempts = 2;
