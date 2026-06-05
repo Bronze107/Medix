@@ -104,7 +104,9 @@ fn main() {
                     tauri::async_runtime::spawn(async move {
                         let server = handle.state::<ai::LlamaServer>();
                         println!("[auto-start] starting llama-server on port {}...", port);
-                        match server.start(&bin, &model, &mmproj, port, ctx, threads, gpu) {
+                        let cache_k = settings::get_llama_cache_type_k(&handle);
+                        let cache_v = settings::get_llama_cache_type_v(&handle);
+                        match server.start(&bin, &model, &mmproj, port, ctx, threads, gpu, &cache_k, &cache_v) {
                             Ok(()) => {
                                 if let Err(e) = server.wait_until_ready(port).await {
                                     eprintln!("[auto-start] server ready check failed: {}", e);

@@ -22,7 +22,9 @@ pub async fn llama_server_start(app: AppHandle) -> Result<(), String> {
     let ctx = crate::settings::get_llama_ctx_size(&app);
     let threads = crate::settings::get_llama_threads(&app);
     let gpu = crate::settings::get_llama_gpu_layers(&app);
-    server.start(&bin, &model, &mmproj, port, ctx, threads, gpu)?;
+    let cache_k = crate::settings::get_llama_cache_type_k(&app);
+    let cache_v = crate::settings::get_llama_cache_type_v(&app);
+    server.start(&bin, &model, &mmproj, port, ctx, threads, gpu, &cache_k, &cache_v)?;
     server.wait_until_ready(port).await
 }
 

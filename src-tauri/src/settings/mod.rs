@@ -14,6 +14,8 @@ pub const KEY_LLAMA_GPU_LAYERS: &str = "llama_gpu_layers";
 pub const KEY_LLAMA_CTX_SIZE: &str = "llama_ctx_size";
 pub const KEY_LLAMA_MMPROJ: &str = "llama_mmproj";
 pub const KEY_LLAMA_AUTO_START: &str = "llama_auto_start";
+pub const KEY_LLAMA_CACHE_TYPE_K: &str = "llama_cache_type_k";
+pub const KEY_LLAMA_CACHE_TYPE_V: &str = "llama_cache_type_v";
 pub const KEY_LLAMA_MAX_IMAGE_DIM: &str = "llama_max_image_dim";
 pub const KEY_AI_CUSTOM_PROMPT: &str = "ai_custom_prompt";
 
@@ -79,6 +81,42 @@ pub fn get_llama_auto_start(app: &AppHandle) -> bool {
     get(app, KEY_LLAMA_AUTO_START)
         .map(|v| v == "true")
         .unwrap_or(false)
+}
+
+/// Auto-detect KV cache type from model filename quantization level.
+/// Falls back to explicitly configured value if set, otherwise defaults to q8_0.
+fn resolve_cache_type(app: &AppHandle, key: &str) -> String {
+    // If user explicitly set, use that
+    if let Some(val) = get(app, key) {
+        if !val.is_empty() {
+            return val;
+        }
+    }
+    // Auto-detect from model filename
+    let model = get_llama_model(app);
+    let filename = std::path::Path::new(&model)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if filename.contains("Q4_") {
+        "q4_0".to_string()
+    } else if filename.contains("Q5_") {
+        "q5_0".to_string()
+    } else if filename.contains("Q8_0") || filename.contains("Q8") {
+        "q8_0".to_string()
+    } else if filename.to_lowercase().contains("f16") {
+        "f16".to_string()
+    } else {
+        "q8_0".to_string() // safe default
+    }
+}
+
+pub fn get_llama_cache_type_k(app: &AppHandle) -> String {
+    resolve_cache_type(app, KEY_LLAMA_CACHE_TYPE_K)
+}
+
+pub fn get_llama_cache_type_v(app: &AppHandle) -> String {
+    resolve_cache_type(app, KEY_LLAMA_CACHE_TYPE_V)
 }
 
 pub fn get_llama_max_image_dim(app: &AppHandle) -> u32 {

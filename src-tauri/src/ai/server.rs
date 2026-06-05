@@ -30,6 +30,8 @@ impl LlamaServer {
         ctx_size: u32,
         threads: u32,
         gpu_layers: i32,
+        cache_type_k: &str,
+        cache_type_v: &str,
     ) -> Result<(), String> {
         let mut guard = self
             .process
@@ -77,8 +79,8 @@ impl LlamaServer {
         cmd.arg("--pooling").arg("mean");
         cmd.arg("--reasoning").arg("off"); // MiniCPM-V Instruct: broken output with thinking
         cmd.arg("--flash-attn").arg("on"); // significant speedup for VLM inference
-        cmd.arg("--cache-type-k").arg("q8_0");
-        cmd.arg("--cache-type-v").arg("q8_0");
+        cmd.arg("--cache-type-k").arg(cache_type_k);
+        cmd.arg("--cache-type-v").arg(cache_type_v);
         cmd.arg("--mlock"); // keep model in RAM, prevent OS swap
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
