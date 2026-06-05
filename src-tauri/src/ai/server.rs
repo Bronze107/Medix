@@ -74,9 +74,12 @@ impl LlamaServer {
             cmd.arg("--mmproj").arg(mmproj_path);
         }
         cmd.arg("--parallel").arg("2");
-        cmd.arg("--embeddings");
         cmd.arg("--pooling").arg("mean");
-        cmd.arg("--reasoning").arg("off"); // MiniCPM-V Instruct outputs broken text if thinking is enabled
+        cmd.arg("--reasoning").arg("off"); // MiniCPM-V Instruct: broken output with thinking
+        cmd.arg("--flash-attn").arg("on"); // significant speedup for VLM inference
+        cmd.arg("--cache-type-k").arg("q8_0");
+        cmd.arg("--cache-type-v").arg("q8_0");
+        cmd.arg("--mlock"); // keep model in RAM, prevent OS swap
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 

@@ -32,6 +32,8 @@ struct ChatCompletionRequest {
     messages: Vec<Message>,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    chat_template_kwargs: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     top_p: Option<f32>,
@@ -192,6 +194,7 @@ pub async fn generate_caption(
             },
         ],
         stream: false,
+        chat_template_kwargs: Some(serde_json::json!({"enable_thinking": false})),
         temperature: Some(sampling.temperature),
         top_p: Some(sampling.top_p),
         min_p: Some(sampling.min_p),
