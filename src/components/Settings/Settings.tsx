@@ -524,7 +524,12 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                     Seed: {llamaSeed === -1 ? "随机" : llamaSeed}
                   </label>
                   <input type="number" min={-1} max={2147483647} value={llamaSeed}
-                    onChange={(e) => setLlamaSeed(parseInt(e.target.value) || -1)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "" || v === "-") { setLlamaSeed(-1); return; }
+                      const n = parseInt(v);
+                      if (!isNaN(n)) setLlamaSeed(n);
+                    }}
                     className="w-28 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none" />
                   <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">随机种子，-1 表示随机。固定值可复现结果</p>
                 </div>
