@@ -29,6 +29,8 @@ function Settings() {
   const [llamaModel, setLlamaModel] = useState("");
   const [llamaThreads, setLlamaThreads] = useState(4);
   const [llamaGpuLayers, setLlamaGpuLayers] = useState(0);
+  const [llamaCacheTypeK, setLlamaCacheTypeK] = useState("");
+  const [llamaCacheTypeV, setLlamaCacheTypeV] = useState("");
   const [llamaCtxSize, setLlamaCtxSize] = useState(4096);
   const [llamaMmproj, setLlamaMmproj] = useState("");
   const [llamaAutoStart, setLlamaAutoStart] = useState(false);
@@ -68,6 +70,8 @@ function Settings() {
       if (settings.llama_model) setLlamaModel(settings.llama_model);
       if (settings.llama_threads) setLlamaThreads(parseInt(settings.llama_threads) || 4);
       if (settings.llama_gpu_layers) setLlamaGpuLayers(parseInt(settings.llama_gpu_layers) || 0);
+      if (settings.llama_cache_type_k) setLlamaCacheTypeK(settings.llama_cache_type_k);
+      if (settings.llama_cache_type_v) setLlamaCacheTypeV(settings.llama_cache_type_v);
       if (settings.llama_ctx_size) setLlamaCtxSize(parseInt(settings.llama_ctx_size) || 4096);
       if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
       if (settings.llama_auto_start) setLlamaAutoStart(settings.llama_auto_start === "true");
@@ -125,6 +129,8 @@ function Settings() {
       await settingsSet("llama_model", llamaModel);
       await settingsSet("llama_threads", String(llamaThreads));
       await settingsSet("llama_gpu_layers", String(llamaGpuLayers));
+      await settingsSet("llama_cache_type_k", llamaCacheTypeK);
+      await settingsSet("llama_cache_type_v", llamaCacheTypeV);
       await settingsSet("llama_ctx_size", String(llamaCtxSize));
       await settingsSet("llama_mmproj", llamaMmproj);
       await settingsSet("llama_auto_start", llamaAutoStart ? "true" : "false");
@@ -387,6 +393,38 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                   onChange={(e) => setLlamaGpuLayers(parseInt(e.target.value))}
                   className="w-48"
                 />
+              </div>
+
+              {/* KV Cache Type */}
+              <div className="mb-3 flex gap-3">
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs text-[var(--color-text-muted)]">KV Cache K 类型</label>
+                  <select
+                    value={llamaCacheTypeK}
+                    onChange={(e) => setLlamaCacheTypeK(e.target.value)}
+                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
+                  >
+                    <option value="">自动检测</option>
+                    <option value="f16">f16</option>
+                    <option value="q8_0">q8_0</option>
+                    <option value="q5_0">q5_0</option>
+                    <option value="q4_0">q4_0</option>
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs text-[var(--color-text-muted)]">KV Cache V 类型</label>
+                  <select
+                    value={llamaCacheTypeV}
+                    onChange={(e) => setLlamaCacheTypeV(e.target.value)}
+                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
+                  >
+                    <option value="">自动检测</option>
+                    <option value="f16">f16</option>
+                    <option value="q8_0">q8_0</option>
+                    <option value="q5_0">q5_0</option>
+                    <option value="q4_0">q4_0</option>
+                  </select>
+                </div>
               </div>
 
               {/* Context Size */}
