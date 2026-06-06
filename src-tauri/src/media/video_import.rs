@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use ulid::Ulid;
 
 use super::video_metadata::{self, VIDEO_EXTENSIONS};
@@ -221,11 +221,22 @@ pub fn import_single_video(
     };
 
     match crate::db::insert_media(app, &media) {
-        Ok(_) => MediaImportResult {
-            id: id.clone(),
-            path: source_path.to_string_lossy().to_string(),
-            success: true,
-            error: None,
+        Ok(_) => {
+            // Queue video AI annotation if enabled
+            if crate::settings::is_video_ai_enabled(app) {
+                let queue = app.state::<crate::ai::AiQueue>();
+                let _ = queue.send(crate::ai::AiTask::GenerateVideoCaption {
+                    media_id: id.clone(),
+                    video_path: dest_path.clone(),
+                    duration_secs: metadata.duration.unwrap_or(0.0),
+                });
+            }
+            MediaImportResult {
+                id: id.clone(),
+                path: source_path.to_string_lossy().to_string(),
+                success: true,
+                error: None,
+            }
         },
         Err(e) => {
             let _ = fs::remove_file(&dest_path);

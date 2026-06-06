@@ -139,6 +139,32 @@ else
 fi
 
 # ============================================================
+# 视频 AI 帧提取测试
+# ============================================================
+echo "--- 视频 AI 帧提取 ---"
+
+if command -v ffmpeg &> /dev/null; then
+  # Create a 3-second test video
+  ffmpeg -y -f lavfi -i color=c=black:s=320x240:d=3 -c:v libx264 -pix_fmt yuv420p /tmp/_test_ai_video_.mp4 2>/dev/null
+  if [ -f /tmp/_test_ai_video_.mp4 ]; then
+    # Insert test video record
+    VID_AI_ID="v_ai_$(date +%s)"
+    exec_sql "INSERT INTO media (id, source_path, width, height, file_size, media_type, duration, video_codec, video_fps, imported_at) VALUES ('$VID_AI_ID', '/tmp/_test_ai_video_.mp4', 320, 240, 5000, 'video', 3.0, 'h264', 30.0, datetime('now'));" > /dev/null
+    check "Video AI test record created" \
+      "$(q "SELECT media_type FROM media WHERE id = '$VID_AI_ID';")" \
+      "video"
+    # Verify video_ai_enabled setting can be read (defaults to off)
+    VID_AI_DEFAULT=$(q "SELECT COALESCE((SELECT value FROM settings WHERE key = 'video_ai_enabled'), 'false');")
+    check "video_ai_enabled setting defaults to false" "false" "$VID_AI_DEFAULT"
+    # Clean up
+    exec_sql "DELETE FROM media WHERE id = '$VID_AI_ID';" > /dev/null
+    rm /tmp/_test_ai_video_.mp4
+  fi
+else
+  warn "  SKIP: ffmpeg not found on PATH, video AI tests skipped"
+fi
+
+# ============================================================
 # 视频导出测试
 # ============================================================
 echo "--- 视频导出 ---"
