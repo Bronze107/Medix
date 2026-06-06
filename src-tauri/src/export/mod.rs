@@ -125,46 +125,61 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
         }
 
         // Copy/generate variants
-        for preset_name in &options.variant_presets {
-            let dest_ext = match preset_name.as_str() {
-                "print" => "png",
-                _ => "jpg",
-            };
-            let dest = output_dir.join(format!("{}_{}.{}", base_name, preset_name, dest_ext));
-
-            // Check if variant already exists in DB
-            let existing =
-                crate::db::variant_get_by_media_and_preset(app, media_id, preset_name)
-                    .map_err(|e| e.to_string())?;
-
-            if let Some(v) = existing {
-                let src = Path::new(&v.file_path);
-                if src.exists() {
-                    fs::copy(src, &dest).map_err(|e| e.to_string())?;
-                    continue;
+        let media_type = media.media_type.as_deref().unwrap_or("image");
+        if media_type == "video" {
+            // For video, only export existing variants (no on-the-fly generation)
+            if let Ok(variants) = crate::db::variant_list(app, media_id) {
+                for v in variants {
+                    let v_path = std::path::Path::new(&v.file_path);
+                    if v_path.exists() {
+                        let v_ext = v_path.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
+                        let v_dest = output_dir.join(format!("{}_{}.{}", base_name, &v.preset_name, v_ext));
+                        fs::copy(v_path, &v_dest).map_err(|e| format!("copy variant: {}", e))?;
+                    }
                 }
             }
+        } else {
+            for preset_name in &options.variant_presets {
+                let dest_ext = match preset_name.as_str() {
+                    "print" => "png",
+                    _ => "jpg",
+                };
+                let dest = output_dir.join(format!("{}_{}.{}", base_name, preset_name, dest_ext));
 
-            // Generate on the fly
-            let preset = crate::variants::built_in_presets()
-                .into_iter()
-                .find(|p| &p.name == preset_name);
-            if let Some(p) = preset {
-                match crate::variants::generate_variant(
-                    app, media_id, &source_file, &p.label, &p.format,
-                    p.max_width, p.max_height, p.quality,
-                ) {
-                    Ok(v) => {
-                        let src = Path::new(&v.file_path);
-                        if src.exists() {
-                            fs::copy(src, &dest).map_err(|e| e.to_string())?;
-                        }
+                // Check if variant already exists in DB
+                let existing =
+                    crate::db::variant_get_by_media_and_preset(app, media_id, preset_name)
+                        .map_err(|e| e.to_string())?;
+
+                if let Some(v) = existing {
+                    let src = Path::new(&v.file_path);
+                    if src.exists() {
+                        fs::copy(src, &dest).map_err(|e| e.to_string())?;
+                        continue;
                     }
-                    Err(e) => {
-                        eprintln!(
-                            "[export] failed to generate variant {} for {}: {}",
-                            preset_name, media_id, e
-                        );
+                }
+
+                // Generate on the fly
+                let preset = crate::variants::built_in_presets()
+                    .into_iter()
+                    .find(|p| &p.name == preset_name);
+                if let Some(p) = preset {
+                    match crate::variants::generate_variant(
+                        app, media_id, &source_file, &p.label, &p.format,
+                        p.max_width, p.max_height, p.quality,
+                    ) {
+                        Ok(v) => {
+                            let src = Path::new(&v.file_path);
+                            if src.exists() {
+                                fs::copy(src, &dest).map_err(|e| e.to_string())?;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[export] failed to generate variant {} for {}: {}",
+                                preset_name, media_id, e
+                            );
+                        }
                     }
                 }
             }
@@ -382,7 +397,7 @@ fn collect_images(dir: &Path, out: &mut Vec<String>) {
             let path = entry.path();
             if path.is_file() {
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if matches!(ext.to_lowercase().as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp") {
+                    if matches!(ext.to_lowercase().as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp" | "mp4" | "webm" | "mkv" | "avi" | "mov") {
                         out.push(path.to_string_lossy().to_string());
                     }
                 }
