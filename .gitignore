@@ -57,6 +57,10 @@ Desktop.ini
 *.pth
 *.safetensors
 
+# ffmpeg sidecar binaries (large, downloaded separately)
+/src-tauri/binaries/ffmpeg*
+/src-tauri/binaries/ffprobe*
+
 # Data & Cache (local only)
 /data/
 /cache/
