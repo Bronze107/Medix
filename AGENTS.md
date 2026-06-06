@@ -7,7 +7,7 @@
 - **名称**: Medix
 - **类型**: 桌面应用 (Tauri v2 + React + Rust)
 - **平台**: 主要支持 Windows 11，后续扩展 macOS/Linux
-- **目的**: 本地媒体数据集管理与压缩软件
+- **目的**: 本地图片/视频媒体数据集管理与标注软件
 
 ## 技术栈
 
@@ -20,6 +20,7 @@
 | 后端 | Rust | edition 2021 |
 | 数据库 | SQLite via `rusqlite` | latest |
 | 图像处理 | `image` crate + `kamadak-exif` | latest |
+| 视频处理 | ffmpeg/ffprobe (sidecar 捆绑) | latest stable |
 | AI 推理 | llama.cpp `llama-server` (OpenAI 兼容 HTTP API) | latest |
 | 搜索 | SQLite FTS5 | built-in |
 | 浏览器插件 | Chrome Extension Manifest V3 | - |
@@ -52,11 +53,18 @@ Medix/
 │   ├── src/
 │   │   ├── commands/       # Tauri IPC 命令 (前端可调用的 Rust 函数)
 │   │   ├── db/             # 数据库: schema, migrations, queries
-│   │   ├── media/          # 媒体处理: 导入, 缩略图, 元数据提取, pHash 去重
-│   │   ├── ai/             # AI 推理
-│   │   │   ├── mod.rs      # AiQueue 异步队列 + 任务处理
+│   │   ├── media/          # 媒体处理: 图片/视频导入, 缩略图, 元数据提取, pHash 去重
+│   │   │   ├── import.rs         # 图片导入管线
+│   │   │   ├── video_import.rs   # 视频导入管线 (ffprobe 验证 + ffmpeg 缩略图)
+│   │   │   ├── video_metadata.rs # ffprobe 元数据提取 + 多帧抽取
+│   │   │   ├── video_thumbnail.rs # ffmpeg 视频抽帧缩略图
+│   │   │   ├── thumbnail.rs      # 图片缩略图 + LQIP
+│   │   │   └── phash.rs          # 图片感知哈希去重
+│   │   ├── ai/             # AI 推理 (图片 + 视频)
+│   │   │   ├── mod.rs      # AiQueue 异步队列 + 图片/视频标注任务处理
 │   │   │   ├── llamacpp.rs # OpenAI 兼容 HTTP 客户端
-│   │   │   └── server.rs   # llama-server 子进程生命周期管理
+│   │   │   ├── server.rs   # llama-server / embedding-server 子进程管理
+│   │   │   └── imagine/    # AI 图像生成 (Image API)
 │   │   ├── models/         # GGUF 模型文件扫描 + 二进制/mmproj 自动检测
 │   │   ├── settings/       # 设置键定义 + 默认值 getter
 │   │   ├── variants/       # 版本控制: 生成 + 外部导入
@@ -134,9 +142,9 @@ Medix/
 | 版本 | `variant_` | `variant_generate`, `variant_import`, `variant_list`, `variant_delete`, `variant_presets` |
 | 描述 | `caption_` | `caption_create`, `caption_create_batch`, `caption_list`, `caption_update`, `caption_delete` |
 | AI 服务 | `llama_server_` | `llama_server_start`, `llama_server_stop`, `llama_server_status` |
-| AI 标注 | `media_ai_annotate`, `ai_pending_count` | 手动触发 AI 标注 + 查询排队数 |
+| AI 标注 | `media_ai_annotate`, `ai_pending_count` | 手动触发 AI 标注（自动区分图片/视频）+ 查询排队数 |
 | AI 模型 | `model_list`, `auto_detect`, `embedding_info` | (无统一前缀) |
-| 设置 | `settings_` | `settings_get`, `settings_set`, `settings_get_all` |
+| 设置 | `settings_` | `settings_get`, `settings_set`, `settings_get_all`（含视频: `video_large_file_warning_mb`, `video_ai_enabled`, `video_ai_frame_count`）|
 | 筛选器 | `saved_filters_` | `saved_filters_list`, `saved_filters_save`, `saved_filters_delete` |
 | 导出 | `export_dataset`, `import_zip` | (无统一前缀) |
 | 文件路径 | `media_get_paths`, `media_thumbnail` | (无统一前缀) |
@@ -146,12 +154,14 @@ Medix/
 ## 关键约束
 
 - **本地优先**: 所有数据处理本地完成，不上传云端（llama-server 纯本地推理）
-- **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成，详情面板可手动重跑
-- **版本控制**: 同一原图支持多个衍生版本（内部生成 + 外部导入），带自定义标签和来源追踪
-- **集合**: 图片可按集合分组管理，支持置顶常用集合、导入自动归集、集合内搜索
+- **媒体类型**: `media` 表通过 `media_type` 字段区分 `"image"` / `"video"`，旧数据默认为 `image`
+- **视频支持**: 视频通过 ffmpeg/ffprobe sidecar 导入，生成缩略图，通过 `asset://` 协议播放（Tauri v2.11 已验证 Range 请求支持 seek）
+- **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成；视频导入后若 `video_ai_enabled` 开启则自动多帧 AI 标注
+- **版本控制**: 同一原图/视频支持多个衍生版本（内部生成 + 外部导入），支持图片/视频混合 variant
+- **集合**: 图片/视频可按集合分组管理，支持置顶常用集合、导入自动归集、集合内搜索
 - **视图分组**: 网格和列表视图可按日期分组显示，带分组标题和计数
 - **导入进度**: 批量导入时前端实时显示进度条（Tauri event `import-progress`）
-- **内存安全**: 图片通过 `asset://` 协议直出，不经过 base64 编解码
+- **文件服务**: 图片和视频通过 `asset://` 协议直出（`convertFileSrc`），不经过 base64 编解码；视频支持 Range 请求实现 seek
 - **向后兼容**: 数据库 schema 变更采用 `pragma_table_info` 条件检查，不丢失用户数据
 
 ## 测试策略
@@ -166,11 +176,11 @@ cd src-tauri && bash ../tests/<name>.sh
 
 | 脚本 | 用例 | 覆盖范围 |
 |------|------|----------|
-| `tests/search.sh` | 16 | 标签过滤(交集/并集/不存在)、尺寸(>/</范围)、文件大小、混合查询、纯文本回归、边缘情况 |
-| `tests/integrity.sh` | 17 | 6 表孤儿记录检测、计数一致性、schema 版本、活跃媒体字段完整性 |
-| `tests/operations.sh` | 21 | 软删除→恢复、搜索排除已删除、集合增删成员、SHA256 去重、schema 全表存在、设置读写 |
+| `tests/search.sh` | 18 | 标签过滤、尺寸、文件大小、`media_type:image/video`、混合查询、纯文本回归 |
+| `tests/integrity.sh` | 26 | 6 表孤儿记录、schema 版本、媒体字段完整性、video 迁移列 + 默认值、迁移幂等性 |
+| `tests/operations.sh` | 27 | 软删除→恢复、集合操作、SHA256 去重、视频导入(条件)、视频 AI 帧提取(条件) |
 | `tests/tags-collections.sh` | 13 | 标签 CRUD、批量标签、交集查询、集合置顶/取消置顶、集合内搜索 |
-| `tests/cascade.sh` | 20 | FK 级联删除(5 表: captions/embeddings/variants/media_tags/collection_items)、caption/variant CRUD、筛选器保存/删除、pHash 数据 |
+| `tests/cascade.sh` | 21 | FK 级联删除(5 表)、caption/variant CRUD、视频 variant FK 结构 |
 
 **开发规范**：任何后端功能变更（搜索语法、DB schema、CRUD 操作）必须在对应测试脚本追加用例，提交前 `bash tests/*.sh` 全量通过。
 
@@ -227,6 +237,24 @@ tests/<name>.sh
 - **查询验证**：`q "SELECT COUNT(*) FROM ..."` 获取数据，与 CLI 命令结果交叉验证
 - **操作还原**：写操作前保存原始值，测试后通过 SQL 还原（如软删除→恢复）
 - **数据清洁**：创建的测试记录使用 `_test_` 或 `_cli_` 前缀 ID，测试末尾清理
+
+### 配置 ffmpeg Sidecar
+
+1. 从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载 Windows builds (lgpl)
+2. 将 `ffmpeg.exe` 重命名为 `ffmpeg-x86_64-pc-windows-msvc.exe`，放入 `src-tauri/binaries/`
+3. 将 `ffprobe.exe` 重命名为 `ffprobe-x86_64-pc-windows-msvc.exe`，放入 `src-tauri/binaries/`
+4. 文件名需匹配 Tauri sidecar 目标三元组约定
+5. 运行时自动从 exe 同目录或 `binaries/` 目录发现，无需手动配置 PATH
+6. ffmpeg/ffprobe 用于视频导入验证、元数据提取、缩略图生成、AI 多帧抽取
+
+### 添加视频支持功能
+
+- **Schema**: 新增 `media_type`/`duration`/`video_codec`/`video_fps` 列到 `media` 和 `variants` 表
+- **导入**: 视频文件经 `video_import.rs` 导入，复用 SHA256 去重，跳过 pHash
+- **缩略图**: ffmpeg 从 10% 时间点抽帧，fallback: 1s → 50% → 第一帧
+- **播放**: `convertFileSrc()` → `asset://` 协议 → `<video>` 元素，Tauri v2.11 asset 协议支持 Range 请求 (1MB/range)
+- **搜索**: `media_type:image` / `media_type:video` 结构化过滤
+- **AI 标注**: 视频导入后若 `video_ai_enabled=true`，自动 ffmpeg 抽取 1-8 帧（默认 3），逐帧 VLM + 合并 caption/tags；`media_ai_annotate` 命令自动区分图片/视频类型
 
 ### 添加 AI 模型
 
