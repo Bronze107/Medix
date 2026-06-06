@@ -5,6 +5,7 @@ import {
   llamaServerStatus,
   llamaServerStart,
   llamaServerStop,
+  settingsGet,
   settingsGetAll,
   settingsSet,
   testProxy,
@@ -50,6 +51,9 @@ function Settings() {
   const [embeddingThreads, setEmbeddingThreads] = useState(2);
   const [embRebuilding, setEmbRebuilding] = useState(false);
   const [embRebuildResult, setEmbRebuildResult] = useState<string | null>(null);
+
+  // Video settings
+  const [largeFileThreshold, setLargeFileThreshold] = useState(1024);
 
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [searchSemanticEnabled, setSearchSemanticEnabled] = useState(true);
@@ -132,6 +136,19 @@ function Settings() {
     const interval = setInterval(pollStatus, 5000);
     return () => clearInterval(interval);
   }, [loadSettingsOnce, pollStatus]);
+
+  // Load video settings on mount
+  useEffect(() => {
+    settingsGet("video_large_file_warning_mb").then((v) => {
+      if (v) setLargeFileThreshold(Number(v));
+    }).catch(() => {});
+  }, []);
+
+  const saveLargeFileThreshold = async () => {
+    try {
+      await settingsSet("video_large_file_warning_mb", String(largeFileThreshold));
+    } catch { /* ignore */ }
+  };
 
   const handleSave = async () => {
     try {
@@ -914,6 +931,37 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
             </div>
           </div>
         </section>
+
+        {/* Video Section */}
+        <div className="mt-8">
+          <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">视频</h3>
+          <div className="mt-3 space-y-4">
+            {/* ffmpeg status info */}
+            <div className="rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] p-3">
+              <p className="text-xs text-[var(--color-text-muted)]">
+                ffmpeg 已内置在应用中，开箱即用。仅在 ffmpeg 损坏或缺失时，才需要手动配置路径。
+              </p>
+            </div>
+
+            {/* Large file warning threshold */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[var(--color-text-primary)]">大视频确认阈值</p>
+                <p className="text-xs text-[var(--color-text-muted)]">超过此大小的视频导入前需要确认</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={largeFileThreshold}
+                  onChange={(e) => setLargeFileThreshold(Number(e.target.value))}
+                  onBlur={saveLargeFileThreshold}
+                  className="w-20 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1 text-xs text-right text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+                />
+                <span className="text-xs text-[var(--color-text-secondary)]">MB</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
       </div>
 
