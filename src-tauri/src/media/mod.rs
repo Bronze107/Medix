@@ -2,6 +2,7 @@ pub mod import;
 pub mod phash;
 pub mod thumbnail;
 pub mod video_metadata;
+pub mod video_thumbnail;
 
 use serde::Serialize;
 
