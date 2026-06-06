@@ -409,7 +409,10 @@ async fn process_video_caption(
         &merged_caption,
         Some("ai"),
     ) {
-        Ok(cap) => println!("[video_ai] caption stored: {} (id={})", &merged_caption[..merged_caption.len().min(60)], cap.id),
+        Ok(cap) => {
+            let preview: String = merged_caption.chars().take(60).collect();
+            println!("[video_ai] caption stored: {} (id={})", preview, cap.id);
+        }
         Err(e) => eprintln!("[video_ai] failed to store caption: {}", e),
     }
 
@@ -469,10 +472,10 @@ async fn process_video_caption(
     // 11. Cleanup temp frames
     crate::media::video_metadata::cleanup_frames(&frames);
 
+    let preview: String = merged_caption.chars().take(80).collect();
     println!(
         "[video_ai] done — {} frames processed, caption: {}...",
-        n,
-        &merged_caption[..merged_caption.len().min(80)]
+        n, preview
     );
     Ok(())
 }
