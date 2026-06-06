@@ -7,7 +7,7 @@ pub use embedding::EmbeddingServer;
 pub use llamacpp::{embed_text, generate_caption, AiResult, SamplingParams};
 pub use server::LlamaServer;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -372,8 +372,55 @@ async fn process_video_caption(
             custom_prompt.clone()
         };
 
+        // Resize frame if max dim is configured (same logic as image pipeline)
+        let inference_path: PathBuf;
+        let inference_path_ref: &Path;
+        let max_dim = crate::settings::get_llama_max_image_dim(&app);
+        if max_dim > 0 {
+            match image::open(frame_path) {
+                Ok(img) => {
+                    let (w, h) = (img.width(), img.height());
+                    let long_side = w.max(h);
+                    if long_side > max_dim {
+                        let ratio = max_dim as f64 / long_side as f64;
+                        let new_w = (w as f64 * ratio).round() as u32;
+                        let new_h = (h as f64 * ratio).round() as u32;
+                        let resized = img.resize_exact(
+                            new_w, new_h,
+                            image::imageops::FilterType::Lanczos3,
+                        );
+                        let mut buf = std::io::Cursor::new(Vec::new());
+                        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
+                            .encode_image(&resized)
+                            .is_ok()
+                        {
+                            let tmp = std::env::temp_dir()
+                                .join(format!("medix_video_infer_{}_{}.jpg", media_id, i + 1));
+                            if tokio::fs::write(&tmp, buf.into_inner()).await.is_ok() {
+                                println!("[video_ai] frame {}/{} resized {}x{} → {}x{}", i + 1, n, w, h, new_w, new_h);
+                                inference_path = tmp;
+                                inference_path_ref = &inference_path;
+                            } else {
+                                inference_path_ref = frame_path;
+                            }
+                        } else {
+                            inference_path_ref = frame_path;
+                        }
+                    } else {
+                        inference_path_ref = frame_path;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[video_ai] frame {}/{} cannot open for resize: {}", i + 1, n, e);
+                    inference_path_ref = frame_path;
+                }
+            }
+        } else {
+            inference_path_ref = frame_path;
+        }
+
         match crate::ai::llamacpp::generate_caption(
-            frame_path,
+            inference_path_ref,
             &model,
             port,
             frame_prompt.as_deref(),
@@ -388,6 +435,11 @@ async fn process_video_caption(
             Err(e) => {
                 eprintln!("[video_ai] frame {}/{} inference failed: {}", i + 1, n, e);
             }
+        }
+
+        // Clean up temp resized frame if one was created
+        if inference_path_ref != frame_path {
+            let _ = std::fs::remove_file(inference_path_ref);
         }
     }
 
