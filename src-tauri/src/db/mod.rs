@@ -625,6 +625,10 @@ pub fn media_list_by_collection(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             lqip: row.get(14)?,
+            media_type: row.get(15)?,
+            duration: row.get(16)?,
+            video_codec: row.get(17)?,
+            video_fps: row.get(18)?,
             thumb_256: None,
         })
     })?;
@@ -677,6 +681,10 @@ pub fn media_get_by_sha256(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             lqip: row.get(14)?,
+            media_type: row.get(15)?,
+            duration: row.get(16)?,
+            video_codec: row.get(17)?,
+            video_fps: row.get(18)?,
             thumb_256: None,
         })
     })?;
@@ -689,8 +697,8 @@ pub fn media_get_by_sha256(
 pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     conn.execute(
-        "INSERT INTO media (id, source_path, phash, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, lqip)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO media (id, source_path, phash, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, lqip, media_type, duration, video_codec, video_fps)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             &media.id,
             media.source_path.as_ref(),
@@ -706,6 +714,10 @@ pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::e
             media.source.as_ref(),
             media.sha256.as_ref(),
             media.lqip.as_ref(),
+            media.media_type.as_ref(),
+            media.duration,
+            media.video_codec.as_ref(),
+            media.video_fps,
         ],
     )?;
     Ok(())
@@ -774,6 +786,10 @@ pub fn list_media_path(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             lqip: row.get(14)?,
+            media_type: row.get(15)?,
+            duration: row.get(16)?,
+            video_codec: row.get(17)?,
+            video_fps: row.get(18)?,
             thumb_256: None,
         })
     })?;
@@ -844,6 +860,10 @@ pub fn media_get_batch(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             lqip: row.get(14)?,
+            media_type: row.get(15)?,
+            duration: row.get(16)?,
+            video_codec: row.get(17)?,
+            video_fps: row.get(18)?,
             thumb_256: None,
         })
     })?;
@@ -1207,6 +1227,10 @@ pub fn media_search_by_tags_path(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             lqip: row.get(14)?,
+            media_type: row.get(15)?,
+            duration: row.get(16)?,
+            video_codec: row.get(17)?,
+            video_fps: row.get(18)?,
             thumb_256: None,
         })
     })?;
@@ -1471,6 +1495,10 @@ pub fn media_query_filtered_path(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             lqip: row.get(14)?,
+            media_type: row.get(15)?,
+            duration: row.get(16)?,
+            video_codec: row.get(17)?,
+            video_fps: row.get(18)?,
             thumb_256: None,
         })
     })?;
@@ -1518,6 +1546,10 @@ pub fn variant_list(
             file_path: row.get(8)?,
             label: row.get(9)?,
             source: row.get(10)?,
+            media_type: row.get(11)?,
+            duration: row.get(12)?,
+            video_codec: row.get(13)?,
+            video_fps: row.get(14)?,
         })
     })?;
     let mut results = Vec::new();
@@ -1533,8 +1565,8 @@ pub fn variant_insert(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     conn.execute(
-        "INSERT OR REPLACE INTO variants (id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT OR REPLACE INTO variants (id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source, media_type, duration, video_codec, video_fps)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             &variant.id,
             &variant.media_id,
@@ -1547,6 +1579,10 @@ pub fn variant_insert(
             &variant.file_path,
             &variant.label,
             &variant.source,
+            variant.media_type.as_ref(),
+            variant.duration,
+            variant.video_codec.as_ref(),
+            variant.video_fps,
         ],
     )?;
     Ok(())
@@ -1580,6 +1616,10 @@ pub fn variant_get_by_id(
             file_path: row.get(8)?,
             label: row.get(9)?,
             source: row.get(10)?,
+            media_type: row.get(11)?,
+            duration: row.get(12)?,
+            video_codec: row.get(13)?,
+            video_fps: row.get(14)?,
         })
     })?;
     if let Some(row) = rows.next() {
@@ -1611,6 +1651,10 @@ pub fn variant_get_by_media_and_preset(
             file_path: row.get(8)?,
             label: row.get(9)?,
             source: row.get(10)?,
+            media_type: row.get(11)?,
+            duration: row.get(12)?,
+            video_codec: row.get(13)?,
+            video_fps: row.get(14)?,
         })
     })?;
     if let Some(row) = rows.next() {
@@ -2100,6 +2144,10 @@ pub fn media_list_trash(
             deleted_at: row.get(12)?,
             display_variant_id: row.get(13)?,
             lqip: row.get(14)?,
+            media_type: row.get(15)?,
+            duration: row.get(16)?,
+            video_codec: row.get(17)?,
+            video_fps: row.get(18)?,
             thumb_256: None,
         })
     })?;

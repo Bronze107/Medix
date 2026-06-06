@@ -20,6 +20,10 @@ pub struct Variant {
     pub file_path: String,
     pub label: Option<String>,
     pub source: Option<String>,
+    pub media_type: Option<String>,
+    pub duration: Option<f64>,
+    pub video_codec: Option<String>,
+    pub video_fps: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,6 +129,10 @@ pub fn generate_variant(
         file_path: file_path.to_string_lossy().replace('\\', "/"),
         label: if label.is_empty() { None } else { Some(label.to_string()) },
         source: Some("generated".to_string()),
+        media_type: None,
+        duration: None,
+        video_codec: None,
+        video_fps: None,
     };
 
     db::variant_insert(app, &variant)?;

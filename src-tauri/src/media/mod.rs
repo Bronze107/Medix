@@ -23,6 +23,10 @@ pub struct Media {
     pub display_variant_id: Option<String>,
     pub thumb_256: Option<String>,
     pub lqip: Option<String>,
+    pub media_type: Option<String>,
+    pub duration: Option<f64>,
+    pub video_codec: Option<String>,
+    pub video_fps: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]

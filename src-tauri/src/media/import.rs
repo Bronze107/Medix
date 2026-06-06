@@ -328,6 +328,10 @@ fn import_single_file(
         display_variant_id: None,
         thumb_256: None,
         lqip,
+        media_type: None,
+        duration: None,
+        video_codec: None,
+        video_fps: None,
     };
 
     if let Err(e) = db::insert_media(app, &media) {

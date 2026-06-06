@@ -102,6 +102,10 @@ pub fn variant_import(
         file_path: dest.to_string_lossy().replace('\\', "/"),
         label,
         source: Some("imported".to_string()),
+        media_type: None,
+        duration: None,
+        video_codec: None,
+        video_fps: None,
     };
 
     db::variant_insert(&app, &variant).map_err(|e| e.to_string())?;

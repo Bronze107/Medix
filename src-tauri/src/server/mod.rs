@@ -201,6 +201,10 @@ fn download_and_import(
         display_variant_id: None,
         thumb_256: None,
         lqip: None,
+        media_type: None,
+        duration: None,
+        video_codec: None,
+        video_fps: None,
     };
 
     crate::db::insert_media(app, &media).map_err(|e| e.to_string())?;

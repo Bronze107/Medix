@@ -240,6 +240,10 @@ pub async fn image_confirm_import(
                 file_path: dest.to_string_lossy().replace('\\', "/"),
                 label: Some(label),
                 source: Some(source.clone()),
+                media_type: None,
+                duration: None,
+                video_codec: None,
+                video_fps: None,
             };
             crate::db::variant_insert(&app, &variant).map_err(|e| e.to_string())?;
 
@@ -310,6 +314,10 @@ pub async fn image_confirm_import(
                 display_variant_id: None,
                 thumb_256: None,
                 lqip: None,
+                media_type: None,
+                duration: None,
+                video_codec: None,
+                video_fps: None,
             };
 
             if let Err(e) = crate::db::insert_media(&app, &media) {
