@@ -2323,7 +2323,7 @@ pub fn media_find_similar(
     Ok(result)
 }
 
-fn media_get_by_id(app: &AppHandle, id: &str) -> Result<Option<Media>, Box<dyn std::error::Error>> {
+pub fn media_get_by_id(app: &AppHandle, id: &str) -> Result<Option<Media>, Box<dyn std::error::Error>> {
     let list = media_get_batch(app, &[id.to_string()])?;
     Ok(list.into_iter().next())
 }

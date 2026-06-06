@@ -177,29 +177,46 @@ pub fn media_ai_annotate(app: AppHandle, id: String) -> Result<(), String> {
 
     // Find original file in library
     let library_dir = app_dir.join("library");
-    let mut image_path = None;
+    let mut file_path = None;
     if library_dir.exists() {
         for entry in std::fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
             if name_str.starts_with(&format!("{}.", &id)) {
-                image_path = Some(entry.path());
+                file_path = Some(entry.path());
                 break;
             }
         }
     }
 
-    let image_path = image_path.ok_or("Original file not found in library")?;
+    let file_path = file_path.ok_or("Original file not found in library")?;
+
+    // Check media type — video uses multi-frame VLM, image uses single-frame
+    let media = crate::db::media_get_by_id(&app, &id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Media not found in database")?;
 
     let queue = app.state::<crate::ai::AiQueue>();
-    queue
-        .send(crate::ai::AiTask::GenerateCaption {
-            media_id: id.clone(),
-            image_path,
-            variant_id: None,
-        })
-        .map_err(|e| e.to_string())?;
+
+    if media.media_type.as_deref() == Some("video") {
+        let duration = media.duration.unwrap_or(0.0);
+        queue
+            .send(crate::ai::AiTask::GenerateVideoCaption {
+                media_id: id.clone(),
+                video_path: file_path,
+                duration_secs: duration,
+            })
+            .map_err(|e| e.to_string())?;
+    } else {
+        queue
+            .send(crate::ai::AiTask::GenerateCaption {
+                media_id: id.clone(),
+                image_path: file_path,
+                variant_id: None,
+            })
+            .map_err(|e| e.to_string())?;
+    }
 
     // Notify frontend immediately
     let _ = app.emit(
