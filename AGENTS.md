@@ -233,4 +233,4 @@ tests/<name>.sh
 1. 下载 `.gguf` 文件到 `%APPDATA%/com.bronze107.medix/models/`
 2. VLM 模型需同时下载 `mmproj` 文件（视觉投影器）
 3. 重启 Medix → 设置页自动检测并出现在下拉列表中
-4. llama-server 启动参数：`-m model.gguf --mmproj mmproj.gguf --embeddings --pooling mean`
+4. llama-server 启动参数：`-m model.gguf --mmproj mmproj.gguf --embeddings`

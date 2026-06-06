@@ -68,7 +68,7 @@
    - [x] 本地 Embedding：共用 VLM 模型通过 `/v1/embeddings` 向量化
      - [x] caption 和 tags 分别向量化
      - [x] blob 存储 f32 向量到 `embeddings` 表
-     - [x] `--embeddings --pooling mean` 参数启用
+     - [x] `--embeddings` 参数启用
      - [x] 后续优化：支持专用 embedding 模型（Qwen3-Embedding）独立实例（见 Phase 6）
    - [x] llama-server 子进程生命周期管理（启动/健康检查/关闭）
    - [x] `--mmproj` 视觉投影器支持

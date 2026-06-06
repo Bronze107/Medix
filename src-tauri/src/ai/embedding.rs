@@ -67,7 +67,6 @@ impl EmbeddingServer {
         cmd.arg("--ctx-size").arg("512");
         cmd.arg("--n-gpu-layers").arg("0");
         cmd.arg("--embeddings");
-        cmd.arg("--pooling").arg("mean");
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
