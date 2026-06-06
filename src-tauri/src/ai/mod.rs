@@ -4,7 +4,7 @@ pub mod llamacpp;
 pub mod server;
 
 pub use embedding::EmbeddingServer;
-pub use llamacpp::{embed_text, generate_caption, AiResult, SamplingParams};
+pub use llamacpp::{embed_text, generate_caption, generate_caption_multi_image, AiResult, SamplingParams};
 pub use server::LlamaServer;
 
 use std::path::{Path, PathBuf};
@@ -355,102 +355,119 @@ async fn process_video_caption(
         }
     };
 
-    // 6. Send each frame to VLM
+    // 6. Send frames to VLM (single-frame loop or multi-frame batch)
     let mut all_captions: Vec<String> = Vec::new();
     let mut all_tags: Vec<String> = Vec::new();
     let n = frames.len();
 
-    for (i, frame_path) in frames.iter().enumerate() {
-        let frame_prompt = if n > 1 {
-            Some(format!(
-                "这是同一段视频的第 {}/{} 帧。请综合描述画面内容。{}",
-                i + 1,
-                n,
-                custom_prompt.as_deref().unwrap_or("")
-            ))
-        } else {
-            custom_prompt.clone()
-        };
+    let multi_frame = crate::settings::is_video_ai_multi_frame(&app);
 
-        // Resize frame if max dim is configured (same logic as image pipeline)
-        let inference_path: PathBuf;
-        let inference_path_ref: &Path;
+    if multi_frame && n > 1 {
+        // --- Multi-frame path: resize all frames, then send in one request ---
+        let mut inference_paths: Vec<PathBuf> = Vec::with_capacity(n);
+        let mut tmp_paths: Vec<PathBuf> = Vec::new(); // track temp files for cleanup
+
         let max_dim = crate::settings::get_llama_max_image_dim(&app);
-        if max_dim > 0 {
-            match image::open(frame_path) {
-                Ok(img) => {
-                    let (w, h) = (img.width(), img.height());
-                    let long_side = w.max(h);
-                    if long_side > max_dim {
-                        let ratio = max_dim as f64 / long_side as f64;
-                        let new_w = (w as f64 * ratio).round() as u32;
-                        let new_h = (h as f64 * ratio).round() as u32;
-                        let resized = img.resize_exact(
-                            new_w, new_h,
-                            image::imageops::FilterType::Lanczos3,
-                        );
-                        let mut buf = std::io::Cursor::new(Vec::new());
-                        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
-                            .encode_image(&resized)
-                            .is_ok()
-                        {
-                            let tmp = std::env::temp_dir()
-                                .join(format!("medix_video_infer_{}_{}.jpg", media_id, i + 1));
-                            if tokio::fs::write(&tmp, buf.into_inner()).await.is_ok() {
-                                println!("[video_ai] frame {}/{} resized {}x{} → {}x{}", i + 1, n, w, h, new_w, new_h);
-                                inference_path = tmp;
-                                inference_path_ref = &inference_path;
-                            } else {
-                                inference_path_ref = frame_path;
-                            }
-                        } else {
-                            inference_path_ref = frame_path;
-                        }
-                    } else {
-                        inference_path_ref = frame_path;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[video_ai] frame {}/{} cannot open for resize: {}", i + 1, n, e);
-                    inference_path_ref = frame_path;
-                }
+        for (i, frame_path) in frames.iter().enumerate() {
+            let inf_path = resize_frame_for_inference(
+                frame_path, &media_id, i + 1, n, max_dim,
+            )
+            .await;
+            if inf_path != *frame_path {
+                tmp_paths.push(inf_path.clone());
             }
-        } else {
-            inference_path_ref = frame_path;
+            inference_paths.push(inf_path);
         }
 
-        match crate::ai::llamacpp::generate_caption(
-            inference_path_ref,
+        let path_refs: Vec<&Path> = inference_paths.iter().map(|p| p.as_path()).collect();
+        println!(
+            "[video_ai] multi-frame mode: sending {} frames in one request",
+            path_refs.len()
+        );
+
+        match crate::ai::llamacpp::generate_caption_multi_image(
+            &path_refs,
             &model,
             port,
-            frame_prompt.as_deref(),
+            custom_prompt.as_deref(),
             &sampling,
         )
         .await
         {
             Ok(result) => {
                 all_captions.push(result.caption);
-                all_tags.extend(result.tags);
+                all_tags = result.tags;
             }
             Err(e) => {
-                eprintln!("[video_ai] frame {}/{} inference failed: {}", i + 1, n, e);
+                eprintln!("[video_ai] multi-frame inference failed: {}", e);
             }
         }
 
-        // Clean up temp resized frame if one was created
-        if inference_path_ref != frame_path {
-            let _ = std::fs::remove_file(inference_path_ref);
+        // Clean up temp resized frames
+        for tmp in &tmp_paths {
+            let _ = std::fs::remove_file(tmp);
+        }
+    } else {
+        // --- Single-frame path (original loop) ---
+        for (i, frame_path) in frames.iter().enumerate() {
+            let frame_prompt = if n > 1 {
+                Some(format!(
+                    "这是同一段视频的第 {}/{} 帧。请综合描述画面内容。{}",
+                    i + 1,
+                    n,
+                    custom_prompt.as_deref().unwrap_or("")
+                ))
+            } else {
+                custom_prompt.clone()
+            };
+
+            let inference_path_ref = {
+                let max_dim = crate::settings::get_llama_max_image_dim(&app);
+                resize_frame_for_inference(
+                    frame_path, &media_id, i + 1, n, max_dim,
+                )
+                .await
+            };
+            let is_tmp = inference_path_ref != *frame_path;
+
+            match crate::ai::llamacpp::generate_caption(
+                &inference_path_ref,
+                &model,
+                port,
+                frame_prompt.as_deref(),
+                &sampling,
+            )
+            .await
+            {
+                Ok(result) => {
+                    all_captions.push(result.caption);
+                    all_tags.extend(result.tags);
+                }
+                Err(e) => {
+                    eprintln!("[video_ai] frame {}/{} inference failed: {}", i + 1, n, e);
+                }
+            }
+
+            // Clean up temp resized frame if one was created
+            if is_tmp {
+                let _ = std::fs::remove_file(&inference_path_ref);
+            }
         }
     }
 
-    // 7. Merge results
+    // 7. Merge results (single-frame path may have multiple captions)
     if all_captions.is_empty() {
         println!("[video_ai] no captions generated from any frame, skipping");
         crate::media::video_metadata::cleanup_frames(&frames);
         return Ok(());
     }
 
-    let merged_caption = dedup_join(&all_captions, " | ");
+    let merged_caption = if multi_frame && n > 1 {
+        // Multi-frame: single caption, no merge needed
+        all_captions.into_iter().next().unwrap_or_default()
+    } else {
+        dedup_join(&all_captions, " | ")
+    };
     all_tags.sort();
     all_tags.dedup();
 
@@ -530,6 +547,60 @@ async fn process_video_caption(
         n, preview
     );
     Ok(())
+}
+
+/// Resize a frame to fit within max_dim, returning the path to use for inference.
+/// If no resize is needed, returns the original path. Otherwise writes a temp JPEG
+/// and returns the temp path. The caller is responsible for cleaning up temp files.
+async fn resize_frame_for_inference(
+    frame_path: &Path,
+    media_id: &str,
+    frame_idx: usize,
+    total_frames: usize,
+    max_dim: u32,
+) -> PathBuf {
+    if max_dim == 0 {
+        return frame_path.to_path_buf();
+    }
+    match image::open(frame_path) {
+        Ok(img) => {
+            let (w, h) = (img.width(), img.height());
+            let long_side = w.max(h);
+            if long_side <= max_dim {
+                return frame_path.to_path_buf();
+            }
+            let ratio = max_dim as f64 / long_side as f64;
+            let new_w = (w as f64 * ratio).round() as u32;
+            let new_h = (h as f64 * ratio).round() as u32;
+            let resized =
+                img.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3);
+            let mut buf = std::io::Cursor::new(Vec::new());
+            if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
+                .encode_image(&resized)
+                .is_ok()
+            {
+                let tmp = std::env::temp_dir().join(format!(
+                    "medix_video_infer_{}_{}.jpg",
+                    media_id, frame_idx
+                ));
+                if tokio::fs::write(&tmp, buf.into_inner()).await.is_ok() {
+                    println!(
+                        "[video_ai] frame {}/{} resized {}x{} → {}x{}",
+                        frame_idx, total_frames, w, h, new_w, new_h
+                    );
+                    return tmp;
+                }
+            }
+            frame_path.to_path_buf()
+        }
+        Err(e) => {
+            eprintln!(
+                "[video_ai] frame {}/{} cannot open for resize: {}",
+                frame_idx, total_frames, e
+            );
+            frame_path.to_path_buf()
+        }
+    }
 }
 
 /// Join strings, removing consecutive duplicates.

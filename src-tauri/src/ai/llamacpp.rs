@@ -150,18 +150,11 @@ impl Default for SamplingParams {
     }
 }
 
-pub async fn generate_caption(
-    image_path: &Path,
-    model: &str,
-    port: u16,
-    custom_prompt: Option<&str>,
-    sampling: &SamplingParams,
-) -> Result<AiResult, AiError> {
-    let prompt_text = custom_prompt.unwrap_or(CAPTION_PROMPT);
+/// Build a base64 data URL from an image file path.
+async fn image_to_data_url(image_path: &Path) -> Result<String, AiError> {
     let image_bytes = tokio::fs::read(image_path).await?;
-    let image_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image_bytes);
-
-    // Detect MIME type from extension
+    let image_b64 =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image_bytes);
     let ext = image_path
         .extension()
         .and_then(|e| e.to_str())
@@ -174,29 +167,19 @@ pub async fn generate_caption(
         "bmp" => "image/bmp",
         _ => "image/jpeg",
     };
+    Ok(format!("data:{};base64,{}", mime, image_b64))
+}
 
+/// Shared helper: send a ChatCompletionRequest with retry and parse the response.
+async fn chat_completion(
+    model: &str,
+    port: u16,
+    messages: Vec<Message>,
+    sampling: &SamplingParams,
+) -> Result<AiResult, AiError> {
     let req_body = ChatCompletionRequest {
         model: model.to_string(),
-        messages: vec![
-            Message {
-                role: "system".to_string(),
-                content: vec![ContentPart {
-                    content_type: "text".to_string(),
-                    text: Some(prompt_text.to_string()),
-                    image_url: None,
-                }],
-            },
-            Message {
-                role: "user".to_string(),
-                content: vec![ContentPart {
-                    content_type: "image_url".to_string(),
-                    text: None,
-                    image_url: Some(ImageUrl {
-                        url: format!("data:{};base64,{}", mime, image_b64),
-                    }),
-                }],
-            },
-        ],
+        messages,
         stream: false,
         chat_template_kwargs: Some(serde_json::json!({"enable_thinking": false})),
         temperature: Some(sampling.temperature),
@@ -204,7 +187,11 @@ pub async fn generate_caption(
         min_p: Some(sampling.min_p),
         repeat_penalty: Some(sampling.repeat_penalty),
         max_tokens: Some(sampling.max_tokens),
-        seed: if sampling.seed >= 0 { Some(sampling.seed) } else { None },
+        seed: if sampling.seed >= 0 {
+            Some(sampling.seed)
+        } else {
+            None
+        },
     };
 
     let max_attempts = 2;
@@ -242,6 +229,101 @@ pub async fn generate_caption(
     }
 
     Err(last_error)
+}
+
+pub async fn generate_caption(
+    image_path: &Path,
+    model: &str,
+    port: u16,
+    custom_prompt: Option<&str>,
+    sampling: &SamplingParams,
+) -> Result<AiResult, AiError> {
+    let prompt_text = custom_prompt.unwrap_or(CAPTION_PROMPT);
+    let data_url = image_to_data_url(image_path).await?;
+
+    let messages = vec![
+        Message {
+            role: "system".to_string(),
+            content: vec![ContentPart {
+                content_type: "text".to_string(),
+                text: Some(prompt_text.to_string()),
+                image_url: None,
+            }],
+        },
+        Message {
+            role: "user".to_string(),
+            content: vec![ContentPart {
+                content_type: "image_url".to_string(),
+                text: None,
+                image_url: Some(ImageUrl { url: data_url }),
+            }],
+        },
+    ];
+
+    chat_completion(model, port, messages, sampling).await
+}
+
+/// Send multiple images in a single chat completion request.
+/// Frames are interleaved with labels ("Frame 1/3:", etc.) so the model
+/// can distinguish them. All images + the prompt share one context window,
+/// enabling cross-frame reasoning (supported by Qwen2-VL, InternVL2, etc.).
+pub async fn generate_caption_multi_image(
+    image_paths: &[&Path],
+    model: &str,
+    port: u16,
+    custom_prompt: Option<&str>,
+    sampling: &SamplingParams,
+) -> Result<AiResult, AiError> {
+    let prompt_text = custom_prompt.unwrap_or(CAPTION_PROMPT);
+    let n = image_paths.len();
+
+    // Build user message content: [Frame 1/3, image1, Frame 2/3, image2, ..., instruction]
+    let mut content_parts: Vec<ContentPart> = Vec::with_capacity(n * 2 + 1);
+
+    for (i, image_path) in image_paths.iter().enumerate() {
+        if n > 1 {
+            content_parts.push(ContentPart {
+                content_type: "text".to_string(),
+                text: Some(format!("Frame {}/{}:", i + 1, n)),
+                image_url: None,
+            });
+        }
+        let data_url = image_to_data_url(image_path).await?;
+        content_parts.push(ContentPart {
+            content_type: "image_url".to_string(),
+            text: None,
+            image_url: Some(ImageUrl { url: data_url }),
+        });
+    }
+
+    // Final instruction to tie frames together
+    content_parts.push(ContentPart {
+        content_type: "text".to_string(),
+        text: Some(
+            "These frames are from the same video, in chronological order. \
+             Please analyze all frames together and provide a comprehensive description \
+             of the video's content, including any changes, motion, or progression you observe."
+                .to_string(),
+        ),
+        image_url: None,
+    });
+
+    let messages = vec![
+        Message {
+            role: "system".to_string(),
+            content: vec![ContentPart {
+                content_type: "text".to_string(),
+                text: Some(prompt_text.to_string()),
+                image_url: None,
+            }],
+        },
+        Message {
+            role: "user".to_string(),
+            content: content_parts,
+        },
+    ];
+
+    chat_completion(model, port, messages, sampling).await
 }
 
 pub async fn embed_text(text: &str, model: &str, port: u16) -> Result<Vec<f32>, AiError> {

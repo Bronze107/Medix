@@ -56,6 +56,7 @@ function Settings() {
   const [largeFileThreshold, setLargeFileThreshold] = useState(1024);
   const [videoAiEnabled, setVideoAiEnabled] = useState(false);
   const [videoAiFrameCount, setVideoAiFrameCount] = useState(3);
+  const [videoAiMultiFrame, setVideoAiMultiFrame] = useState(false);
 
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [searchSemanticEnabled, setSearchSemanticEnabled] = useState(true);
@@ -146,6 +147,7 @@ function Settings() {
     }).catch(() => {});
     settingsGet("video_ai_enabled").then((v) => setVideoAiEnabled(v === "true")).catch(() => {});
     settingsGet("video_ai_frame_count").then((v) => setVideoAiFrameCount(Number(v) || 3)).catch(() => {});
+    settingsGet("video_ai_multi_frame").then((v) => setVideoAiMultiFrame(v === "true")).catch(() => {});
   }, []);
 
   const saveLargeFileThreshold = async () => {
@@ -989,6 +991,7 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
               </div>
 
               {videoAiEnabled && (
+                <>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-[var(--color-text-primary)]">采样帧数</p>
@@ -1009,6 +1012,26 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                     <span className="text-xs text-[var(--color-text-primary)] tabular-nums w-4">{videoAiFrameCount}</span>
                   </div>
                 </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-[var(--color-text-primary)]">多帧合并推理</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">将所有帧在一次请求中发送，模型可理解帧间关系（需 VLM 模型支持多图，如 Qwen2-VL）</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+                    <input
+                      type="checkbox"
+                      checked={videoAiMultiFrame}
+                      onChange={(e) => {
+                        setVideoAiMultiFrame(e.target.checked);
+                        settingsSet("video_ai_multi_frame", String(e.target.checked));
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-[var(--color-bg-tertiary)] rounded-full peer peer-checked:bg-[var(--color-accent)] peer-focus:ring-2 peer-focus:ring-[var(--color-accent)]/30 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4"></div>
+                  </label>
+                </div>
+                </>
               )}
             </div>
           </div>

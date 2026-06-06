@@ -312,6 +312,7 @@ pub fn get_video_large_file_warning_mb(app: &AppHandle) -> u64 {
 
 pub const KEY_VIDEO_AI_ENABLED: &str = "video_ai_enabled";
 pub const KEY_VIDEO_AI_FRAME_COUNT: &str = "video_ai_frame_count";
+pub const KEY_VIDEO_AI_MULTI_FRAME: &str = "video_ai_multi_frame";
 
 pub fn is_video_ai_enabled(app: &AppHandle) -> bool {
     get(app, KEY_VIDEO_AI_ENABLED)
@@ -323,4 +324,10 @@ pub fn get_video_ai_frame_count(app: &AppHandle) -> u32 {
     get(app, KEY_VIDEO_AI_FRAME_COUNT)
         .and_then(|v| v.parse().ok())
         .unwrap_or(3)
+}
+
+pub fn is_video_ai_multi_frame(app: &AppHandle) -> bool {
+    get(app, KEY_VIDEO_AI_MULTI_FRAME)
+        .map(|v| v == "true")
+        .unwrap_or(false)
 }
