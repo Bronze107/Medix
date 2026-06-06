@@ -15,6 +15,10 @@ export interface Media {
   display_variant_id: string | null;
   thumb_256: string | null;
   lqip: string | null;
+  media_type: string | null;
+  duration: number | null;
+  video_codec: string | null;
+  video_fps: number | null;
 }
 
 export interface MediaImportResult {

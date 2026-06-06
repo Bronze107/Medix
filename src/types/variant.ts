@@ -10,6 +10,10 @@ export interface Variant {
   file_path: string;
   label: string | null;
   source: string | null;
+  media_type: string | null;
+  duration: number | null;
+  video_codec: string | null;
+  video_fps: number | null;
 }
 
 export interface VariantPreset {
