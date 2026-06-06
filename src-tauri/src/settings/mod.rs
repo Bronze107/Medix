@@ -297,3 +297,13 @@ pub fn get_image_api_model(app: &AppHandle) -> String {
 pub fn get_image_api_proxy(app: &AppHandle) -> Option<String> {
     get_global_proxy(app)
 }
+
+// --- Video ---
+
+pub const KEY_VIDEO_LARGE_FILE_WARNING_MB: &str = "video_large_file_warning_mb";
+
+pub fn get_video_large_file_warning_mb(app: &AppHandle) -> u64 {
+    get(app, KEY_VIDEO_LARGE_FILE_WARNING_MB)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1024)
+}
