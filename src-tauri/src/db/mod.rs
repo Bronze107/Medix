@@ -378,6 +378,71 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         }
     }
 
+    // --- 0018_video_support ---
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0018_video_support'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            let columns: Vec<String> = {
+                let mut stmt = conn.prepare("PRAGMA table_info('media')")?;
+                let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+                rows.filter_map(|r| r.ok()).collect()
+            };
+            let mut sql = String::from("INSERT OR IGNORE INTO _migrations (name) VALUES ('0018_video_support');");
+            if !columns.contains(&"media_type".to_string()) {
+                sql.push_str("ALTER TABLE media ADD COLUMN media_type TEXT DEFAULT 'image';");
+            }
+            if !columns.contains(&"duration".to_string()) {
+                sql.push_str("ALTER TABLE media ADD COLUMN duration REAL;");
+            }
+            if !columns.contains(&"video_codec".to_string()) {
+                sql.push_str("ALTER TABLE media ADD COLUMN video_codec TEXT;");
+            }
+            if !columns.contains(&"video_fps".to_string()) {
+                sql.push_str("ALTER TABLE media ADD COLUMN video_fps REAL;");
+            }
+            sql.push_str("CREATE INDEX IF NOT EXISTS idx_media_type ON media(media_type);");
+            conn.execute_batch(&sql)?;
+        }
+    }
+
+    // --- 0019_video_variants ---
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0019_video_variants'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            let columns: Vec<String> = {
+                let mut stmt = conn.prepare("PRAGMA table_info('variants')")?;
+                let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+                rows.filter_map(|r| r.ok()).collect()
+            };
+            let mut sql = String::from("INSERT OR IGNORE INTO _migrations (name) VALUES ('0019_video_variants');");
+            if !columns.contains(&"media_type".to_string()) {
+                sql.push_str("ALTER TABLE variants ADD COLUMN media_type TEXT DEFAULT 'image';");
+            }
+            if !columns.contains(&"duration".to_string()) {
+                sql.push_str("ALTER TABLE variants ADD COLUMN duration REAL;");
+            }
+            if !columns.contains(&"video_codec".to_string()) {
+                sql.push_str("ALTER TABLE variants ADD COLUMN video_codec TEXT;");
+            }
+            if !columns.contains(&"video_fps".to_string()) {
+                sql.push_str("ALTER TABLE variants ADD COLUMN video_fps REAL;");
+            }
+            conn.execute_batch(&sql)?;
+        }
+    }
+
     Ok(())
 }
 
