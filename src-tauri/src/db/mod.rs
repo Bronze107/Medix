@@ -598,7 +598,8 @@ pub fn media_list_by_collection(
         "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
                 m.created_at, m.modified_at, m.imported_at,
                 m.source_url, m.page_url, m.source, m.sha256, m.deleted_at,
-                m.display_variant_id, m.lqip
+                m.display_variant_id, m.lqip,
+                m.media_type, m.duration, m.video_codec, m.video_fps
          FROM media m
          JOIN collection_items ci ON ci.media_id = m.id
          WHERE ci.collection_id = ?1 AND m.deleted_at IS NULL
@@ -660,7 +661,8 @@ pub fn media_get_by_sha256(
 ) -> Result<Option<Media>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip,
+                media_type, duration, video_codec, video_fps
          FROM media WHERE sha256 = ?1 AND deleted_at IS NULL LIMIT 1",
     )?;
     let mut rows = stmt.query_map(params![hash], |row| {
@@ -759,7 +761,8 @@ pub fn list_media_path(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip,
+                media_type, duration, video_codec, video_fps
          FROM media
          WHERE deleted_at IS NULL
          ORDER BY {} {}
@@ -835,7 +838,8 @@ pub fn media_get_batch(
     let conn = get_conn(app)?;
     let placeholders: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 1)).collect();
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip,
+                media_type, duration, video_codec, video_fps
          FROM media WHERE deleted_at IS NULL AND id IN ({})",
         placeholders.join(",")
     );
@@ -1183,7 +1187,8 @@ pub fn media_search_by_tags_path(
     let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = match mode {
         TagSearchMode::Intersection => format!(
-            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip
+            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip,
+                    m.media_type, m.duration, m.video_codec, m.video_fps
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
@@ -1194,7 +1199,8 @@ pub fn media_search_by_tags_path(
             placeholders, tag_names.len(), sort_column, order
         ),
         TagSearchMode::Union => format!(
-            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip
+            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip,
+                    m.media_type, m.duration, m.video_codec, m.video_fps
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
@@ -1468,7 +1474,8 @@ pub fn media_query_filtered_path(
         "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
                 m.created_at, m.modified_at, m.imported_at,
                 m.source_url, m.page_url, m.source, m.sha256, m.deleted_at,
-                m.display_variant_id, m.lqip
+                m.display_variant_id, m.lqip,
+                m.media_type, m.duration, m.video_codec, m.video_fps
          FROM media m {} ORDER BY {} {}",
         where_clause, sort_column, order
     );
@@ -1530,7 +1537,8 @@ pub fn variant_list(
 ) -> Result<Vec<Variant>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source
+        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source,
+                media_type, duration, video_codec, video_fps
          FROM variants WHERE media_id = ?1 ORDER BY created_at",
     )?;
     let variant_iter = stmt.query_map(params![media_id], |row| {
@@ -1600,7 +1608,8 @@ pub fn variant_get_by_id(
 ) -> Result<Option<Variant>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source
+        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source,
+                media_type, duration, video_codec, video_fps
          FROM variants WHERE id = ?1",
     )?;
     let mut rows = stmt.query_map(params![id], |row| {
@@ -1635,7 +1644,8 @@ pub fn variant_get_by_media_and_preset(
 ) -> Result<Option<Variant>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source
+        "SELECT id, media_id, preset_name, format, width, height, quality, file_size, file_path, label, source,
+                media_type, duration, video_codec, video_fps
          FROM variants WHERE media_id = ?1 AND preset_name = ?2",
     )?;
     let mut rows = stmt.query_map(params![media_id, preset_name], |row| {
@@ -2118,7 +2128,8 @@ pub fn media_list_trash(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip,
+                media_type, duration, video_codec, video_fps
          FROM media
          WHERE deleted_at IS NOT NULL
          ORDER BY {} {}",
