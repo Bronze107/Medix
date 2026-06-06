@@ -1,7 +1,72 @@
 use serde::Deserialize;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// Resolve ffmpeg executable path.
+/// Checks: 1) next to current exe, 2) binaries/ dir (dev mode), 3) PATH, 4) fallback.
+pub fn find_ffmpeg() -> PathBuf {
+    let names: &[&str] = if cfg!(windows) {
+        &["ffmpeg.exe", "ffmpeg-x86_64-pc-windows-msvc.exe"]
+    } else {
+        &["ffmpeg"]
+    };
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            for name in names {
+                let p = exe_dir.join(name);
+                if p.exists() { return p; }
+            }
+            // In dev mode, walk up from target/debug/ to find binaries/
+            let mut search = exe_dir.to_path_buf();
+            for _ in 0..4 {
+                if let Some(parent) = search.parent() {
+                    search = parent.to_path_buf();
+                }
+                for name in names {
+                    let p = search.join("binaries").join(name);
+                    if p.exists() { return p; }
+                }
+            }
+        }
+    }
+    if let Ok(path) = which::which("ffmpeg") {
+        return path;
+    }
+    PathBuf::from("ffmpeg")
+}
+
+/// Resolve ffprobe executable path.
+fn find_ffprobe() -> PathBuf {
+    let names: &[&str] = if cfg!(windows) {
+        &["ffprobe.exe", "ffprobe-x86_64-pc-windows-msvc.exe"]
+    } else {
+        &["ffprobe"]
+    };
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            for name in names {
+                let p = exe_dir.join(name);
+                if p.exists() { return p; }
+            }
+            let mut search = exe_dir.to_path_buf();
+            for _ in 0..4 {
+                if let Some(parent) = search.parent() {
+                    search = parent.to_path_buf();
+                }
+                for name in names {
+                    let p = search.join("binaries").join(name);
+                    if p.exists() { return p; }
+                }
+            }
+        }
+    }
+    if let Ok(path) = which::which("ffprobe") {
+        return path;
+    }
+    PathBuf::from("ffprobe")
+}
 
 #[derive(Debug, Deserialize)]
 struct FfprobeOutput {
@@ -37,7 +102,7 @@ pub struct VideoMetadata {
 /// Extract video metadata using ffprobe.
 /// Finds the first video stream (does NOT assume streams[0] is video).
 pub fn extract_metadata(input: &Path) -> Result<VideoMetadata, String> {
-    let output = Command::new("ffprobe")
+    let output = Command::new(find_ffprobe())
         .args([
             "-v", "quiet",
             "-print_format", "json",
@@ -96,7 +161,7 @@ pub fn extract_metadata(input: &Path) -> Result<VideoMetadata, String> {
 
 /// Quick check: does this file have a video stream?
 pub fn has_video_stream(input: &Path) -> Result<bool, String> {
-    let output = Command::new("ffprobe")
+    let output = Command::new(find_ffprobe())
         .args([
             "-v", "quiet",
             "-print_format", "json",
@@ -157,7 +222,7 @@ pub fn extract_frames(
             i
         ));
 
-        let result = std::process::Command::new("ffmpeg")
+        let result = Command::new(find_ffmpeg())
             .args([
                 "-ss", &format!("{:.3}", timestamp),
                 "-i",

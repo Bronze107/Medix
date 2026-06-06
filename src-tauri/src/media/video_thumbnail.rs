@@ -34,7 +34,7 @@ pub fn generate_video_thumbnail(
     };
 
     for (i, ts) in timestamps.iter().enumerate() {
-        let result = Command::new("ffmpeg")
+        let result = Command::new(crate::media::video_metadata::find_ffmpeg())
             .args([
                 "-ss", ts,
                 "-i",
