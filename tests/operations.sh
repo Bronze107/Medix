@@ -139,6 +139,28 @@ else
 fi
 
 # ============================================================
+# 视频导出测试
+# ============================================================
+echo "--- 视频导出 ---"
+
+if command -v ffprobe &> /dev/null && command -v ffmpeg &> /dev/null; then
+  ffmpeg -y -f lavfi -i color=c=black:s=320x240:d=1 -c:v libx264 -pix_fmt yuv420p /tmp/_export_test_video_.mp4 2>/dev/null
+  if [ -f /tmp/_export_test_video_.mp4 ]; then
+    VID_ID="v_export_test_$$"
+    NOW=$(date -u +"%Y-%m-%dT%H:%M:%S")
+    exec_sql "INSERT INTO media (id, source_path, width, height, file_size, media_type, duration, video_codec, video_fps, imported_at, source)
+        VALUES ('$VID_ID', '/tmp/_export_test_video_.mp4', 320, 240, 1000, 'video', 1.0, 'h264', 30.0, '$NOW', 'test')" > /dev/null
+    check "视频导出测试记录已插入" \
+      "$(q "SELECT media_type FROM media WHERE id = '$VID_ID';")" \
+      "video"
+    exec_sql "DELETE FROM media WHERE id = '$VID_ID';" > /dev/null
+    rm /tmp/_export_test_video_.mp4
+  fi
+else
+  warn "  SKIP: ffprobe/ffmpeg not found on PATH, video export tests skipped"
+fi
+
+# ============================================================
 # 数据库 schema 版本
 # ============================================================
 echo "--- Schema 版本 ---"

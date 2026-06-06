@@ -10,6 +10,7 @@ red()   { echo -e "\033[31m$1\033[0m"; }
 cli() {
     cargo run --bin medix-cli -- "$@" 2>/dev/null
 }
+q() { cli query "$1"; }
 
 check() {
     local desc="$1" expected="$2" actual="$3"
@@ -112,6 +113,33 @@ if nz "$C"; then
     check "混合 tag:cat + width:>100" "ok" "ok"
 else
     check "混合 tag:cat + width:>100" "ok" "fail"
+fi
+
+# ============================================================
+echo "--- media_type 过滤 ---"
+
+C=$(result_count "media_type:image")
+DB_IMAGES=$(q "SELECT COUNT(*) FROM media WHERE media_type = 'image' AND deleted_at IS NULL;")
+check "media_type:image 返回全部图片" "$DB_IMAGES" "${C:-0}"
+
+C=$(result_count "media_type:video")
+DB_VIDEOS=$(q "SELECT COUNT(*) FROM media WHERE media_type = 'video' AND deleted_at IS NULL;")
+check "media_type:video 匹配数据库计数" "$DB_VIDEOS" "${C:-0}"
+
+# media_type combined with other filters
+C=$(result_count "media_type:image width:>100")
+if nz "$C"; then
+    check "media_type:image width:>100 有结果" "ok" "ok"
+else
+    check "media_type:image width:>100 有结果" "ok" "fail"
+fi
+
+# Invalid media_type value is ignored (falls through to semantic text)
+C=$(result_count "media_type:invalid")
+if [ "${C:-0}" -eq "$TOTAL_MEDIA" ] || [ "${C:-0}" -gt 0 ]; then
+    check "media_type:invalid 返回结果（作为语义搜索）" "ok" "ok"
+else
+    check "media_type:invalid 返回结果（作为语义搜索）" "ok" "fail"
 fi
 
 # ============================================================
