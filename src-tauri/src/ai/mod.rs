@@ -19,6 +19,11 @@ pub enum AiTask {
         image_path: PathBuf,
         variant_id: Option<String>,
     },
+    GenerateVideoCaption {
+        media_id: String,
+        video_path: PathBuf,
+        duration_secs: f64,
+    },
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -65,6 +70,19 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
                             process_generate_caption(app.clone(), media_id, image_path, variant_id).await
                         {
                             eprintln!("[ai] failed to process caption generation: {}", e);
+                        }
+                        let remaining = pending_clone.fetch_sub(1, Ordering::SeqCst) - 1;
+                        let _ = app.emit("ai-task-done", AiTaskProgress { remaining });
+                    }
+                    AiTask::GenerateVideoCaption {
+                        media_id,
+                        video_path,
+                        duration_secs,
+                    } => {
+                        if let Err(e) =
+                            process_video_caption(app.clone(), media_id, video_path, duration_secs).await
+                        {
+                            eprintln!("[ai] failed to process video caption: {}", e);
                         }
                         let remaining = pending_clone.fetch_sub(1, Ordering::SeqCst) - 1;
                         let _ = app.emit("ai-task-done", AiTaskProgress { remaining });
@@ -277,4 +295,202 @@ fn ensure_tag_cached(
         item_count: Some(1i64),
     });
     Ok(id)
+}
+
+async fn process_video_caption(
+    app: AppHandle,
+    media_id: String,
+    video_path: PathBuf,
+    duration_secs: f64,
+) -> Result<(), String> {
+    // 1. Check AI mode
+    let ai_mode = crate::settings::get_ai_mode(&app);
+    if ai_mode == "cloud" {
+        println!("[video_ai] cloud mode not supported for video, skipping {}", media_id);
+        return Ok(());
+    }
+
+    // 2. Check llama-server health
+    let port = crate::settings::get_llama_port(&app);
+    let server = app.state::<LlamaServer>();
+    if !server.health_check(port).await {
+        println!("[video_ai] llama-server not running, skipping {}", media_id);
+        return Ok(());
+    }
+
+    // 3. Check model configured
+    let model = crate::settings::get_llama_model(&app);
+    if model.is_empty() {
+        println!("[video_ai] no VLM model configured, skipping {}", media_id);
+        return Ok(());
+    }
+
+    // 4. Get settings
+    let n_frames = crate::settings::get_video_ai_frame_count(&app);
+    let custom_prompt = crate::settings::get_ai_custom_prompt(&app);
+    let sampling = SamplingParams {
+        temperature: crate::settings::get_llama_temperature(&app),
+        top_p: crate::settings::get_llama_top_p(&app),
+        min_p: crate::settings::get_llama_min_p(&app),
+        repeat_penalty: crate::settings::get_llama_repeat_penalty(&app),
+        max_tokens: crate::settings::get_llama_max_tokens(&app),
+        seed: crate::settings::get_llama_seed(&app),
+    };
+
+    // 5. Extract frames
+    println!("[video_ai] extracting {} frames from {}", n_frames, video_path.display());
+    let frames = match crate::media::video_metadata::extract_frames(
+        &video_path,
+        duration_secs,
+        n_frames,
+    ) {
+        Ok(f) if !f.is_empty() => f,
+        Ok(_) => {
+            println!("[video_ai] no frames extracted, skipping");
+            return Ok(());
+        }
+        Err(e) => {
+            eprintln!("[video_ai] frame extraction failed: {}", e);
+            return Err(e);
+        }
+    };
+
+    // 6. Send each frame to VLM
+    let mut all_captions: Vec<String> = Vec::new();
+    let mut all_tags: Vec<String> = Vec::new();
+    let n = frames.len();
+
+    for (i, frame_path) in frames.iter().enumerate() {
+        let frame_prompt = if n > 1 {
+            Some(format!(
+                "这是同一段视频的第 {}/{} 帧。请综合描述画面内容。{}",
+                i + 1,
+                n,
+                custom_prompt.as_deref().unwrap_or("")
+            ))
+        } else {
+            custom_prompt.clone()
+        };
+
+        match crate::ai::llamacpp::generate_caption(
+            frame_path,
+            &model,
+            port,
+            frame_prompt.as_deref(),
+            &sampling,
+        )
+        .await
+        {
+            Ok(result) => {
+                all_captions.push(result.caption);
+                all_tags.extend(result.tags);
+            }
+            Err(e) => {
+                eprintln!("[video_ai] frame {}/{} inference failed: {}", i + 1, n, e);
+            }
+        }
+    }
+
+    // 7. Merge results
+    if all_captions.is_empty() {
+        println!("[video_ai] no captions generated from any frame, skipping");
+        crate::media::video_metadata::cleanup_frames(&frames);
+        return Ok(());
+    }
+
+    let merged_caption = dedup_join(&all_captions, " | ");
+    all_tags.sort();
+    all_tags.dedup();
+
+    // 8. Store caption (no variant)
+    let _ = crate::db::caption_create_with_source(
+        &app,
+        &media_id,
+        &merged_caption,
+        Some("ai"),
+    );
+
+    // 9. Store tags
+    if !all_tags.is_empty() {
+        let mut db_tags = crate::db::tag_list(&app).map_err(|e| e.to_string())?;
+        for tag_name in &all_tags {
+            let tag_id = match ensure_tag_cached(&app, &mut db_tags, tag_name) {
+                Ok(id) => id,
+                Err(e) => {
+                    eprintln!("[video_ai] failed to ensure tag '{}': {}", tag_name, e);
+                    continue;
+                }
+            };
+            if let Err(e) = crate::db::media_tag_add_with_source(
+                &app, &media_id, &tag_id, Some(0.9), Some("ai"),
+            ) {
+                eprintln!("[video_ai] failed to add tag '{}': {}", tag_name, e);
+            }
+        }
+    }
+
+    // 10. Generate embedding for merged caption (if embedding server available)
+    if !merged_caption.is_empty() {
+        let emb_model = crate::settings::get_embedding_model(&app);
+        if emb_model.is_empty() {
+            eprintln!("[video_ai] no embedding model configured, skipping embedding");
+        } else {
+            let emb_port = crate::settings::get_embedding_port(&app);
+            let emb_server = app.state::<EmbeddingServer>();
+            if emb_server.health_check(emb_port).await {
+                let emb_model_short = std::path::Path::new(&emb_model)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&emb_model)
+                    .to_string();
+                match crate::ai::llamacpp::embed_text(&merged_caption, &emb_model, emb_port).await {
+                    Ok(vector) => {
+                        if let Err(e) = crate::db::embedding_insert(
+                            &app, &media_id, &emb_model_short, "caption", &vector,
+                        ) {
+                            eprintln!("[video_ai] failed to store caption embedding: {}", e);
+                        } else {
+                            println!("[video_ai] embedding stored for {} ({}d)", media_id, vector.len());
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[video_ai] embedding failed: {}", e);
+                    }
+                }
+            } else {
+                eprintln!("[video_ai] embedding server not running, skipping embedding");
+            }
+        }
+    }
+
+    // 11. Cleanup temp frames
+    crate::media::video_metadata::cleanup_frames(&frames);
+
+    println!(
+        "[video_ai] done — {} frames processed, caption: {}...",
+        n,
+        &merged_caption[..merged_caption.len().min(80)]
+    );
+    Ok(())
+}
+
+/// Join strings, removing consecutive duplicates.
+fn dedup_join(items: &[String], separator: &str) -> String {
+    let mut result = String::new();
+    let mut prev: Option<&str> = None;
+    for item in items {
+        let trimmed = item.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if prev == Some(trimmed) {
+            continue;
+        }
+        if !result.is_empty() {
+            result.push_str(separator);
+        }
+        result.push_str(trimmed);
+        prev = Some(trimmed);
+    }
+    result
 }
