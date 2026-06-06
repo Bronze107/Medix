@@ -109,6 +109,46 @@ ORPHAN_VAR_DEL=$(q "SELECT COUNT(*) FROM variants WHERE media_id IN (SELECT id F
 echo "  (info) 回收站中媒体关联的版本数: $ORPHAN_VAR_DEL"
 
 # ============================================================
+# 视频支持 Schema
+# ============================================================
+echo "--- 视频支持 Schema ---"
+
+check "Media table has media_type column" \
+  "$(q "SELECT COUNT(*) FROM pragma_table_info('media') WHERE name='media_type';")" \
+  "1"
+
+check "Media table has duration column" \
+  "$(q "SELECT COUNT(*) FROM pragma_table_info('media') WHERE name='duration';")" \
+  "1"
+
+check "Media table has video_codec column" \
+  "$(q "SELECT COUNT(*) FROM pragma_table_info('media') WHERE name='video_codec';")" \
+  "1"
+
+check "Media table has video_fps column" \
+  "$(q "SELECT COUNT(*) FROM pragma_table_info('media') WHERE name='video_fps';")" \
+  "1"
+
+# Existing rows default to media_type='image'
+check "Existing media rows default to media_type='image'" \
+  "$(q "SELECT COUNT(*) FROM media WHERE media_type != 'image';")" \
+  "0"
+
+# Variants table has video columns
+check "Variants table has media_type column" \
+  "$(q "SELECT COUNT(*) FROM pragma_table_info('variants') WHERE name='media_type';")" \
+  "1"
+
+# Migration idempotency
+check "Migration 0018 is recorded" \
+  "$(q "SELECT COUNT(*) FROM _migrations WHERE name = '0018_video_support';")" \
+  "1"
+
+check "Migration 0019 is recorded" \
+  "$(q "SELECT COUNT(*) FROM _migrations WHERE name = '0019_video_variants';")" \
+  "1"
+
+# ============================================================
 # 排序字段
 # ============================================================
 echo "--- 排序验证 ---"

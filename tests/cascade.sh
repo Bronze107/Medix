@@ -157,6 +157,14 @@ GONE=$(q "SELECT COUNT(*) FROM settings WHERE key='saved_filters' AND value LIKE
 check "删除筛选器" "0" "$GONE"
 
 # ============================================================
+# 视频版本级联
+echo "--- 视频 Variant ---"
+
+check "Variants FK cascade structure exists" \
+  "$(q "SELECT COUNT(*) FROM pragma_foreign_key_list('variants');")" \
+  "1"
+
+# ============================================================
 # 去重检测（pHash 相似度）
 # ============================================================
 echo "--- 去重 ---"

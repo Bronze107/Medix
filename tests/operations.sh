@@ -101,6 +101,44 @@ HAS_PHASH=$(q "SELECT COUNT(*) FROM media WHERE phash IS NOT NULL")
 echo "  (info) 有 pHash 的媒体数: $HAS_PHASH"
 
 # ============================================================
+# 视频导入测试（直接 SQL 插入，cli 无 import 子命令）
+# ============================================================
+echo "--- 视频导入 ---"
+
+if command -v ffprobe &> /dev/null && command -v ffmpeg &> /dev/null; then
+  # Create a 1-second test video
+  ffmpeg -y -f lavfi -i color=c=black:s=320x240:d=1 -c:v libx264 -pix_fmt yuv420p /tmp/_test_video_.mp4 2>/dev/null
+  if [ -f /tmp/_test_video_.mp4 ]; then
+    # Get video metadata via ffprobe
+    DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 /tmp/_test_video_.mp4 2>/dev/null)
+    CODEC=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 /tmp/_test_video_.mp4 2>/dev/null)
+    FPS=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=p=0 /tmp/_test_video_.mp4 2>/dev/null)
+
+    NOW=$(date -u +"%Y-%m-%dT%H:%M:%S")
+    exec_sql "INSERT INTO media (id, source_path, file_size, media_type, duration, video_codec, video_fps, width, height, imported_at, source)
+        VALUES ('_test_video_01', '/tmp/_test_video_.mp4', 1024, 'video', $DURATION, '$CODEC', '$FPS', 320, 240, '$NOW', 'test')" > /dev/null
+
+    check "Video insert creates record with media_type='video'" \
+      "$(q "SELECT media_type FROM media WHERE id='_test_video_01';")" \
+      "video"
+
+    check "Video insert stores duration" \
+      "$(q "SELECT duration > 0 FROM media WHERE id='_test_video_01';")" \
+      "1"
+
+    check "Video insert stores video_codec" \
+      "$(q "SELECT video_codec FROM media WHERE id='_test_video_01';")" \
+      "$CODEC"
+
+    # Clean up test record
+    exec_sql "DELETE FROM media WHERE id='_test_video_01'" > /dev/null
+    rm /tmp/_test_video_.mp4
+  fi
+else
+  warn "  SKIP: ffprobe/ffmpeg not found on PATH, video import tests skipped"
+fi
+
+# ============================================================
 # 数据库 schema 版本
 # ============================================================
 echo "--- Schema 版本 ---"
