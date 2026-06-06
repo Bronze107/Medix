@@ -8,7 +8,10 @@ use ulid::Ulid;
 use super::{Media, MediaImportResult};
 use crate::db;
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "png", "webp", "gif", "bmp",
+    "mp4", "webm", "mkv", "avi", "mov",
+];
 
 /// Detect image format from magic bytes (file header).
 /// Returns the canonical extension (without dot): "jpg", "png", "webp", "gif", "bmp".
@@ -92,7 +95,17 @@ pub fn import_files(
             let handles: Vec<_> = chunk.iter().map(|path_str| {
                 s.spawn(|| {
                     let path = Path::new(path_str);
-                    let result = import_single_file(app, path, &library_dir);
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| e.to_lowercase())
+                        .unwrap_or_default();
+                    let is_video = super::video_metadata::VIDEO_EXTENSIONS.contains(&ext.as_str());
+                    let result = if is_video {
+                        super::video_import::import_single_video(app, path, &library_dir)
+                    } else {
+                        import_single_file(app, path, &library_dir)
+                    };
                     let filename = path.file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("")
