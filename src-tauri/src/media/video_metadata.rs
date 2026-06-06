@@ -15,7 +15,7 @@ pub fn find_ffmpeg() -> PathBuf {
         if let Some(exe_dir) = exe_path.parent() {
             for name in names {
                 let p = exe_dir.join(name);
-                if p.exists() { return p; }
+                if is_valid_binary(&p) { return p; }
             }
             // In dev mode, walk up from target/debug/ to find binaries/
             let mut search = exe_dir.to_path_buf();
@@ -25,7 +25,7 @@ pub fn find_ffmpeg() -> PathBuf {
                 }
                 for name in names {
                     let p = search.join("binaries").join(name);
-                    if p.exists() { return p; }
+                    if is_valid_binary(&p) { return p; }
                 }
             }
         }
@@ -34,6 +34,11 @@ pub fn find_ffmpeg() -> PathBuf {
         return path;
     }
     PathBuf::from("ffmpeg")
+}
+
+/// Check that a binary file is valid (exists and is larger than 1MB — skip empty placeholders).
+fn is_valid_binary(path: &Path) -> bool {
+    path.exists() && std::fs::metadata(path).map(|m| m.len() > 1024 * 1024).unwrap_or(false)
 }
 
 /// Resolve ffprobe executable path.
@@ -48,7 +53,7 @@ fn find_ffprobe() -> PathBuf {
         if let Some(exe_dir) = exe_path.parent() {
             for name in names {
                 let p = exe_dir.join(name);
-                if p.exists() { return p; }
+                if is_valid_binary(&p) { return p; }
             }
             let mut search = exe_dir.to_path_buf();
             for _ in 0..4 {
@@ -57,7 +62,7 @@ fn find_ffprobe() -> PathBuf {
                 }
                 for name in names {
                     let p = search.join("binaries").join(name);
-                    if p.exists() { return p; }
+                    if is_valid_binary(&p) { return p; }
                 }
             }
         }
