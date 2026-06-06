@@ -170,6 +170,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
   const [dragging, setDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0, ox: 0, oy: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // Load original + variants when item changes
   useEffect(() => {
@@ -240,15 +241,38 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       switch (e.key) {
+        case " ":
+          if (item?.media_type === "video" && videoRef.current) {
+            e.preventDefault();
+            if (videoRef.current.paused) {
+              videoRef.current.play();
+            } else {
+              videoRef.current.pause();
+            }
+          }
+          break;
         case "Escape":
           e.stopPropagation();
           onClose();
           break;
         case "ArrowLeft":
-          if (viewState.type !== "compare" && currentIndex > 0) onNavigate(currentIndex - 1);
+          if (item?.media_type === "video" && videoRef.current && viewState.type !== "compare") {
+            e.preventDefault();
+            videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
+          } else if (viewState.type !== "compare" && currentIndex > 0) {
+            onNavigate(currentIndex - 1);
+          }
           break;
         case "ArrowRight":
-          if (viewState.type !== "compare" && currentIndex < media.length - 1) onNavigate(currentIndex + 1);
+          if (item?.media_type === "video" && videoRef.current && viewState.type !== "compare") {
+            e.preventDefault();
+            videoRef.current.currentTime = Math.min(
+              videoRef.current.duration || Infinity,
+              videoRef.current.currentTime + 5,
+            );
+          } else if (viewState.type !== "compare" && currentIndex < media.length - 1) {
+            onNavigate(currentIndex + 1);
+          }
           break;
         case "ArrowUp":
         case "ArrowDown": {
@@ -329,7 +353,18 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
   );
 
   const handleMouseUp = useCallback(() => setDragging(false), []);
-  const handleDoubleClick = useCallback(() => { setScale(1); setOffset({ x: 0, y: 0 }); }, []);
+  const handleDoubleClick = useCallback(() => {
+    if (videoRef.current) {
+      if (videoRef.current.paused) {
+        videoRef.current.play();
+      } else {
+        videoRef.current.pause();
+      }
+    } else {
+      setScale(1);
+      setOffset({ x: 0, y: 0 });
+    }
+  }, []);
 
   // Slider drag
   const sliderDragRef = useRef(false);
@@ -506,50 +541,73 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
           <div className="flex h-full items-center justify-center text-sm text-white/30">加载中...</div>
         ) : viewState.type === "compare" ? (
           compareMode === "side-by-side" ? (
-            /* ──── Side-by-side ──── */
-            <div className="flex h-full w-full">
-              <div className="flex-1 relative overflow-hidden border-r border-white/20">
-                <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
-                  {getVariantInfo(compareLeft ?? null).label}
+            <>
+              {/* ──── Side-by-side ──── */}
+              <div className="flex h-full w-full">
+                <div className="flex-1 relative overflow-hidden border-r border-white/20">
+                  <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
+                    {getVariantInfo(compareLeft ?? null).label}
+                  </div>
+                  {item?.media_type === "video" ? (
+                    <video src={getFilePath(compareLeft ?? null) ?? ""} controls className="absolute inset-0 w-full h-full object-contain" />
+                  ) : (
+                    <img src={getFilePath(compareLeft ?? null) ?? ""} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
+                  )}
                 </div>
+                <div className="flex-1 relative overflow-hidden">
+                  <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
+                    {getVariantInfo(compareRight ?? null).label}
+                  </div>
+                  {item?.media_type === "video" ? (
+                    <video src={getFilePath(compareRight ?? null) ?? ""} controls className="absolute inset-0 w-full h-full object-contain" />
+                  ) : (
+                    <img src={getFilePath(compareRight ?? null) ?? ""} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
+                  )}
+                </div>
+              </div>
+              {item?.media_type === "video" && (
+                <p className="absolute bottom-20 left-0 right-0 pointer-events-none text-center text-[11px] text-[var(--color-text-muted)]">
+                  视频对比 — 并排预览
+                </p>
+              )}
+            </>
+          ) : (
+            /* ──── Slider overlay ──── */
+            <div className="relative h-full w-full">
+              {item?.media_type === "video" ? (
+                <video
+                  src={getFilePath(compareLeft ?? null) ?? ""}
+                  className="absolute inset-0 w-full h-full object-contain"
+                  style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
+                  controls
+                />
+              ) : (
                 <img
                   src={getFilePath(compareLeft ?? null) ?? ""}
                   alt=""
                   className="absolute inset-0 w-full h-full object-contain"
+                  style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
                   draggable={false}
+                  decoding="async"
                 />
-              </div>
-              <div className="flex-1 relative overflow-hidden">
-                <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
-                  {getVariantInfo(compareRight ?? null).label}
-                </div>
+              )}
+              {item?.media_type === "video" ? (
+                <video
+                  src={getFilePath(compareRight ?? null) ?? ""}
+                  className="absolute inset-0 w-full h-full object-contain"
+                  style={{ clipPath: `inset(0 0 0 ${sliderPos}%)` }}
+                  controls
+                />
+              ) : (
                 <img
                   src={getFilePath(compareRight ?? null) ?? ""}
                   alt=""
                   className="absolute inset-0 w-full h-full object-contain"
+                  style={{ clipPath: `inset(0 0 0 ${sliderPos}%)` }}
                   draggable={false}
+                  decoding="async"
                 />
-              </div>
-            </div>
-          ) : (
-            /* ──── Slider overlay ──── */
-            <div className="relative h-full w-full">
-              <img
-                src={getFilePath(compareLeft ?? null) ?? ""}
-                alt=""
-                className="absolute inset-0 w-full h-full object-contain"
-                style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
-                draggable={false}
-                decoding="async"
-              />
-              <img
-                src={getFilePath(compareRight ?? null) ?? ""}
-                alt=""
-                className="absolute inset-0 w-full h-full object-contain"
-                style={{ clipPath: `inset(0 0 0 ${sliderPos}%)` }}
-                draggable={false}
-                decoding="async"
-              />
+              )}
               <div
                 className="absolute inset-y-0 z-10 flex items-center justify-center"
                 style={{ left: `${sliderPos}%` }}
@@ -567,17 +625,33 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                   {getVariantInfo(compareLeft ?? null).label} ← → {getVariantInfo(compareRight ?? null).label}
                 </span>
               </div>
+              {item?.media_type === "video" && (
+                <p className="absolute bottom-20 left-0 right-0 pointer-events-none text-center text-[11px] text-[var(--color-text-muted)]">
+                  视频对比 — 叠加预览
+                </p>
+              )}
             </div>
           )
         ) : (
-          /* ──── Single image with zoom/pan ──── */
+          /* ──── Single image/video with zoom/pan ──── */
           <div
             className="flex h-full w-full items-center justify-center"
             style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
           >
-            {mainUrl && (
+            {mainUrl && (item?.media_type === "video" ? (
+              <video
+                ref={videoRef}
+                src={mainUrl}
+                controls
+                autoPlay
+                className="max-h-[90vh] max-w-[90vw] rounded-lg"
+                onError={() => {
+                  console.error("Video playback failed: codec or container not supported");
+                }}
+              />
+            ) : (
               <img src={mainUrl} alt="" className="max-h-full max-w-full object-contain select-none" draggable={false} decoding="async" />
-            )}
+            ))}
           </div>
         )}
       </div>
