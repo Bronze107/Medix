@@ -5,6 +5,7 @@ pub struct ParsedQuery {
     pub date_range: Option<DateRange>,
     pub file_size: Option<SizeFilter>,
     pub semantic_text: Option<String>,
+    pub media_type: Option<String>,  // "image" or "video"
 }
 
 #[derive(Debug)]
@@ -49,7 +50,7 @@ pub enum SizeOp {
     LessThan(u64),
 }
 
-const PREFIXES: &[&str] = &["tag:", "width:", "height:", "date:", "size:"];
+const PREFIXES: &[&str] = &["tag:", "width:", "height:", "date:", "size:", "media_type:"];
 
 /// Parse a search query string into structured filters.
 pub fn parse(input: &str) -> ParsedQuery {
@@ -161,6 +162,12 @@ pub fn parse(input: &str) -> ParsedQuery {
             Some("size:") => {
                 if result.file_size.is_none() {
                     result.file_size = parse_size_filter(&seg.content);
+                }
+            }
+            Some("media_type:") => {
+                let mt = seg.content.trim().to_lowercase();
+                if mt == "image" || mt == "video" {
+                    result.media_type = Some(mt);
                 }
             }
             None => {

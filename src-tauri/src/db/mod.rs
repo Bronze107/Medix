@@ -1377,6 +1377,7 @@ pub fn media_query_filtered_path(
     dimensions: &[crate::search::parser::DimFilter],
     date_range: &Option<crate::search::parser::DateRange>,
     file_size: &Option<crate::search::parser::SizeFilter>,
+    media_type: &Option<String>,
     sort_by: &str,
     descending: bool,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
@@ -1464,6 +1465,10 @@ pub fn media_query_filtered_path(
         }
     }
 
+    if let Some(ref mt) = *media_type {
+        conditions.push(format!("m.media_type = '{}'", mt));
+    }
+
     let where_clause = if conditions.is_empty() {
         String::new()
     } else {
@@ -1523,10 +1528,11 @@ pub fn media_query_filtered(
     dimensions: &[crate::search::parser::DimFilter],
     date_range: &Option<crate::search::parser::DateRange>,
     file_size: &Option<crate::search::parser::SizeFilter>,
+    media_type: &Option<String>,
     sort_by: &str,
     descending: bool,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
-    media_query_filtered_path(&db_path(app), media_ids, dimensions, date_range, file_size, sort_by, descending)
+    media_query_filtered_path(&db_path(app), media_ids, dimensions, date_range, file_size, media_type, sort_by, descending)
 }
 
 // --- Variant operations ---

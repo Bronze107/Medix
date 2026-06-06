@@ -98,6 +98,7 @@ pub fn execute_search(
         && parsed.dimensions.is_empty()
         && parsed.date_range.is_none()
         && parsed.file_size.is_none()
+        && parsed.media_type.is_none()
     {
         return crate::db::list_media(app, sort_by, descending, 0, u32::MAX).map_err(|e| e.to_string());
     }
@@ -109,6 +110,7 @@ pub fn execute_search(
         &parsed.dimensions,
         &parsed.date_range,
         &parsed.file_size,
+        &parsed.media_type,
         sort_by,
         descending,
     )
@@ -163,6 +165,7 @@ pub fn execute_search_path(
         && parsed.dimensions.is_empty()
         && parsed.date_range.is_none()
         && parsed.file_size.is_none()
+        && parsed.media_type.is_none()
     {
         if parsed.semantic_text.is_some() {
             // Semantic query without embedding server — return empty rather than all
@@ -179,6 +182,7 @@ pub fn execute_search_path(
         &parsed.dimensions,
         &parsed.date_range,
         &parsed.file_size,
+        &parsed.media_type,
         sort_by,
         descending,
     )
