@@ -403,12 +403,15 @@ async fn process_video_caption(
     all_tags.dedup();
 
     // 8. Store caption (no variant)
-    let _ = crate::db::caption_create_with_source(
+    match crate::db::caption_create_with_source(
         &app,
         &media_id,
         &merged_caption,
         Some("ai"),
-    );
+    ) {
+        Ok(cap) => println!("[video_ai] caption stored: {} (id={})", &merged_caption[..merged_caption.len().min(60)], cap.id),
+        Err(e) => eprintln!("[video_ai] failed to store caption: {}", e),
+    }
 
     // 9. Store tags
     if !all_tags.is_empty() {
