@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 #[derive(Debug, Deserialize)]
@@ -130,3 +131,70 @@ fn parse_fraction(s: &str) -> Option<f64> {
 
 /// Supported video extensions for initial screening
 pub const VIDEO_EXTENSIONS: &[&str] = &["mp4", "webm", "mkv", "avi", "mov"];
+
+/// Extract N evenly-spaced frames from a video using ffmpeg.
+/// Frames are written as JPEGs to the system temp directory.
+/// Returns paths to the extracted frame files.
+pub fn extract_frames(
+    video_path: &std::path::Path,
+    duration_secs: f64,
+    n_frames: u32,
+) -> Result<Vec<PathBuf>, String> {
+    if n_frames == 0 || duration_secs <= 0.0 {
+        return Ok(Vec::new());
+    }
+
+    let n = n_frames.min(8);
+    let interval = duration_secs / (n + 1) as f64;
+    let temp_dir = std::env::temp_dir();
+    let mut frames = Vec::new();
+
+    for i in 1..=n {
+        let timestamp = interval * i as f64;
+        let frame_path = temp_dir.join(format!(
+            "medix_video_frame_{}_{}.jpg",
+            video_path.file_stem().unwrap_or_default().to_string_lossy(),
+            i
+        ));
+
+        let result = std::process::Command::new("ffmpeg")
+            .args([
+                "-ss", &format!("{:.3}", timestamp),
+                "-i",
+            ])
+            .arg(video_path)
+            .args([
+                "-frames:v", "1",
+                "-q:v", "2",
+                "-y",
+            ])
+            .arg(&frame_path)
+            .output();
+
+        match result {
+            Ok(output) if output.status.success() && frame_path.exists() => {
+                frames.push(frame_path);
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprintln!(
+                    "[video_ai] frame {}/{} at t={:.3}s failed: {}",
+                    i, n, timestamp,
+                    stderr.lines().last().unwrap_or("unknown error")
+                );
+            }
+            Err(e) => {
+                eprintln!("[video_ai] frame {}/{} ffmpeg error: {}", i, n, e);
+            }
+        }
+    }
+
+    Ok(frames)
+}
+
+/// Clean up extracted frame files
+pub fn cleanup_frames(frames: &[PathBuf]) {
+    for path in frames {
+        let _ = std::fs::remove_file(path);
+    }
+}

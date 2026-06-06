@@ -307,3 +307,20 @@ pub fn get_video_large_file_warning_mb(app: &AppHandle) -> u64 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(1024)
 }
+
+// --- Video AI ---
+
+pub const KEY_VIDEO_AI_ENABLED: &str = "video_ai_enabled";
+pub const KEY_VIDEO_AI_FRAME_COUNT: &str = "video_ai_frame_count";
+
+pub fn is_video_ai_enabled(app: &AppHandle) -> bool {
+    get(app, KEY_VIDEO_AI_ENABLED)
+        .map(|v| v == "true")
+        .unwrap_or(false)
+}
+
+pub fn get_video_ai_frame_count(app: &AppHandle) -> u32 {
+    get(app, KEY_VIDEO_AI_FRAME_COUNT)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3)
+}

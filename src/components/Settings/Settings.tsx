@@ -54,6 +54,8 @@ function Settings() {
 
   // Video settings
   const [largeFileThreshold, setLargeFileThreshold] = useState(1024);
+  const [videoAiEnabled, setVideoAiEnabled] = useState(false);
+  const [videoAiFrameCount, setVideoAiFrameCount] = useState(3);
 
   const [semanticThreshold, setSemanticThreshold] = useState(0.25);
   const [searchSemanticEnabled, setSearchSemanticEnabled] = useState(true);
@@ -142,6 +144,8 @@ function Settings() {
     settingsGet("video_large_file_warning_mb").then((v) => {
       if (v) setLargeFileThreshold(Number(v));
     }).catch(() => {});
+    settingsGet("video_ai_enabled").then((v) => setVideoAiEnabled(v === "true")).catch(() => {});
+    settingsGet("video_ai_frame_count").then((v) => setVideoAiFrameCount(Number(v) || 3)).catch(() => {});
   }, []);
 
   const saveLargeFileThreshold = async () => {
@@ -959,6 +963,53 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                 />
                 <span className="text-xs text-[var(--color-text-secondary)]">MB</span>
               </div>
+            </div>
+
+            {/* Video AI */}
+            <div className="mt-4 border-t border-[var(--color-border-light)] pt-4">
+              <p className="text-sm font-medium text-[var(--color-text-primary)] mb-2">AI 视频标注</p>
+
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-xs text-[var(--color-text-primary)]">启用视频 AI 标注</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">导入视频后自动抽取多帧进行 AI 描述</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={videoAiEnabled}
+                    onChange={(e) => {
+                      setVideoAiEnabled(e.target.checked);
+                      settingsSet("video_ai_enabled", String(e.target.checked));
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-[var(--color-bg-tertiary)] rounded-full peer peer-checked:bg-[var(--color-accent)] peer-focus:ring-2 peer-focus:ring-[var(--color-accent)]/30 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4"></div>
+                </label>
+              </div>
+
+              {videoAiEnabled && (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-[var(--color-text-primary)]">采样帧数</p>
+                    <p className="text-xs text-[var(--color-text-muted)]">从视频中均匀抽取的帧数（1-8）</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min="1"
+                      max="8"
+                      value={videoAiFrameCount}
+                      onChange={(e) => {
+                        setVideoAiFrameCount(Number(e.target.value));
+                      }}
+                      onMouseUp={() => settingsSet("video_ai_frame_count", String(videoAiFrameCount))}
+                      className="w-24 h-1 accent-[var(--color-accent)]"
+                    />
+                    <span className="text-xs text-[var(--color-text-primary)] tabular-nums w-4">{videoAiFrameCount}</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
