@@ -3,6 +3,15 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Media } from "@/types/media";
 import { useThumbnail, preloadThumbnails } from "@/hooks/useThumbnail";
 
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  if (seconds >= 600) return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 interface GroupInfo {
   label: string;
   startIndex: number;
@@ -345,6 +354,12 @@ function ThumbnailCard({
             {item.id.slice(0, 8)}…
           </p>
         </div>
+        {/* Duration badge for video */}
+        {item.media_type === "video" && item.duration != null && (
+          <div className="absolute right-2 bottom-2 z-10 rounded bg-black/60 px-1.5 py-0.5 text-[11px] tabular-nums text-white">
+            {formatDuration(item.duration)}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,15 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Media } from "@/types/media";
 import { useThumbnail, preloadThumbnails } from "@/hooks/useThumbnail";
 
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  if (seconds >= 600) return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
 
 interface GroupInfo {
@@ -93,7 +102,7 @@ function TableView({
       >
         <div className="w-8 shrink-0" />
         <div className="flex-1 text-[var(--color-text-muted)]">文件</div>
-        <button onClick={() => onSortChange("width")} className={`w-20 text-right hover:text-[var(--color-text-primary)] ${sortBy === "width" || sortBy === "height" ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>尺寸{sortBy === "width" ? sortArrow("width") : sortBy === "height" ? sortArrow("height") : ""}</button>
+        <button onClick={() => onSortChange("width")} className={`w-24 text-right hover:text-[var(--color-text-primary)] ${sortBy === "width" || sortBy === "height" ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>类型/时长{sortBy === "width" ? sortArrow("width") : sortBy === "height" ? sortArrow("height") : ""}</button>
         <button onClick={() => onSortChange("file_size")} className={`w-20 text-right hover:text-[var(--color-text-primary)] ${sortBy === "file_size" ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>大小{sortArrow("file_size")}</button>
         <button onClick={() => onSortChange("imported_at")} className={`w-28 text-right hover:text-[var(--color-text-primary)] ${sortBy === "imported_at" ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>日期{sortArrow("imported_at")}</button>
         {(onAddToCollection || onDelete) && <div className="w-16 shrink-0" />}
@@ -258,8 +267,17 @@ function TableRow({
       </div>
 
       {/* Dimensions */}
-      <div className="w-20 text-right text-[11px] text-[var(--color-text-muted)] tabular-nums">
-        {item.width ?? "?"}×{item.height ?? "?"}
+      <div className="w-24 text-right text-[11px] text-[var(--color-text-muted)] tabular-nums">
+        {item.media_type === "video" ? (
+          <span>
+            {item.duration != null ? `${formatDuration(item.duration)} · ` : ""}
+            {item.height != null ? `${item.height}p` : "?"}
+          </span>
+        ) : (
+          <span>
+            {item.width ?? "?"}×{item.height ?? "?"}
+          </span>
+        )}
       </div>
 
       {/* File size */}

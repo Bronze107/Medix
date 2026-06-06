@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+
+function formatDurationChinese(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}时${m}分${s}秒`;
+  if (m > 0 && s > 0) return `${m}分${s}秒`;
+  if (m > 0) return `${m}分`;
+  return `${s}秒`;
+}
 import { listen } from "@tauri-apps/api/event";
 import { showToast } from "@/components/Toast/Toast";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
@@ -713,6 +723,34 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
                 {dimWidth ?? "?"} × {dimHeight ?? "?"} px
               </p>
             </div>
+
+            {/* Video metadata */}
+            {media.media_type === "video" && (
+              <>
+                {media.duration != null && (
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-light)]">
+                    <span className="text-xs text-[var(--color-text-muted)]">时长</span>
+                    <span className="text-xs text-[var(--color-text-primary)] tabular-nums">
+                      {formatDurationChinese(media.duration)}
+                    </span>
+                  </div>
+                )}
+                {media.video_codec != null && (
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-light)]">
+                    <span className="text-xs text-[var(--color-text-muted)]">编码</span>
+                    <span className="text-xs text-[var(--color-text-primary)]">{media.video_codec}</span>
+                  </div>
+                )}
+                {media.video_fps != null && (
+                  <div className="flex items-center justify-between py-1.5 border-b border-[var(--color-border-light)]">
+                    <span className="text-xs text-[var(--color-text-muted)]">帧率</span>
+                    <span className="text-xs text-[var(--color-text-primary)] tabular-nums">
+                      {media.video_fps.toFixed(2)} fps
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
 
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">文件大小</p>
