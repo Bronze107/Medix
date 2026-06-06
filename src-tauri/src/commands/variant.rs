@@ -69,11 +69,13 @@ pub fn variant_import(
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())
         .unwrap_or_default();
-    if !matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp") {
+
+    let is_image = matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp");
+    let is_video = crate::media::video_metadata::VIDEO_EXTENSIONS.contains(&ext.as_str());
+    if !is_image && !is_video {
         return Err(format!("Unsupported file type: {}", ext));
     }
 
-    let img = image::open(src).map_err(|e| e.to_string())?;
     let file_size = src.metadata().map_err(|e| e.to_string())?.len() as i64;
 
     let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -90,27 +92,56 @@ pub fn variant_import(
         .and_then(|s| s.to_str())
         .map(|s| s.to_string());
 
+    let (width, height, media_type, duration, video_codec, video_fps) = if is_video {
+        let meta = crate::media::video_metadata::extract_metadata(src)
+            .map_err(|e| format!("ffprobe failed: {}", e))?;
+        (
+            Some(meta.width),
+            Some(meta.height),
+            Some("video".to_string()),
+            meta.duration,
+            meta.video_codec,
+            meta.video_fps,
+        )
+    } else {
+        let img = image::open(src).map_err(|e| e.to_string())?;
+        (
+            Some(img.width() as i32),
+            Some(img.height() as i32),
+            Some("image".to_string()),
+            None,
+            None,
+            None,
+        )
+    };
+
     let variant = Variant {
         id: id.clone(),
         media_id: media_id.clone(),
         preset_name: String::new(),
         format: ext,
-        width: Some(img.width() as i32),
-        height: Some(img.height() as i32),
+        width,
+        height,
         quality: None,
         file_size: Some(file_size),
         file_path: dest.to_string_lossy().replace('\\', "/"),
         label,
         source: Some("imported".to_string()),
-        media_type: None,
-        duration: None,
-        video_codec: None,
-        video_fps: None,
+        media_type,
+        duration,
+        video_codec,
+        video_fps,
     };
 
     db::variant_insert(&app, &variant).map_err(|e| e.to_string())?;
     // Generate thumbnail for the variant
-    if let Err(e) = media::thumbnail::generate_variant_thumbnail(
+    if is_video {
+        if let Err(e) = crate::media::video_thumbnail::generate_video_thumbnail(
+            &app, &variant.id, Path::new(&variant.file_path), variant.duration,
+        ) {
+            eprintln!("[variant] video thumbnail failed for imported {}: {}", variant.id, e);
+        }
+    } else if let Err(e) = media::thumbnail::generate_variant_thumbnail(
         &app, &variant.id, Path::new(&variant.file_path),
     ) {
         eprintln!("[variant] thumbnail failed for imported {}: {}", variant.id, e);
