@@ -42,7 +42,7 @@ pub fn generate_video_thumbnail(
             .arg(source_path)
             .args([
                 "-frames:v", "1",
-                "-vf", "scale=256:256:force_original_aspect_ratio=decrease,pad=256:256:(ow-iw)/2:(oh-ih)/2",
+                "-vf", "scale=256:256:force_original_aspect_ratio=decrease",
                 "-q:v", "3",
                 "-y",
             ])

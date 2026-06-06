@@ -334,7 +334,7 @@ function ThumbnailCard({
             alt=""
             loading="lazy"
             decoding="async"
-            className={`relative z-10 h-full w-full object-contain transition-all duration-500 ease-out group-hover:scale-105 ${
+            className={`relative z-10 h-full w-full object-cover transition-all duration-500 ease-out group-hover:scale-105 ${
               loaded ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-95 blur-sm"
             }`}
             draggable={false}
