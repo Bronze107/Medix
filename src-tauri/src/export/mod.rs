@@ -22,6 +22,11 @@ pub struct ExportOptions {
     pub use_zip: bool,
 }
 
+/// Check if a caption source is AI-generated (including bilingual variants).
+fn is_ai_source(source: Option<&str>) -> bool {
+    matches!(source, Some("ai" | "ai_en" | "ai_zh"))
+}
+
 fn find_media_file(app: &AppHandle, media_id: &str) -> Result<PathBuf, String> {
     let app_dir = app
         .path()
@@ -94,11 +99,11 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
         let captions: Vec<_> = match options.caption_mode.as_str() {
             "manual" => all_captions
                 .iter()
-                .filter(|c| c.source.as_deref() != Some("ai"))
+                .filter(|c| !is_ai_source(c.source.as_deref()))
                 .collect(),
             "ai" => all_captions
                 .iter()
-                .filter(|c| c.source.as_deref() == Some("ai"))
+                .filter(|c| is_ai_source(c.source.as_deref()))
                 .collect(),
             _ => all_captions.iter().collect(),
         };

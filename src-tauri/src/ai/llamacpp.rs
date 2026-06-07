@@ -461,32 +461,138 @@ pub struct BilingualResult {
 }
 
 /// Parse a bilingual response with [EN] / [ZH] / TAGS: sections.
-/// Falls back gracefully if the model doesn't follow the format exactly.
+/// Uses a line-based state machine to handle models that don't follow the
+/// exact format (e.g. omitting newlines before section markers).
+/// Falls back gracefully if markers are missing entirely.
 pub fn parse_bilingual_response(text: &str) -> BilingualResult {
-    let upper = text.to_uppercase();
+    eprintln!("[ai] bilingual raw response ({} chars):\n{}", text.len(), text);
 
-    // Find section boundaries
-    let en_start = upper.find("[EN]").map(|i| i + 4);
-    let zh_start = upper.find("[ZH]").map(|i| i + 4);
-    let tags_start = upper.find("TAGS:");
+    let mut caption_en = String::new();
+    let mut caption_zh = String::new();
+    let mut tags: Vec<String> = Vec::new();
+    let mut current: Option<&str> = None;
 
-    let caption_en = en_start.map(|start| {
-        let end = zh_start.unwrap_or(tags_start.unwrap_or(text.len()));
-        text[start..end].trim().to_string()
-    }).filter(|s| !s.is_empty());
+    for line in text.lines() {
+        let line_upper = line.to_uppercase();
 
-    let caption_zh = zh_start.map(|start| {
-        let end = tags_start.unwrap_or(text.len());
-        text[start..end].trim().to_string()
-    }).filter(|s| !s.is_empty());
+        // Detect section switches
+        if line_upper.starts_with("[EN]") || line_upper.contains("[EN]") {
+            current = Some("en");
+            if let Some(i) = line_upper.find("[EN]") {
+                let rest = line[i + 4..].trim();
+                if !rest.is_empty() {
+                    caption_en.push_str(rest);
+                    caption_en.push(' ');
+                }
+            }
+            continue;
+        }
+        if line_upper.starts_with("[ZH]") || line_upper.contains("[ZH]") {
+            current = Some("zh");
+            if let Some(i) = line_upper.find("[ZH]") {
+                let rest = line[i + 4..].trim();
+                if !rest.is_empty() {
+                    caption_zh.push_str(rest);
+                    caption_zh.push(' ');
+                }
+            }
+            continue;
+        }
+        // Accept "TAGS:" or "TAG:" at line start, OR "TAGS:" appearing mid-line
+        // (model may put it on the same line as the ZH description)
+        if line_upper.starts_with("TAGS:") || line_upper.starts_with("TAG:") {
+            current = None;
+            let colon = line.find(':').unwrap_or(4);
+            for tag in line[colon + 1..].split(',') {
+                let t = tag.trim().to_lowercase();
+                if !t.is_empty() {
+                    tags.push(t);
+                }
+            }
+            continue;
+        }
+        // Mid-line TAGS: — extract tags and keep the text before it
+        if let Some(idx) = line_upper.find("TAGS:") {
+            let before = line[..idx].trim();
+            if !before.is_empty() {
+                match current {
+                    Some("en") => { caption_en.push_str(before); caption_en.push(' '); }
+                    Some("zh") => { caption_zh.push_str(before); caption_zh.push(' '); }
+                    _ => {}
+                }
+            }
+            current = None;
+            for tag in line[idx + 5..].split(',') {
+                let t = tag.trim().to_lowercase();
+                if !t.is_empty() {
+                    tags.push(t);
+                }
+            }
+            continue;
+        }
 
-    let tags = match tags_start {
-        Some(idx) => text[idx + 5..]
-            .split([',', '\n'])
-            .map(|s| s.trim().to_lowercase())
-            .filter(|s| !s.is_empty())
-            .collect(),
-        None => Vec::new(),
+        // Accumulate text into current section
+        match current {
+            Some("en") => {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    caption_en.push_str(trimmed);
+                    caption_en.push(' ');
+                }
+            }
+            Some("zh") => {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    caption_zh.push_str(trimmed);
+                    caption_zh.push(' ');
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Fallback: if no tags found yet, scan whole text for "TAGS:" or "TAG:"
+    // using ASCII case-insensitive byte search (avoids Unicode case-conversion
+    // byte-length changes that can misalign positions).
+    if tags.is_empty() {
+        let bytes = text.as_bytes();
+        for i in 0..bytes.len().saturating_sub(4) {
+            if bytes[i].to_ascii_uppercase() == b'T'
+                && bytes[i + 1].to_ascii_uppercase() == b'A'
+                && bytes[i + 2].to_ascii_uppercase() == b'G'
+            {
+                let colon_pos = if bytes.get(i + 3).map_or(false, |b| b.to_ascii_uppercase() == b'S')
+                    && bytes.get(i + 4) == Some(&b':')
+                {
+                    i + 5 // "TAGS:"
+                } else if bytes.get(i + 3) == Some(&b':') {
+                    i + 4 // "TAG:"
+                } else {
+                    continue;
+                };
+                if text.is_char_boundary(colon_pos) {
+                    eprintln!("[ai] found TAGS: marker at byte {}", i);
+                    for tag in text[colon_pos..].split([',', '\n']) {
+                        let t = tag.trim().to_lowercase();
+                        if !t.is_empty() {
+                            tags.push(t);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    let caption_en = if caption_en.trim().is_empty() {
+        None
+    } else {
+        Some(caption_en.trim().to_string())
+    };
+    let caption_zh = if caption_zh.trim().is_empty() {
+        None
+    } else {
+        Some(caption_zh.trim().to_string())
     };
 
     BilingualResult { caption_en, caption_zh, tags }

@@ -983,7 +983,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
               return (
               <div className="space-y-2">
                 {targetCaptions.map((c) => {
-                  const isAi = c.source === "ai";
+                  const isAi = c.source === "ai" || c.source === "ai_en" || c.source === "ai_zh";
                   return (
                     <div
                       key={c.id}

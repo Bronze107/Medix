@@ -4,7 +4,7 @@ pub mod llamacpp;
 pub mod server;
 
 pub use embedding::EmbeddingServer;
-pub use llamacpp::{embed_text, generate_caption, generate_caption_multi_image, parse_bilingual_response, resolve_prompt, AiResult, BilingualResult, SamplingParams};
+pub use llamacpp::{embed_text, generate_caption, generate_caption_multi_image, resolve_prompt, SamplingParams};
 pub use server::LlamaServer;
 
 use std::path::{Path, PathBuf};
@@ -197,37 +197,56 @@ async fn process_generate_caption(
         e.to_string()
     })?;
 
-    // Store caption(s). Bilingual mode stores EN + ZH as separate captions.
+    // Bilingual mode: call VLM twice — EN then ZH.
+    // Two separate calls are more reliable than a single bilingual prompt
+    // (many models ignore structured [EN]/[ZH]/TAGS: format instructions).
     if language == crate::settings::AiLanguage::Bilingual {
-        let bilingual = parse_bilingual_response(&result.caption);
-        // Store English caption
-        if let Some(ref caption_en) = bilingual.caption_en {
-            if let Some(ref variant_id) = variant_id {
-                let _ = crate::db::caption_create_for_variant(&app, &media_id, variant_id, caption_en, Some("ai_en"));
-            } else {
-                let _ = crate::db::caption_create_with_source(&app, &media_id, caption_en, Some("ai_en"));
-            }
-            println!("[ai] EN caption stored for {}: {}...", media_id, caption_en.chars().take(40).collect::<String>());
+        let prompt_en = resolve_prompt(crate::settings::AiLanguage::English, None);
+        let prompt_zh = resolve_prompt(crate::settings::AiLanguage::Chinese, None);
+
+        // English call
+        let result_en = generate_caption(
+            inference_path_ref, &model, port,
+            Some(&prompt_en), None, &sampling,
+        ).await.map_err(|e| {
+            eprintln!("[ai] EN caption failed for {}: {}", media_id, e);
+            e.to_string()
+        })?;
+
+        // Store EN caption
+        if let Some(ref variant_id) = variant_id {
+            let _ = crate::db::caption_create_for_variant(&app, &media_id, variant_id, &result_en.caption, Some("ai_en"));
+        } else {
+            let _ = crate::db::caption_create_with_source(&app, &media_id, &result_en.caption, Some("ai_en"));
         }
-        // Store Chinese caption
-        if let Some(ref caption_zh) = bilingual.caption_zh {
-            if let Some(ref variant_id) = variant_id {
-                let _ = crate::db::caption_create_for_variant(&app, &media_id, variant_id, caption_zh, Some("ai_zh"));
-            } else {
-                let _ = crate::db::caption_create_with_source(&app, &media_id, caption_zh, Some("ai_zh"));
-            }
-            println!("[ai] ZH caption stored for {}: {}...", media_id, caption_zh.chars().take(40).collect::<String>());
-        }
-        // Use bilingual tags (English danbooru-style) for tagging
-        let tags_to_store = &bilingual.tags;
-        println!(
-            "[ai] bilingual caption generated for {}: {} tags",
+        println!("[ai] EN caption stored for {}: {}... ({} tags)",
             media_id,
-            tags_to_store.len()
-        );
-        // Store tags
+            result_en.caption.chars().take(40).collect::<String>(),
+            result_en.tags.len());
+
+        // Chinese call
+        match generate_caption(
+            inference_path_ref, &model, port,
+            Some(&prompt_zh), None, &sampling,
+        ).await {
+            Ok(result_zh) => {
+                if let Some(ref variant_id) = variant_id {
+                    let _ = crate::db::caption_create_for_variant(&app, &media_id, variant_id, &result_zh.caption, Some("ai_zh"));
+                } else {
+                    let _ = crate::db::caption_create_with_source(&app, &media_id, &result_zh.caption, Some("ai_zh"));
+                }
+                println!("[ai] ZH caption stored for {}: {}...",
+                    media_id,
+                    result_zh.caption.chars().take(40).collect::<String>());
+            }
+            Err(e) => {
+                eprintln!("[ai] ZH caption failed for {}: {}", media_id, e);
+            }
+        }
+
+        // Store tags from English result
         let mut all_tags = crate::db::tag_list(&app).map_err(|e| e.to_string())?;
-        for tag_name in tags_to_store {
+        for tag_name in &result_en.tags {
             let tag_id = match ensure_tag_cached(&app, &mut all_tags, tag_name) {
                 Ok(id) => id,
                 Err(e) => {
@@ -245,13 +264,12 @@ async fn process_generate_caption(
                 eprintln!("[ai] failed to add tag '{}': {}", tag_name, e);
             }
         }
-        // Generate embedding for English caption only
-        if variant_id.is_none() {
-            if let Some(ref caption_en) = bilingual.caption_en {
-                generate_caption_embedding(&app, &media_id, caption_en).await;
-            }
+
+        // Generate embedding for EN caption
+        if variant_id.is_none() && !result_en.caption.is_empty() {
+            generate_caption_embedding(&app, &media_id, &result_en.caption).await;
         }
-        // Early return — bilingual path is self-contained
+
         return Ok(());
     }
 
@@ -424,6 +442,8 @@ async fn process_video_caption(
     let n = frames.len();
 
     let multi_frame = crate::settings::is_video_ai_multi_frame(&app);
+    let is_bilingual = language == crate::settings::AiLanguage::Bilingual;
+    let mut zh_caption: Option<String> = None;
 
     if multi_frame && n > 1 {
         // --- Multi-frame path: resize all frames, then send in one request ---
@@ -448,11 +468,19 @@ async fn process_video_caption(
             path_refs.len()
         );
 
+        // For bilingual: run EN first, then ZH as a second call.
+        // For single-language: use the resolved system_prompt directly.
+        let en_prompt = if is_bilingual {
+            resolve_prompt(crate::settings::AiLanguage::English, None)
+        } else {
+            system_prompt.clone()
+        };
+
         match crate::ai::llamacpp::generate_caption_multi_image(
             &path_refs,
             &model,
             port,
-            Some(&system_prompt),
+            Some(&en_prompt),
             &sampling,
         )
         .await
@@ -463,6 +491,23 @@ async fn process_video_caption(
             }
             Err(e) => {
                 eprintln!("[video_ai] multi-frame inference failed: {}", e);
+            }
+        }
+
+        // Bilingual: second call with Chinese prompt
+        let mut zh_caption: Option<String> = None;
+        if is_bilingual {
+            let zh_prompt = resolve_prompt(crate::settings::AiLanguage::Chinese, None);
+            match crate::ai::llamacpp::generate_caption_multi_image(
+                &path_refs, &model, port,
+                Some(&zh_prompt), &sampling,
+            ).await {
+                Ok(result) => {
+                    zh_caption = Some(result.caption);
+                    println!("[video_ai] ZH caption generated: {}...",
+                        zh_caption.as_ref().map(|c| c.chars().take(40).collect::<String>()).unwrap_or_default());
+                }
+                Err(e) => eprintln!("[video_ai] ZH multi-frame inference failed: {}", e),
             }
         }
 
@@ -535,21 +580,20 @@ async fn process_video_caption(
     all_tags.dedup();
 
     // 8. Store caption(s). Bilingual multi-frame stores EN + ZH separately.
-    let is_bilingual = language == crate::settings::AiLanguage::Bilingual;
     if is_bilingual && is_multi {
-        let bilingual = parse_bilingual_response(&merged_caption);
-        if let Some(ref caption_en) = bilingual.caption_en {
-            let _ = crate::db::caption_create_with_source(&app, &media_id, caption_en, Some("ai_en"));
-            println!("[video_ai] EN caption stored: {}...", caption_en.chars().take(40).collect::<String>());
+        // EN caption from the first multi-image call
+        let _ = crate::db::caption_create_with_source(&app, &media_id, &merged_caption, Some("ai_en"));
+        println!("[video_ai] EN caption stored: {}...", merged_caption.chars().take(40).collect::<String>());
+        // ZH caption from the second multi-image call
+        if let Some(ref zh) = zh_caption {
+            let _ = crate::db::caption_create_with_source(&app, &media_id, zh, Some("ai_zh"));
+            println!("[video_ai] ZH caption stored: {}...", zh.chars().take(40).collect::<String>());
         }
-        if let Some(ref caption_zh) = bilingual.caption_zh {
-            let _ = crate::db::caption_create_with_source(&app, &media_id, caption_zh, Some("ai_zh"));
-            println!("[video_ai] ZH caption stored: {}...", caption_zh.chars().take(40).collect::<String>());
-        }
-        // Use bilingual tags
-        all_tags = bilingual.tags;
-        all_tags.sort();
-        all_tags.dedup();
+    } else if is_bilingual {
+        // Single-frame bilingual: fall back to single "ai" caption
+        // (per-frame bilingual is too expensive; just store the merged result)
+        let _ = crate::db::caption_create_with_source(&app, &media_id, &merged_caption, Some("ai"));
+        println!("[video_ai] caption stored: {}...", merged_caption.chars().take(40).collect::<String>());
     } else {
         // Single-language or single-frame: store as one caption
         match crate::db::caption_create_with_source(
@@ -585,14 +629,9 @@ async fn process_video_caption(
         }
     }
 
-    // 10. Generate embedding (use EN caption for bilingual, merged for others)
-    let emb_caption = if is_bilingual && is_multi {
-        parse_bilingual_response(&merged_caption).caption_en.unwrap_or_default()
-    } else {
-        merged_caption.clone()
-    };
-    if !emb_caption.is_empty() {
-        generate_caption_embedding(&app, &media_id, &emb_caption).await;
+    // 10. Generate embedding from the merged/EN caption
+    if !merged_caption.is_empty() {
+        generate_caption_embedding(&app, &media_id, &merged_caption).await;
     }
 
     // 11. Cleanup temp frames

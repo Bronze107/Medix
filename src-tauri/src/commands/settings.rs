@@ -34,6 +34,7 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_LLAMA_CACHE_TYPE_V,
         settings::KEY_LLAMA_MAX_IMAGE_DIM,
         settings::KEY_AI_CUSTOM_PROMPT,
+        settings::KEY_AI_LANGUAGE,
         settings::KEY_LLAMA_TEMPERATURE,
         settings::KEY_LLAMA_TOP_P,
         settings::KEY_LLAMA_MIN_P,
