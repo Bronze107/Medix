@@ -144,7 +144,7 @@ Medix/
 | AI 服务 | `llama_server_` | `llama_server_start`, `llama_server_stop`, `llama_server_status` |
 | AI 标注 | `media_ai_annotate`, `ai_pending_count` | 手动触发 AI 标注（自动区分图片/视频）+ 查询排队数 |
 | AI 模型 | `model_list`, `auto_detect`, `embedding_info` | (无统一前缀) |
-| 设置 | `settings_` | `settings_get`, `settings_set`, `settings_get_all`（含视频: `video_large_file_warning_mb`, `video_ai_enabled`, `video_ai_frame_count`）|
+| 设置 | `settings_` | `settings_get`, `settings_set`, `settings_get_all`（含视频: `video_large_file_warning_mb`, `video_ai_enabled`, `video_ai_frame_count`, `video_ai_multi_frame`）|
 | 筛选器 | `saved_filters_` | `saved_filters_list`, `saved_filters_save`, `saved_filters_delete` |
 | 导出 | `export_dataset`, `import_zip` | (无统一前缀) |
 | 文件路径 | `media_get_paths`, `media_thumbnail` | (无统一前缀) |
@@ -156,7 +156,7 @@ Medix/
 - **本地优先**: 所有数据处理本地完成，不上传云端（llama-server 纯本地推理）
 - **媒体类型**: `media` 表通过 `media_type` 字段区分 `"image"` / `"video"`，旧数据默认为 `image`
 - **视频支持**: 视频通过 ffmpeg/ffprobe sidecar 导入，生成缩略图，通过 `asset://` 协议播放（Tauri v2.11 已验证 Range 请求支持 seek）
-- **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成；视频导入后若 `video_ai_enabled` 开启则自动多帧 AI 标注
+- **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成；视频导入后若 `video_ai_enabled` 开启则自动多帧 AI 标注（支持逐帧独立推理或 `video_ai_multi_frame` 多图合并推理）
 - **版本控制**: 同一原图/视频支持多个衍生版本（内部生成 + 外部导入），支持图片/视频混合 variant
 - **集合**: 图片/视频可按集合分组管理，支持置顶常用集合、导入自动归集、集合内搜索
 - **视图分组**: 网格和列表视图可按日期分组显示，带分组标题和计数
@@ -254,7 +254,7 @@ tests/<name>.sh
 - **缩略图**: ffmpeg 从 10% 时间点抽帧，fallback: 1s → 50% → 第一帧
 - **播放**: `convertFileSrc()` → `asset://` 协议 → `<video>` 元素，Tauri v2.11 asset 协议支持 Range 请求 (1MB/range)
 - **搜索**: `media_type:image` / `media_type:video` 结构化过滤
-- **AI 标注**: 视频导入后若 `video_ai_enabled=true`，自动 ffmpeg 抽取 1-8 帧（默认 3），逐帧 VLM + 合并 caption/tags；`media_ai_annotate` 命令自动区分图片/视频类型
+- **AI 标注**: 视频导入后若 `video_ai_enabled=true`，自动 ffmpeg 抽取 1-8 帧（默认 3），发送给 VLM 推理。支持两种模式：① 逐帧独立推理（默认）— 每帧单独调用 VLM，最后合并 caption/tags；② `video_ai_multi_frame` 多图合并推理 — 所有帧在一次请求中发送（帧间用 "Frame 1/N" 标签区分），模型可理解帧间时序关系（需 VLM 支持多图输入，如 Qwen2-VL、InternVL2）。`media_ai_annotate` 命令自动区分图片/视频类型
 
 ### 添加 AI 模型
 
