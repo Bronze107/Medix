@@ -236,10 +236,25 @@ pub async fn generate_caption(
     model: &str,
     port: u16,
     custom_prompt: Option<&str>,
+    user_text: Option<&str>,
     sampling: &SamplingParams,
 ) -> Result<AiResult, AiError> {
     let prompt_text = custom_prompt.unwrap_or(CAPTION_PROMPT);
     let data_url = image_to_data_url(image_path).await?;
+
+    let mut user_content: Vec<ContentPart> = Vec::new();
+    if let Some(text) = user_text {
+        user_content.push(ContentPart {
+            content_type: "text".to_string(),
+            text: Some(text.to_string()),
+            image_url: None,
+        });
+    }
+    user_content.push(ContentPart {
+        content_type: "image_url".to_string(),
+        text: None,
+        image_url: Some(ImageUrl { url: data_url }),
+    });
 
     let messages = vec![
         Message {
@@ -252,11 +267,7 @@ pub async fn generate_caption(
         },
         Message {
             role: "user".to_string(),
-            content: vec![ContentPart {
-                content_type: "image_url".to_string(),
-                text: None,
-                image_url: Some(ImageUrl { url: data_url }),
-            }],
+            content: user_content,
         },
     ];
 
@@ -296,13 +307,19 @@ pub async fn generate_caption_multi_image(
         });
     }
 
-    // Final instruction to tie frames together
+    // Final instruction to tie frames together.
+    // CRITICAL: explicitly request ONE merged output, not per-frame responses.
     content_parts.push(ContentPart {
         content_type: "text".to_string(),
         text: Some(
             "These frames are from the same video, in chronological order. \
-             Please analyze all frames together and provide a comprehensive description \
-             of the video's content, including any changes, motion, or progression you observe."
+             Analyze ALL frames together and produce a SINGLE response \
+             (do NOT describe each frame separately). \
+             Cover the video's overall content, setting, subjects, lighting, \
+             colors, composition, and any notable changes, motion, or progression \
+             you observe across the frames. \
+             End with exactly one TAGS: line listing the most distinctive \
+             tags for the video as a whole."
                 .to_string(),
         ),
         image_url: None,
@@ -351,18 +368,34 @@ pub async fn embed_text(text: &str, model: &str, port: u16) -> Result<Vec<f32>, 
 }
 
 fn parse_caption_response(text: &str) -> (String, Vec<String>) {
-    let mut caption = text.to_string();
-    let mut tags = Vec::new();
+    // Caption = everything before the first "TAGS:" marker (case-insensitive).
+    let upper = text.to_uppercase();
+    let first_tags_idx = upper.find("TAGS:");
 
-    if let Some(idx) = text.to_uppercase().find("TAGS:") {
-        caption = text[..idx].trim().to_string();
-        let tags_part = &text[idx + 5..];
-        tags = tags_part
-            .split([',', '\n'])
-            .map(|s| s.trim().to_lowercase())
-            .filter(|s| !s.is_empty())
-            .collect();
+    let caption = match first_tags_idx {
+        Some(idx) => text[..idx].trim().to_string(),
+        None => text.to_string(),
+    };
+
+    // Collect tags from ALL "TAGS:" lines, not just the first.
+    // Multi-frame mode may produce per-frame output with multiple TAGS lines.
+    let mut tags = Vec::new();
+    let mut remaining = &text[first_tags_idx.unwrap_or(text.len())..];
+    while let Some(idx) = remaining.to_uppercase().find("TAGS:") {
+        let tags_part = &remaining[idx + 5..];
+        // Take until the next "TAGS:" or end of string
+        let end = tags_part.to_uppercase().find("TAGS:").unwrap_or(tags_part.len());
+        let segment = &tags_part[..end];
+        for tag in segment.split([',', '\n']) {
+            let t = tag.trim().to_lowercase();
+            if !t.is_empty() {
+                tags.push(t);
+            }
+        }
+        remaining = &tags_part[end..];
     }
+    tags.sort();
+    tags.dedup();
 
     (caption, tags)
 }

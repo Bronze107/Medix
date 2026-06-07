@@ -188,6 +188,7 @@ async fn process_generate_caption(
         &model,
         port,
         custom_prompt.as_deref(),
+        None,
         &sampling,
     ).await.map_err(|e| {
         eprintln!("[ai] caption generation failed for {}: {}", media_id, e);
@@ -410,15 +411,14 @@ async fn process_video_caption(
     } else {
         // --- Single-frame path (original loop) ---
         for (i, frame_path) in frames.iter().enumerate() {
-            let frame_prompt = if n > 1 {
+            let frame_user_text = if n > 1 {
                 Some(format!(
-                    "这是同一段视频的第 {}/{} 帧。请综合描述画面内容。{}",
-                    i + 1,
-                    n,
-                    custom_prompt.as_deref().unwrap_or("")
+                    "Frame {}/{} from a video. Describe what you see in this frame, \
+                     keeping in mind it is part of a sequence.",
+                    i + 1, n
                 ))
             } else {
-                custom_prompt.clone()
+                None
             };
 
             let inference_path_ref = {
@@ -434,7 +434,8 @@ async fn process_video_caption(
                 &inference_path_ref,
                 &model,
                 port,
-                frame_prompt.as_deref(),
+                custom_prompt.as_deref(),
+                frame_user_text.as_deref(),
                 &sampling,
             )
             .await
