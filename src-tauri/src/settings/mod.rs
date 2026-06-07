@@ -18,6 +18,33 @@ pub const KEY_LLAMA_CACHE_TYPE_K: &str = "llama_cache_type_k";
 pub const KEY_LLAMA_CACHE_TYPE_V: &str = "llama_cache_type_v";
 pub const KEY_LLAMA_MAX_IMAGE_DIM: &str = "llama_max_image_dim";
 pub const KEY_AI_CUSTOM_PROMPT: &str = "ai_custom_prompt";
+pub const KEY_AI_LANGUAGE: &str = "ai_language";
+
+/// AI annotation output language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiLanguage {
+    English,
+    Chinese,
+    Bilingual,
+}
+
+impl AiLanguage {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AiLanguage::English => "en",
+            AiLanguage::Chinese => "zh",
+            AiLanguage::Bilingual => "bilingual",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "zh" => AiLanguage::Chinese,
+            "bilingual" => AiLanguage::Bilingual,
+            _ => AiLanguage::English,
+        }
+    }
+}
 
 pub fn get(app: &AppHandle, key: &str) -> Option<String> {
     crate::db::setting_get(app, key).ok().flatten()
@@ -129,6 +156,11 @@ pub fn get_ai_custom_prompt(app: &AppHandle) -> Option<String> {
     let val = get(app, KEY_AI_CUSTOM_PROMPT)?;
     let trimmed = val.trim().to_string();
     if trimmed.is_empty() { None } else { Some(trimmed) }
+}
+
+pub fn get_ai_language(app: &AppHandle) -> AiLanguage {
+    let val = get(app, KEY_AI_LANGUAGE).unwrap_or_default();
+    AiLanguage::from_str(&val)
 }
 
 pub const KEY_LLAMA_TEMPERATURE: &str = "llama_temperature";

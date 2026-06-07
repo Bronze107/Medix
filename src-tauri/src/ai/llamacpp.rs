@@ -127,6 +127,45 @@ Focus on:
 Produce your response in this format:
 A dense sentence factual description. Then on a new line starting with "TAGS:", list 10 at most distinctive key objects, concepts, and visual elements as comma-separated lowercase danbooru style tags."#;
 
+const CAPTION_PROMPT_ZH: &str = r#"你是一名专业摄影师。分析图像并仅描述可直接观察到的信息。
+
+关注以下方面：
+
+1. 主体 — 人物：大致年龄段、体型、发型、性别呈现、服装、姿势、表情。物体/动物：类型、状态、位置。
+2. 场景与环境 — 室内/室外、场景类型、背景元素。
+3. 构图 — 取景、角度、三分法、引导线、对称性。
+4. 光线条件 — 方向、质感（硬/软）、光源（自然/人工）、时间线索。
+5. 色彩与色调 — 主色调、饱和度、暖/冷/中性调。
+6. 拍摄视角 — 平视、高角度、低角度、俯视、特写。
+7. 景深 — 浅/深、虚化质量、焦平面。
+8. 摄影风格 — 人像、风景、微距、街拍、纪实、快照。
+9. 显著的视觉元素 — 文字、标志、UI 元素、标识。没有则跳过。
+
+按以下格式输出：
+一段密集的中文事实描述。然后新起一行以"TAGS:"开头，列出最多10个最具特色的中文关键词，用逗号分隔。"#;
+
+const CAPTION_PROMPT_BILINGUAL: &str = r#"You are a professional photographer. Analyze the image and describe only information that is directly observable.
+
+Focus on:
+
+1. Main subject — For people: apparent age range, build, hairstyle, gender presentation, clothing, pose, expression. For objects/animals: type, condition, position.
+2. Scene and environment — indoor/outdoor, setting, background elements.
+3. Composition — framing, angle, rule of thirds, leading lines, symmetry.
+4. Lighting conditions — direction, quality (hard/soft), source (natural/artificial), time of day cues.
+5. Colors and tones — dominant palette, saturation level, warm/cool/neutral cast.
+6. Camera perspective — eye-level, high angle, low angle, aerial, close-up.
+7. Depth of field — shallow/deep, bokeh quality, focus plane.
+8. Photography style — portrait, landscape, macro, street, documentary, snapshot.
+9. Notable visual elements — text, logos, UI elements, signs. Skip if none present.
+
+Produce your response in this EXACT format:
+
+[EN]
+A dense sentence factual description in English.
+[ZH]
+一段密集的中文事实描述。
+TAGS: tag1, tag2, tag3 (10 at most, comma-separated lowercase danbooru style tags)"#;
+
 #[derive(Debug, Clone)]
 pub struct SamplingParams {
     pub temperature: f32,
@@ -398,4 +437,57 @@ fn parse_caption_response(text: &str) -> (String, Vec<String>) {
     tags.dedup();
 
     (caption, tags)
+}
+
+/// Resolve which system prompt to use for the given language and custom prompt.
+/// If a custom prompt is set, it always takes precedence.
+/// Otherwise returns the appropriate built-in prompt for the language.
+pub fn resolve_prompt(language: crate::settings::AiLanguage, custom_prompt: Option<&str>) -> String {
+    if let Some(cp) = custom_prompt {
+        return cp.to_string();
+    }
+    match language {
+        crate::settings::AiLanguage::English => CAPTION_PROMPT.to_string(),
+        crate::settings::AiLanguage::Chinese => CAPTION_PROMPT_ZH.to_string(),
+        crate::settings::AiLanguage::Bilingual => CAPTION_PROMPT_BILINGUAL.to_string(),
+    }
+}
+
+/// Bilingual response after parsing [EN] and [ZH] sections.
+pub struct BilingualResult {
+    pub caption_en: Option<String>,
+    pub caption_zh: Option<String>,
+    pub tags: Vec<String>,
+}
+
+/// Parse a bilingual response with [EN] / [ZH] / TAGS: sections.
+/// Falls back gracefully if the model doesn't follow the format exactly.
+pub fn parse_bilingual_response(text: &str) -> BilingualResult {
+    let upper = text.to_uppercase();
+
+    // Find section boundaries
+    let en_start = upper.find("[EN]").map(|i| i + 4);
+    let zh_start = upper.find("[ZH]").map(|i| i + 4);
+    let tags_start = upper.find("TAGS:");
+
+    let caption_en = en_start.map(|start| {
+        let end = zh_start.unwrap_or(tags_start.unwrap_or(text.len()));
+        text[start..end].trim().to_string()
+    }).filter(|s| !s.is_empty());
+
+    let caption_zh = zh_start.map(|start| {
+        let end = tags_start.unwrap_or(text.len());
+        text[start..end].trim().to_string()
+    }).filter(|s| !s.is_empty());
+
+    let tags = match tags_start {
+        Some(idx) => text[idx + 5..]
+            .split([',', '\n'])
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        None => Vec::new(),
+    };
+
+    BilingualResult { caption_en, caption_zh, tags }
 }

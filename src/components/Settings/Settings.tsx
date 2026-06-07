@@ -38,6 +38,7 @@ function Settings() {
   const [llamaAutoStart, setLlamaAutoStart] = useState(false);
   const [llamaMaxImageDim, setLlamaMaxImageDim] = useState(768);
   const [aiCustomPrompt, setAiCustomPrompt] = useState("");
+  const [aiLanguage, setAiLanguage] = useState("en");
   const [llamaTemperature, setLlamaTemperature] = useState(0.2);
   const [llamaTopP, setLlamaTopP] = useState(0.9);
   const [llamaMinP, setLlamaMinP] = useState(0.05);
@@ -94,6 +95,7 @@ function Settings() {
       if (settings.llama_auto_start) setLlamaAutoStart(settings.llama_auto_start === "true");
       if (settings.llama_max_image_dim) setLlamaMaxImageDim(parseInt(settings.llama_max_image_dim) || 0);
       if (settings.ai_custom_prompt) setAiCustomPrompt(settings.ai_custom_prompt);
+      if (settings.ai_language) setAiLanguage(settings.ai_language);
       if (settings.llama_temperature) setLlamaTemperature(parseFloat(settings.llama_temperature) || 0.2);
       if (settings.llama_top_p) setLlamaTopP(parseFloat(settings.llama_top_p) || 0.9);
       if (settings.llama_min_p) setLlamaMinP(parseFloat(settings.llama_min_p) || 0.05);
@@ -267,6 +269,32 @@ function Settings() {
         </section>
 
         {/* Custom Prompt */}
+        {/* AI 标注语言 */}
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                标注语言
+              </h2>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                选择 AI 生成 caption 和标签的语言
+              </p>
+            </div>
+            <select
+              value={aiLanguage}
+              onChange={(e) => {
+                setAiLanguage(e.target.value);
+                settingsSet("ai_language", e.target.value);
+              }}
+              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+            >
+              <option value="en">English</option>
+              <option value="zh">中文</option>
+              <option value="bilingual">双语 (English + 中文)</option>
+            </select>
+          </div>
+        </section>
+
         <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
