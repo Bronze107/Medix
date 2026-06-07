@@ -56,6 +56,12 @@ pub fn embedding_delete(app: AppHandle, media_id: String) -> Result<(), String> 
 }
 
 #[command]
+pub fn embedding_clear_all(app: AppHandle) -> Result<String, String> {
+    let count = crate::db::embedding_clear_all(&app).map_err(|e| e.to_string())?;
+    Ok(format!("已清除 {} 条 embedding", count))
+}
+
+#[command]
 pub fn ai_pending_count(app: AppHandle) -> usize {
     let queue = app.state::<crate::ai::AiQueue>();
     queue.pending_count()

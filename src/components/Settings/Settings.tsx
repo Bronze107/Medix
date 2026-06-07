@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { LlamaServerStatus } from "@/types/ai";
+import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import {
   llamaServerStatus,
   llamaServerStart,
@@ -10,6 +11,7 @@ import {
   settingsSet,
   testProxy,
   embeddingRebuildAll,
+  embeddingClearAll,
 } from "@/lib/tauri";
 
 type AiMode = "local" | "cloud" | "auto";
@@ -52,6 +54,9 @@ function Settings() {
   const [embeddingThreads, setEmbeddingThreads] = useState(2);
   const [embRebuilding, setEmbRebuilding] = useState(false);
   const [embRebuildResult, setEmbRebuildResult] = useState<string | null>(null);
+  const [embClearing, setEmbClearing] = useState(false);
+  const [embClearResult, setEmbClearResult] = useState<string | null>(null);
+  const [showClearEmbConfirm, setShowClearEmbConfirm] = useState(false);
 
   // Video settings
   const [largeFileThreshold, setLargeFileThreshold] = useState(1024);
@@ -858,7 +863,7 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
             </div>
           </div>
 
-          <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+          <div className="mt-3 border-t border-[var(--color-border)] pt-3 flex gap-2">
             <button
               onClick={async () => {
                 setEmbRebuilding(true);
@@ -877,8 +882,18 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
             >
               {embRebuilding ? "重建中..." : "重建全部 Embedding"}
             </button>
+            <button
+              onClick={() => setShowClearEmbConfirm(true)}
+              disabled={embClearing}
+              className="rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-3 py-1.5 text-xs text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger-soft)]/80 disabled:opacity-50 active:scale-[0.97]"
+            >
+              {embClearing ? "清除中..." : "清除全部 Embedding"}
+            </button>
             {embRebuildResult && (
               <p className="mt-2 text-xs text-[var(--color-text-muted)]">{embRebuildResult}</p>
+            )}
+            {embClearResult && (
+              <p className="mt-2 text-xs text-[var(--color-text-muted)]">{embClearResult}</p>
             )}
           </div>
         </section>
@@ -1077,6 +1092,29 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
         </button>
         {saved && <span className="text-sm text-[var(--color-success)]">已保存</span>}
       </div>
+
+      <ConfirmDialog
+        open={showClearEmbConfirm}
+        title="清除全部 Embedding"
+        message="此操作将删除数据库中所有 embedding 向量，后续需要重新运行「重建全部 Embedding」才能恢复语义搜索功能。确定继续？"
+        confirmLabel="清除"
+        cancelLabel="取消"
+        variant="danger"
+        onConfirm={async () => {
+          setShowClearEmbConfirm(false);
+          setEmbClearing(true);
+          setEmbClearResult(null);
+          try {
+            const result = await embeddingClearAll();
+            setEmbClearResult(result);
+          } catch (e) {
+            setEmbClearResult(`错误: ${e}`);
+          } finally {
+            setEmbClearing(false);
+          }
+        }}
+        onCancel={() => setShowClearEmbConfirm(false)}
+      />
     </div>
   );
 }

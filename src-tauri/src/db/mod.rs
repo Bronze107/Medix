@@ -1695,7 +1695,7 @@ pub fn caption_list_path(
     let conn = Connection::open(db_path)?;
     let mut stmt = conn.prepare(
         "SELECT id, media_id, variant_id, text, source, created_at, updated_at
-         FROM captions WHERE media_id = ?1 ORDER BY created_at",
+         FROM captions WHERE media_id = ?1 ORDER BY created_at DESC",
     )?;
     let caption_iter = stmt.query_map(params![media_id], |row| {
         Ok(Caption {
@@ -1846,6 +1846,15 @@ pub fn embedding_get(
         return Ok(Some(row?));
     }
     Ok(None)
+}
+
+pub fn embedding_clear_all(
+    app: &AppHandle,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
+    conn.execute("DELETE FROM embeddings", [])?;
+    Ok(count as usize)
 }
 
 pub fn embedding_delete_for_media(

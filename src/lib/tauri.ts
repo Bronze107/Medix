@@ -322,6 +322,10 @@ export function embeddingDelete(mediaId: string): Promise<void> {
   return invoke("embedding_delete", { mediaId });
 }
 
+export function embeddingClearAll(): Promise<string> {
+  return invoke("embedding_clear_all");
+}
+
 export function embeddingServerStatus(): Promise<{
   running: boolean;
   port: number;
