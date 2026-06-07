@@ -172,18 +172,32 @@ pub fn variant_annotate(
     let variant = db::variant_get_by_id(&app, &variant_id)
         .map_err(|e| e.to_string())?
         .ok_or("Variant not found")?;
-    let image_path = std::path::PathBuf::from(&variant.file_path);
-    if !image_path.exists() {
+    let file_path = std::path::PathBuf::from(&variant.file_path);
+    if !file_path.exists() {
         return Err("Variant file not found on disk".to_string());
     }
     let queue = app.state::<crate::ai::AiQueue>();
-    queue
-        .send(crate::ai::AiTask::GenerateCaption {
-            media_id: media_id.clone(),
-            image_path,
-            variant_id: Some(variant_id),
-        })
-        .map_err(|e| e.to_string())?;
+
+    // Dispatch the right task based on media type (video variants need video pipeline)
+    if variant.media_type.as_deref() == Some("video") {
+        let duration = variant.duration.unwrap_or(0.0);
+        queue
+            .send(crate::ai::AiTask::GenerateVideoCaption {
+                media_id: media_id.clone(),
+                video_path: file_path,
+                duration_secs: duration,
+                variant_id: Some(variant_id),
+            })
+            .map_err(|e| e.to_string())?;
+    } else {
+        queue
+            .send(crate::ai::AiTask::GenerateCaption {
+                media_id: media_id.clone(),
+                image_path: file_path,
+                variant_id: Some(variant_id),
+            })
+            .map_err(|e| e.to_string())?;
+    }
     let _ = app.emit(
         "ai-task-done",
         crate::ai::AiTaskProgress {

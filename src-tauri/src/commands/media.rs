@@ -206,6 +206,7 @@ pub fn media_ai_annotate(app: AppHandle, id: String) -> Result<(), String> {
                 media_id: id.clone(),
                 video_path: file_path,
                 duration_secs: duration,
+                variant_id: None,
             })
             .map_err(|e| e.to_string())?;
     } else {

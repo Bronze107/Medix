@@ -1110,7 +1110,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
             />
             <button
               onClick={async () => {
-                const selected = await open({ multiple: true, filters: [{ name: "图片", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"] }] });
+                const selected = await open({ multiple: true, filters: [{ name: "图片/视频", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "mp4", "webm", "mkv", "avi", "mov"] }] });
                 if (selected) setImportVersionPaths(Array.isArray(selected) ? selected : [selected]);
               }}
               className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"

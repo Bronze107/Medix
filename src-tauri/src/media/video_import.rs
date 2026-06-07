@@ -229,6 +229,7 @@ pub fn import_single_video(
                     media_id: id.clone(),
                     video_path: dest_path.clone(),
                     duration_secs: metadata.duration.unwrap_or(0.0),
+                    variant_id: None,
                 });
             }
             MediaImportResult {

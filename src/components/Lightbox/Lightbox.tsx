@@ -86,6 +86,7 @@ function VariantThumb({
   label,
   detail,
   source,
+  mediaType,
   isActive,
   isCompareSelected,
   filePath,
@@ -95,14 +96,16 @@ function VariantThumb({
   label: string;
   detail: string;
   source: string | null;
+  mediaType: string | null;
   isActive: boolean;
   isCompareSelected: boolean;
   filePath: string;
   onClick: () => void;
   onCtrlClick: () => void;
 }) {
-  const [imgLoaded, setImgLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const src = convertFileSrc(filePath);
+  const isVideo = mediaType === "video";
 
   return (
     <button
@@ -122,16 +125,26 @@ function VariantThumb({
       }`}
     >
       <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-white/5">
-        <img
-          src={src}
-          alt=""
-          decoding="async"
-          className={`h-full w-full object-cover transition-all duration-300 ${
-            imgLoaded ? "opacity-100" : "opacity-0"
-          }`}
-          onLoad={() => setImgLoaded(true)}
-          draggable={false}
-        />
+        {isVideo ? (
+          <video
+            src={src}
+            className="h-full w-full object-cover"
+            onLoadedData={() => setLoaded(true)}
+            muted
+            playsInline
+          />
+        ) : (
+          <img
+            src={src}
+            alt=""
+            decoding="async"
+            className={`h-full w-full object-cover transition-all duration-300 ${
+              loaded ? "opacity-100" : "opacity-0"
+            }`}
+            onLoad={() => setLoaded(true)}
+            draggable={false}
+          />
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <p className={`truncate text-[11px] font-medium ${
@@ -215,13 +228,23 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
   // Helper: get variant display info for an id
   const getVariantInfo = useCallback(
     (id: string | null) => {
-      if (id === null) return { label: "原图", detail: item ? `${item.width ?? "?"}×${item.height ?? "?"}` : "", source: null };
+      if (id === null) return { label: "原图", detail: item ? `${item.width ?? "?"}×${item.height ?? "?"}` : "", source: null, mediaType: item?.media_type ?? null };
       const v = variants.find((v) => v.id === id);
-      if (!v) return { label: "未知", detail: "", source: null };
+      if (!v) return { label: "未知", detail: "", source: null, mediaType: null };
       const fmt = v.format.toUpperCase();
       const dim = `${v.width ?? "?"}×${v.height ?? "?"}`;
       const detail = `${fmt}${v.quality && v.format === "jpeg" ? `·Q${v.quality}` : ""} · ${dim} · ${formatSize(v.file_size)}`;
-      return { label: v.label || v.preset_name || "未命名版本", detail, source: v.source };
+      return { label: v.label || v.preset_name || "未命名版本", detail, source: v.source, mediaType: v.media_type };
+    },
+    [item, variants],
+  );
+
+  // Helper: get media type for a given id (null = original)
+  const getActiveMediaType = useCallback(
+    (id: string | null): string => {
+      if (id === null) return item?.media_type ?? "image";
+      const v = variants.find((v) => v.id === id);
+      return v?.media_type ?? "image";
     },
     [item, variants],
   );
@@ -242,7 +265,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
     const handler = (e: KeyboardEvent) => {
       switch (e.key) {
         case " ":
-          if (item?.media_type === "video" && videoRef.current) {
+          if (getActiveMediaType(activeId) === "video" && videoRef.current) {
             e.preventDefault();
             if (videoRef.current.paused) {
               videoRef.current.play();
@@ -256,7 +279,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
           onClose();
           break;
         case "ArrowLeft":
-          if (item?.media_type === "video" && videoRef.current && viewState.type !== "compare") {
+          if (getActiveMediaType(activeId) === "video" && videoRef.current && viewState.type !== "compare") {
             e.preventDefault();
             videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
           } else if (viewState.type !== "compare" && currentIndex > 0) {
@@ -264,7 +287,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
           }
           break;
         case "ArrowRight":
-          if (item?.media_type === "video" && videoRef.current && viewState.type !== "compare") {
+          if (getActiveMediaType(activeId) === "video" && videoRef.current && viewState.type !== "compare") {
             e.preventDefault();
             videoRef.current.currentTime = Math.min(
               videoRef.current.duration || Infinity,
@@ -548,7 +571,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                   <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
                     {getVariantInfo(compareLeft ?? null).label}
                   </div>
-                  {item?.media_type === "video" ? (
+                  {getActiveMediaType(compareLeft ?? null) === "video" ? (
                     <video src={getFilePath(compareLeft ?? null) ?? ""} controls className="absolute inset-0 w-full h-full object-contain" />
                   ) : (
                     <img src={getFilePath(compareLeft ?? null) ?? ""} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
@@ -558,23 +581,18 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                   <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
                     {getVariantInfo(compareRight ?? null).label}
                   </div>
-                  {item?.media_type === "video" ? (
+                  {getActiveMediaType(compareRight ?? null) === "video" ? (
                     <video src={getFilePath(compareRight ?? null) ?? ""} controls className="absolute inset-0 w-full h-full object-contain" />
                   ) : (
                     <img src={getFilePath(compareRight ?? null) ?? ""} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
                   )}
                 </div>
               </div>
-              {item?.media_type === "video" && (
-                <p className="absolute bottom-20 left-0 right-0 pointer-events-none text-center text-[11px] text-[var(--color-text-muted)]">
-                  视频对比 — 并排预览
-                </p>
-              )}
             </>
           ) : (
             /* ──── Slider overlay ──── */
             <div className="relative h-full w-full">
-              {item?.media_type === "video" ? (
+              {getActiveMediaType(compareLeft ?? null) === "video" ? (
                 <video
                   src={getFilePath(compareLeft ?? null) ?? ""}
                   className="absolute inset-0 w-full h-full object-contain"
@@ -591,7 +609,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                   decoding="async"
                 />
               )}
-              {item?.media_type === "video" ? (
+              {getActiveMediaType(compareRight ?? null) === "video" ? (
                 <video
                   src={getFilePath(compareRight ?? null) ?? ""}
                   className="absolute inset-0 w-full h-full object-contain"
@@ -638,7 +656,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
             className="flex h-full w-full items-center justify-center"
             style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
           >
-            {mainUrl && (item?.media_type === "video" ? (
+            {mainUrl && (getActiveMediaType(activeId) === "video" ? (
               <video
                 ref={videoRef}
                 src={mainUrl}
@@ -672,6 +690,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                 label="原图"
                 detail={item ? `${item.width ?? "?"}×${item.height ?? "?"}` : ""}
                 source={null}
+                mediaType={item?.media_type ?? null}
                 isActive={viewState.type === "single" && viewState.activeId === null}
                 isCompareSelected={
                   viewState.type === "compare" &&
@@ -691,6 +710,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                     label={info.label}
                     detail={info.detail}
                     source={info.source}
+                    mediaType={info.mediaType}
                     isActive={viewState.type === "single" && viewState.activeId === v.id}
                     isCompareSelected={
                       viewState.type === "compare" &&
