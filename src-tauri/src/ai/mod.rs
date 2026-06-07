@@ -468,19 +468,26 @@ async fn process_video_caption(
             path_refs.len()
         );
 
-        // For bilingual: run EN first, then ZH as a second call.
-        // For single-language: use the resolved system_prompt directly.
-        let en_prompt = if is_bilingual {
+        // First call: use the resolved language prompt (English/Chinese).
+        // For bilingual: call EN first, then ZH as a second call below.
+        let first_prompt = if is_bilingual {
             resolve_prompt(crate::settings::AiLanguage::English, None)
         } else {
             system_prompt.clone()
+        };
+        // Language-aware user instruction (matches system prompt language)
+        let user_instr: Option<&str> = if language == crate::settings::AiLanguage::Chinese {
+            Some("这些帧来自同一段视频，按时间顺序排列。请综合所有帧进行分析，给出一个整体描述（不要逐帧分别描述）。涵盖视频的整体内容、场景、主体、光线、色彩、构图，以及帧与帧之间的变化、运动或进展。最后以一行 TAGS: 列出最显著的标签。")
+        } else {
+            None // default English
         };
 
         match crate::ai::llamacpp::generate_caption_multi_image(
             &path_refs,
             &model,
             port,
-            Some(&en_prompt),
+            Some(&first_prompt),
+            user_instr,
             &sampling,
         )
         .await
@@ -494,18 +501,18 @@ async fn process_video_caption(
             }
         }
 
-        // Bilingual: second call with Chinese prompt
-        let mut zh_caption: Option<String> = None;
+        // Bilingual: second call with Chinese prompt (updates outer zh_caption)
         if is_bilingual {
             let zh_prompt = resolve_prompt(crate::settings::AiLanguage::Chinese, None);
             match crate::ai::llamacpp::generate_caption_multi_image(
                 &path_refs, &model, port,
-                Some(&zh_prompt), &sampling,
+                Some(&zh_prompt), Some("这些帧来自同一段视频，按时间顺序排列。请综合所有帧进行分析，给出一个整体描述（不要逐帧分别描述）。涵盖视频的整体内容、场景、主体、光线、色彩、构图，以及帧与帧之间的变化、运动或进展。最后以一行 TAGS: 列出最显著的标签。"),
+                &sampling,
             ).await {
                 Ok(result) => {
+                    let preview: String = result.caption.chars().take(40).collect();
+                    println!("[video_ai] ZH caption generated: {}...", preview);
                     zh_caption = Some(result.caption);
-                    println!("[video_ai] ZH caption generated: {}...",
-                        zh_caption.as_ref().map(|c| c.chars().take(40).collect::<String>()).unwrap_or_default());
                 }
                 Err(e) => eprintln!("[video_ai] ZH multi-frame inference failed: {}", e),
             }
@@ -519,11 +526,18 @@ async fn process_video_caption(
         // --- Single-frame path (original loop) ---
         for (i, frame_path) in frames.iter().enumerate() {
             let frame_user_text = if n > 1 {
-                Some(format!(
-                    "Frame {}/{} from a video. Describe what you see in this frame, \
-                     keeping in mind it is part of a sequence.",
-                    i + 1, n
-                ))
+                if language == crate::settings::AiLanguage::Chinese {
+                    Some(format!(
+                        "视频的第 {}/{} 帧。请描述这一帧的画面内容，注意它是视频序列的一部分。",
+                        i + 1, n
+                    ))
+                } else {
+                    Some(format!(
+                        "Frame {}/{} from a video. Describe what you see in this frame, \
+                         keeping in mind it is part of a sequence.",
+                        i + 1, n
+                    ))
+                }
             } else {
                 None
             };

@@ -314,27 +314,32 @@ pub async fn generate_caption(
 }
 
 /// Send multiple images in a single chat completion request.
-/// Frames are interleaved with labels ("Frame 1/3:", etc.) so the model
-/// can distinguish them. All images + the prompt share one context window,
-/// enabling cross-frame reasoning (supported by Qwen2-VL, InternVL2, etc.).
+/// Frames are labelled "1/N", "2/N", etc. so the model can distinguish them.
+/// All images + the prompt share one context window, enabling cross-frame
+/// reasoning (supported by Qwen2-VL, InternVL2, etc.).
+///
+/// `user_instruction` replaces the final instruction text (defaults to
+/// English if None). Pass a Chinese string for Chinese/bilingual mode.
 pub async fn generate_caption_multi_image(
     image_paths: &[&Path],
     model: &str,
     port: u16,
     custom_prompt: Option<&str>,
+    user_instruction: Option<&str>,
     sampling: &SamplingParams,
 ) -> Result<AiResult, AiError> {
     let prompt_text = custom_prompt.unwrap_or(CAPTION_PROMPT);
     let n = image_paths.len();
 
-    // Build user message content: [Frame 1/3, image1, Frame 2/3, image2, ..., instruction]
+    // Build user message content
     let mut content_parts: Vec<ContentPart> = Vec::with_capacity(n * 2 + 1);
 
     for (i, image_path) in image_paths.iter().enumerate() {
         if n > 1 {
+            // Language-neutral frame label (just "1/3", "2/3", etc.)
             content_parts.push(ContentPart {
                 content_type: "text".to_string(),
-                text: Some(format!("Frame {}/{}:", i + 1, n)),
+                text: Some(format!("{}/{}", i + 1, n)),
                 image_url: None,
             });
         }
@@ -346,21 +351,20 @@ pub async fn generate_caption_multi_image(
         });
     }
 
-    // Final instruction to tie frames together.
-    // CRITICAL: explicitly request ONE merged output, not per-frame responses.
+    // Final instruction (language-aware, defaults to English)
+    let instruction = user_instruction.unwrap_or(
+        "These frames are from the same video, in chronological order. \
+         Analyze ALL frames together and produce a SINGLE response \
+         (do NOT describe each frame separately). \
+         Cover the video's overall content, setting, subjects, lighting, \
+         colors, composition, and any notable changes, motion, or progression \
+         you observe across the frames. \
+         End with exactly one TAGS: line listing the most distinctive \
+         tags for the video as a whole."
+    );
     content_parts.push(ContentPart {
         content_type: "text".to_string(),
-        text: Some(
-            "These frames are from the same video, in chronological order. \
-             Analyze ALL frames together and produce a SINGLE response \
-             (do NOT describe each frame separately). \
-             Cover the video's overall content, setting, subjects, lighting, \
-             colors, composition, and any notable changes, motion, or progression \
-             you observe across the frames. \
-             End with exactly one TAGS: line listing the most distinctive \
-             tags for the video as a whole."
-                .to_string(),
-        ),
+        text: Some(instruction.to_string()),
         image_url: None,
     });
 
