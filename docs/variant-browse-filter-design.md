@@ -1,6 +1,6 @@
 # 变体浏览筛选设计方案
 
-> 目标：在媒体浏览页增加一个可切换的筛选选项。开启时只显示原图和 display variant；关闭时显示原图和全部 variants。方案要求能落地到当前 Tauri + React + SQLite 架构，并兼容现有 `media.display_variant_id`、详情面板版本管理、集合、搜索、导出和 CLI 回归测试。
+> 目标：在媒体浏览页增加一个可切换的筛选选项。开启时每个 media 只显示一个代表项：有 display variant 时显示 display variant，没有 display variant 时显示原图；关闭时显示原图和全部 variants。方案要求能落地到当前 Tauri + React + SQLite 架构，并兼容现有 `media.display_variant_id`、详情面板版本管理、集合、搜索、导出和 CLI 回归测试。
 
 ---
 
@@ -38,7 +38,7 @@
 
 | 模式 | 显示内容 | 适用场景 |
 |------|----------|----------|
-| 代表视图 | 原图 + display variant | 日常浏览、挑选、搜索、整理 |
+| 代表视图 | display variant 或原图，每个 media 只显示一个代表项 | 日常浏览、挑选、搜索、整理 |
 | 全部版本 | 原图 + display variant + 普通 variant | 版本检查、批量清理、导出前核对 |
 
 推荐默认值：`代表视图`。
@@ -46,7 +46,7 @@
 原因：
 
 - 日常浏览不被所有生成版本淹没。
-- display variant 是用户显式设定的代表版本，应该出现在主列表。
+- display variant 是用户显式设定的代表版本；如果存在，它应该替代原图出现在主列表。
 - 需要管理所有版本时，用户可以主动切到 `全部版本`。
 
 ### 2.2 命名
@@ -142,11 +142,11 @@ export interface BrowseItem {
 
 `representative` 模式下：
 
-1. 所有未删除原图都显示。
-2. 如果某个 media 设置了 `display_variant_id`，对应 variant 也显示。
-3. 没有被设为 display variant 的普通 variant 不显示。
-4. 原图和 display variant 是两个独立浏览项，可以分别被选中和打开。
-5. display variant 删除后，必须清空父 media 的 `display_variant_id`，并从代表视图消失。
+1. 每个未删除 media 最多只显示一个 browse item。
+2. 如果 media 设置了有效的 `display_variant_id`，显示对应 display variant。
+3. 如果 media 没有设置有效的 `display_variant_id`，显示原图。
+4. 没有被设为 display variant 的普通 variant 不显示。
+5. display variant 删除后，必须清空父 media 的 `display_variant_id`；该 media 在代表视图中回退显示原图。
 
 ### 3.3 全部版本规则
 
@@ -162,6 +162,7 @@ export interface BrowseItem {
 如果 `media.display_variant_id` 指向不存在的 variant：
 
 - 查询时不返回不存在的 display variant 行。
+- 代表视图应回退返回该 media 的原图行。
 - 缩略图逻辑继续 fallback 到原图。
 - 建议在完整性测试中增加 orphan display variant 检查。
 
@@ -247,6 +248,15 @@ SELECT
   NULL AS preset_name
 FROM media m
 WHERE m.deleted_at IS NULL
+  AND (
+    :visibility = 'all'
+    OR m.display_variant_id IS NULL
+    OR NOT EXISTS (
+      SELECT 1
+      FROM variants dv
+      WHERE dv.id = m.display_variant_id
+    )
+  )
 
 UNION ALL
 
@@ -432,7 +442,7 @@ let items = db::browse_query_filtered(
 
 语义约定：
 
-- 搜索命中原图 caption/tag 时，该 media 的原图和可见 variants 都可以出现在结果里。
+- 搜索命中原图 caption/tag 时，按当前浏览模式展开该 media：代表视图只返回 display variant 或原图，全部版本返回原图和所有 variants。
 - 搜索命中 variant tag/caption 是第二阶段增强项；首版如果已有 variant tags/captions，应尽量纳入候选。
 - 若 query 包含 `media_type:video`，variant 行使用 `COALESCE(v.media_type, m.media_type)` 参与过滤。
 
@@ -441,7 +451,7 @@ let items = db::browse_query_filtered(
 当前 `collection_items` 存的是 `media_id`。首版保持这个模型：
 
 - 集合包含的是父 media。
-- 浏览集合时，展示该集合内 media 的原图和可见 variants。
+- 浏览集合时，按当前浏览模式展示该集合内 media 的代表项或全部版本。
 - 不支持“只把某个 variant 加入集合”。
 
 这是最小改动，也符合现有集合语义。
@@ -524,7 +534,7 @@ const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
 const [selectedItem, setSelectedItem] = useState<BrowseItem | null>(null);
 ```
 
-不要用 `media_id` 作为选择 key，因为一个 media 可能同时有原图行和 display variant 行。
+不要用 `media_id` 作为选择 key，因为在 `全部版本` 中一个 media 可能同时有原图行和多个 variant 行。
 
 ### 6.4 详情面板接入
 
@@ -674,7 +684,7 @@ Lightbox 入参应改为 `BrowseItem[]` 或增加适配层。
 首版推荐：
 
 - 原图 caption/tag 命中：展示该 media 在当前浏览模式下可见的 items。
-- variant caption/tag 命中：至少展示命中的 variant；如果处于代表视图且该 variant 不是 display variant，可以考虑展示父原图但不展示该普通 variant。
+- variant caption/tag 命中：如果处于全部版本，展示命中的 variant；如果处于代表视图，仍只展示该 media 的代表项，即 display variant 或原图。
 
 更严格的实现可以分两类候选：
 
@@ -753,10 +763,10 @@ ID        KIND       DIMENSIONS       SIZE  DATE         PATH
 1. 创建一个测试 media。
 2. 创建两个 variants：`_test_var_display`、`_test_var_regular`。
 3. 设置 `media.display_variant_id = _test_var_display`。
-4. `list --variants representative` 返回原图和 display variant，不返回 regular variant。
+4. `list --variants representative` 对有 display variant 的 media 只返回 display variant，不返回原图和 regular variant。
 5. `list --variants all` 返回原图、display variant、regular variant。
-6. 清空 `display_variant_id` 后，`representative` 只返回原图。
-7. 删除 display variant 后，`display_variant_id` 被清空或不再产生 display 行。
+6. 清空 `display_variant_id` 后，`representative` 回退返回原图。
+7. 删除 display variant 后，`display_variant_id` 被清空，`representative` 回退返回原图。
 8. `search --variants representative` 与 `search --variants all` 行为和 list 一致。
 9. 集合内浏览时，只展示集合内 media 的 browse items。
 10. `media_type:video` 能正确匹配 video variant。
@@ -809,7 +819,7 @@ WHERE display_variant_id IS NOT NULL
 
 验收：
 
-- 代表视图显示原图和 display variant。
+- 代表视图对每个 media 只显示 display variant 或原图。
 - 全部版本显示所有 variants。
 - 排序、分组、选择、右键菜单不崩。
 - 切换模式后当前搜索/排序/分组保持。
@@ -826,7 +836,7 @@ WHERE display_variant_id IS NOT NULL
 
 - 在全部版本中点击普通 variant，详情面板直接显示该 variant。
 - 删除普通 variant 不影响原图。
-- 删除 display variant 后代表视图刷新正确。
+- 删除 display variant 后代表视图回退显示原图。
 - 给 variant 打标签不会误打到原图。
 
 ### Phase 4：搜索和集合
@@ -864,15 +874,15 @@ cargo test
 
 ## 11. 边界情况
 
-### 11.1 display variant 与原图视觉重复
+### 11.1 代表项回退
 
-代表视图中原图和 display variant 会同时出现，可能看起来重复。
+代表视图中同一个 media 不应同时出现原图和 display variant。
 
-这是预期行为，因为用户明确要求“只显示原图和 display variant”。为了减少困惑：
+回退规则：
 
-- display variant card 显示 `展示版本` 标记。
-- 原图 card 可显示 `原图` 标记或保持无标记。
-- 同一父 media 的两个项不要强制合并。
+- 有有效 `display_variant_id`：显示 display variant。
+- 没有 `display_variant_id`：显示原图。
+- `display_variant_id` 指向的 variant 不存在：查询层应按无有效 display variant 处理，显示原图；完整性测试仍应报告这类脏数据。
 
 ### 11.2 选择范围
 
@@ -964,4 +974,3 @@ variant 缩略图可能不存在。前端 `useThumbnail` 应支持：
 之后再扩展 `browse_search`、集合、批量标签和导出。
 
 这个切法能最快解决“浏览 variants 不方便”的主痛点，同时把风险控制在浏览页。
-
