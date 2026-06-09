@@ -302,7 +302,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
 
   useEffect(() => {
     if (media) {
-      setTargetId(media.display_variant_id ?? null);
+      // When initialVariantId is explicitly provided (browse item click), use it;
+      // otherwise fall back to the media's display_variant_id (old behavior).
+      setTargetId(initialVariantId !== undefined ? initialVariantId : (media.display_variant_id ?? null));
       setShowVersionForm(false);
       loadMediaTags(media.id, null);
       loadVariants(media.id);
@@ -318,19 +320,12 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       setEditingText("");
       setTargetId(null);
     }
-  }, [media?.id, loadMediaTags, loadVariants, loadCaptions, loadEmbeddings]);
+  }, [media?.id, initialVariantId, loadMediaTags, loadVariants, loadCaptions, loadEmbeddings]);
 
-  // Apply initialVariantId when navigating from browse items (overrides media.display_variant_id)
-  const initialVariantRef = useRef(initialVariantId);
+  // Sync captionVariantId with initialVariantId
   useEffect(() => {
     if (initialVariantId !== undefined && media) {
-      // Only apply when it actually changed (not on every media.id change)
-      const prev = initialVariantRef.current;
-      initialVariantRef.current = initialVariantId;
-      if (prev !== initialVariantId || targetId === null && initialVariantId !== media.display_variant_id) {
-        setTargetId(initialVariantId);
-        setCaptionVariantId(initialVariantId);
-      }
+      setCaptionVariantId(initialVariantId);
     }
   }, [initialVariantId, media?.id]);
 

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { BrowseItem } from "@/types/browse";
-import { useThumbnail, preloadThumbnails } from "@/hooks/useThumbnail";
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -126,12 +126,6 @@ function Gallery({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-
-  // Preload thumbnails in batch when media list changes
-  useEffect(() => {
-    const ids = media.map((m) => m.item_id);
-    preloadThumbnails(ids);
-  }, [media]);
 
   const rows = useMemo(
     () => computeRows(media, containerWidth, gap, scale, groups),
@@ -265,7 +259,7 @@ function ThumbnailCard({
   onContextMenu?: (e: React.MouseEvent) => void;
   onToggleSelect: (shiftKey: boolean) => void;
 }) {
-  const thumbUrl = useThumbnail(item.item_id, item.display_variant_id);
+  const thumbUrl = item.thumb_256 ? convertFileSrc(item.thumb_256) : null;
   const [loaded, setLoaded] = useState(false);
 
   return (

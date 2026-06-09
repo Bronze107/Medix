@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { BrowseItem } from "@/types/browse";
-import { useThumbnail, preloadThumbnails } from "@/hooks/useThumbnail";
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -58,12 +58,6 @@ function TableView({
   onAddToCollection,
   onDelete,
 }: TableViewProps) {
-
-  // Preload thumbnails in batch when media list changes
-  useEffect(() => {
-    const ids = media.map((m) => m.item_id);
-    preloadThumbnails(ids);
-  }, [media]);
 
   const sortArrow = (field: SortField) => {
     if (sortBy !== field) return null;
@@ -199,7 +193,7 @@ function TableRow({
   onDelete?: () => void;
   style: React.CSSProperties;
 }) {
-  const thumbUrl = useThumbnail(item.item_id, item.display_variant_id);
+  const thumbUrl = item.thumb_256 ? convertFileSrc(item.thumb_256) : null;
 
   return (
     <div
