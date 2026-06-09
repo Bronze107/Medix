@@ -478,30 +478,14 @@ function AllMedia({ collectionId }: AllMediaProps) {
   }, []);
 
   // Listen for display variant changes from DetailPanel
-  const selectedRefForVariant = useRef(selectedItem);
-  selectedRefForVariant.current = selectedItem;
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { mediaId: string; variantId: string | null };
-      setItems((prev) =>
-        prev.map((it) =>
-          it.media_id === detail.mediaId
-            ? { ...it, display_variant_id: detail.variantId,
-                is_display_variant: it.item_kind === "variant" && it.variant_id === detail.variantId }
-            : it,
-        ),
-      );
-      if (selectedRefForVariant.current?.media_id === detail.mediaId) {
-        setSelectedItem((prev) => {
-          const next = prev ? { ...prev, display_variant_id: detail.variantId } : null;
-          setSelectedMediaId(next?.media_id ?? null);
-          return next;
-        });
-      }
+    const handler = () => {
+      // Reload the list so representative mode correctly swaps original↔variant
+      loadMedia();
     };
     window.addEventListener("display-variant-changed", handler);
     return () => window.removeEventListener("display-variant-changed", handler);
-  }, []);
+  }, [loadMedia]);
 
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
@@ -906,7 +890,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           )}
         </div>
         <DetailPanel
-          media={selectedItem ? { id: selectedItem.media_id, source_path: selectedItem.source_path, width: selectedItem.width, height: selectedItem.height, file_size: selectedItem.file_size, created_at: selectedItem.created_at, modified_at: selectedItem.modified_at, imported_at: selectedItem.imported_at, source_url: selectedItem.source_url, page_url: selectedItem.page_url, source: selectedItem.source, sha256: selectedItem.sha256, deleted_at: selectedItem.deleted_at, display_variant_id: selectedItem.display_variant_id, thumb_256: selectedItem.thumb_256, lqip: selectedItem.lqip, media_type: selectedItem.media_type, duration: selectedItem.duration, video_codec: selectedItem.video_codec, video_fps: selectedItem.video_fps, phash: null } as Media : null}
+          media={selectedItem ? { id: selectedItem.media_id, source_path: selectedItem.source_path, width: selectedItem.width, height: selectedItem.height, file_size: selectedItem.file_size, created_at: selectedItem.created_at, modified_at: selectedItem.modified_at, imported_at: selectedItem.imported_at, source_url: selectedItem.source_url, page_url: selectedItem.page_url, source: selectedItem.source, sha256: selectedItem.sha256, deleted_at: selectedItem.deleted_at, display_variant_id: selectedItem.display_variant_id, thumb_256: selectedItem.item_kind === "variant" && selectedItem.variant_id ? (selectedItem.thumb_256?.replace(`/${selectedItem.variant_id}_256.jpg`, `/${selectedItem.media_id}_256.jpg`) ?? null) : selectedItem.thumb_256, lqip: selectedItem.lqip, media_type: selectedItem.media_type, duration: selectedItem.duration, video_codec: selectedItem.video_codec, video_fps: selectedItem.video_fps, phash: null } as Media : null}
           collapsed={detailCollapsed}
           onToggleCollapse={() => setDetailCollapsed(!detailCollapsed)}
           onDeleted={() => { selectItem(null); setDetailCollapsed(false); loadMedia(); }}
