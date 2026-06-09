@@ -159,13 +159,16 @@ pub async fn browse_search(
         &app, &media_ids, &sort_by, descending, 0, u32::MAX, &VariantVisibility::All,
     ).map_err(|e| e.to_string())?;
 
-    // Sort by item-level semantic score when available (overrides DB sort)
+    // Sort and filter by item-level semantic score when available
     if let Some(ref scores) = item_semantic_scores {
         items.sort_by(|a, b| {
             let sa = scores.get(&(a.media_id.clone(), a.variant_id.clone())).copied().unwrap_or(0.0);
             let sb = scores.get(&(b.media_id.clone(), b.variant_id.clone())).copied().unwrap_or(0.0);
             sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
         });
+        // Drop items without a semantic match — they were only included because
+        // their parent media got a high score from a co-located variant/original.
+        items.retain(|it| scores.contains_key(&(it.media_id.clone(), it.variant_id.clone())));
     }
 
     // Step 1: item-level tag filter — only keep items that directly have the searched tags

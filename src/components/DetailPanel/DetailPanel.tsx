@@ -596,7 +596,11 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const handleAdoptAiCaption = async (text: string) => {
     if (!media) return;
     try {
-      await captionCreate(media.id, text);
+      if (targetId) {
+        await captionCreateForVariant(media.id, targetId, text);
+      } else {
+        await captionCreate(media.id, text);
+      }
       await loadCaptions(media.id);
       loadEmbeddings(media.id, targetId);
     } catch (e) {

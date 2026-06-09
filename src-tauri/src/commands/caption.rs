@@ -4,8 +4,9 @@ use crate::captions::Caption;
 use crate::db;
 
 /// After a caption is created/updated/deleted, try to refresh the embedding
-/// from the latest caption for semantic search.
-async fn refresh_embedding(app: &AppHandle, media_id: &str) {
+/// from the latest caption for semantic search. variant_id scopes to original (None) or variant.
+/// When no captions remain, the stale embedding is deleted.
+async fn refresh_embedding(app: &AppHandle, media_id: &str, variant_id: Option<&str>) {
     let emb_model = crate::settings::get_embedding_model(app);
     if emb_model.is_empty() {
         return;
@@ -18,13 +19,21 @@ async fn refresh_embedding(app: &AppHandle, media_id: &str) {
     }
 
     let caption = match db::caption_list(app, media_id) {
-        Ok(list) => list.into_iter().next().map(|c| c.text),
+        Ok(list) => {
+            let filtered: Vec<_> = match variant_id {
+                Some(vid) => list.into_iter().filter(|c| c.variant_id.as_deref() == Some(vid)).collect(),
+                None => list.into_iter().filter(|c| c.variant_id.is_none()).collect(),
+            };
+            filtered.into_iter().next().map(|c| c.text)
+        }
         Err(_) => None,
     };
     let text = match caption {
         Some(t) if !t.trim().is_empty() => t,
         _ => {
-            eprintln!("[caption] no caption to embed for {}", media_id);
+            // No more captions — clean up stale embedding
+            let _ = db::embedding_delete_for_media(app, media_id, variant_id);
+            eprintln!("[caption] no caption to embed for {}, deleted stale embedding", media_id);
             return;
         }
     };
@@ -37,7 +46,7 @@ async fn refresh_embedding(app: &AppHandle, media_id: &str) {
 
     match crate::ai::llamacpp::embed_text(&text, &emb_model, emb_port).await {
         Ok(vector) => {
-            if let Err(e) = db::embedding_insert(app, media_id, &model_short, "caption", None, &vector) {
+            if let Err(e) = db::embedding_insert(app, media_id, &model_short, "caption", variant_id, &vector) {
                 eprintln!("[caption] failed to store caption embedding for {}: {}", media_id, e);
             } else {
                 println!("[caption] embedding stored for {} ({}d)", media_id, vector.len());
@@ -57,7 +66,7 @@ pub fn caption_list(app: AppHandle, media_id: String) -> Result<Vec<Caption>, St
 #[command]
 pub async fn caption_create(app: AppHandle, media_id: String, text: String) -> Result<Caption, String> {
     let caption = db::caption_create(&app, &media_id, &text).map_err(|e| e.to_string())?;
-    refresh_embedding(&app, &media_id).await;
+    refresh_embedding(&app, &media_id, None).await;
     Ok(caption)
 }
 
@@ -70,47 +79,48 @@ pub async fn caption_create_for_variant(
 ) -> Result<Caption, String> {
     let caption = db::caption_create_for_variant(&app, &media_id, &variant_id, &text, None)
         .map_err(|e| e.to_string())?;
-    refresh_embedding(&app, &media_id).await;
+    refresh_embedding(&app, &media_id, Some(&variant_id)).await;
     Ok(caption)
 }
 
 #[command]
 pub async fn caption_update(app: AppHandle, id: String, text: String) -> Result<(), String> {
-    let media_id = {
+    let (media_id, variant_id) = {
         let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let db_path = app_data.join("medix.db");
         let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
         conn.query_row(
-            "SELECT media_id FROM captions WHERE id = ?1",
+            "SELECT media_id, variant_id FROM captions WHERE id = ?1",
             rusqlite::params![id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )
         .ok()
+        .unwrap_or_default()
     };
     db::caption_update(&app, &id, &text).map_err(|e| e.to_string())?;
-    if let Some(mid) = media_id {
-        refresh_embedding(&app, &mid).await;
+    if !media_id.is_empty() {
+        refresh_embedding(&app, &media_id, variant_id.as_deref()).await;
     }
     Ok(())
 }
 
 #[command]
 pub async fn caption_delete(app: AppHandle, id: String) -> Result<(), String> {
-    // caption_delete only has the caption id, we need the media_id first
-    let media_id = {
+    let (media_id, variant_id) = {
         let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let db_path = app_data.join("medix.db");
         let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
         conn.query_row(
-            "SELECT media_id FROM captions WHERE id = ?1",
+            "SELECT media_id, variant_id FROM captions WHERE id = ?1",
             rusqlite::params![id],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )
         .ok()
+        .unwrap_or_default()
     };
     db::caption_delete(&app, &id).map_err(|e| e.to_string())?;
-    if let Some(mid) = media_id {
-        refresh_embedding(&app, &mid).await;
+    if !media_id.is_empty() {
+        refresh_embedding(&app, &media_id, variant_id.as_deref()).await;
     }
     Ok(())
 }
@@ -155,7 +165,7 @@ pub async fn caption_create_batch(
     // Now safe to .await — all rusqlite handles are dropped
     for mid in &media_ids {
         let _ = db::fts_sync(&app, mid);
-        refresh_embedding(&app, mid).await;
+        refresh_embedding(&app, mid, None).await;
     }
     Ok(())
 }
