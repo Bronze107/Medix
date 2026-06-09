@@ -1485,6 +1485,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={(idx) => setLightboxIndex(idx)}
+          initialVariantId={lightboxIndex !== null ? displayItems[lightboxIndex]?.variant_id ?? null : null}
         />
       )}
 

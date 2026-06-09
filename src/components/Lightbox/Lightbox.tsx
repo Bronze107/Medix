@@ -10,6 +10,7 @@ interface LightboxProps {
   currentIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
+  initialVariantId?: string | null;
 }
 
 type CompareMode = "side-by-side" | "slider";
@@ -172,7 +173,7 @@ function VariantThumb({
   );
 }
 
-function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
+function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }: LightboxProps) {
   const item = media[currentIndex];
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [rawOriginalPath, setRawOriginalPath] = useState<string | null>(null);
@@ -201,19 +202,18 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
     });
     variantList(item.id).then((list) => {
       setVariants(list);
-      // If display variant is set, show it as the active image
-      if (item.display_variant_id) {
-        const dv = list.find((v) => v.id === item.display_variant_id);
-        if (dv) {
-          setViewState({ type: "single", activeId: dv.id });
-        } else {
-          setViewState({ type: "single", activeId: null });
-        }
+      // Determine active variant: initialVariantId takes priority, then display_variant_id, then original
+      const targetId = (initialVariantId !== undefined && initialVariantId !== null)
+        ? initialVariantId
+        : (item.display_variant_id ?? null);
+      if (targetId) {
+        const found = list.find((v) => v.id === targetId);
+        setViewState({ type: "single", activeId: found ? found.id : null });
       } else {
         setViewState({ type: "single", activeId: null });
       }
     });
-  }, [item]);
+  }, [item, initialVariantId]);
 
   // Helper: get file path for an id (null = original)
   const getFilePath = useCallback(
