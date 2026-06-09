@@ -683,29 +683,20 @@ function AllMedia({ collectionId }: AllMediaProps) {
           </div>
         )}
 
-        {/* Variant visibility toggle */}
-        <div className="flex items-center rounded-lg border border-[var(--color-border)] overflow-hidden">
-          <button
-            onClick={() => setVariantVisibility("representative")}
-            className={`px-2.5 py-1 text-xs transition-colors ${
-              variantVisibility === "representative"
-                ? "bg-[var(--color-accent)] text-white"
-                : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-            }`}
-          >
-            代表视图
-          </button>
-          <button
-            onClick={() => setVariantVisibility("all")}
-            className={`px-2.5 py-1 text-xs transition-colors ${
-              variantVisibility === "all"
-                ? "bg-[var(--color-accent)] text-white"
-                : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-            }`}
-          >
-            全部版本
-          </button>
-        </div>
+        {/* Variant visibility toggle — icon button matching grid/table toggle style */}
+        <button
+          onClick={() => setVariantVisibility(v => v === "all" ? "representative" : "all")}
+          className={`flex-shrink-0 rounded-lg p-1.5 transition-colors ${
+            variantVisibility === "all"
+              ? "text-[var(--color-accent)] bg-[var(--color-accent-soft)]"
+              : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+          }`}
+          title={variantVisibility === "all" ? "全部版本" : "代表视图"}
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 8.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v8.25A2.25 2.25 0 0 0 6 16.5h2.25m8.25-8.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-7.5A2.25 2.25 0 0 1 8.25 18v-1.5m8.25-8.25h-6a2.25 2.25 0 0 0-2.25 2.25v6" />
+          </svg>
+        </button>
 
         {/* Sort direction */}
         <button
