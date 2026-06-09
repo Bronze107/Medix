@@ -478,14 +478,27 @@ function AllMedia({ collectionId }: AllMediaProps) {
   }, []);
 
   // Listen for display variant changes from DetailPanel
+  const pendingReselectRef = useRef<string | null>(null);
   useEffect(() => {
     const handler = () => {
-      // Reload the list so representative mode correctly swaps original↔variant
+      pendingReselectRef.current = selectedItem?.media_id ?? null;
       loadMedia();
     };
     window.addEventListener("display-variant-changed", handler);
     return () => window.removeEventListener("display-variant-changed", handler);
-  }, [loadMedia]);
+  }, [loadMedia, selectedItem?.media_id]);
+
+  // After display-variant-change triggers reload, re-select item for the same media
+  useEffect(() => {
+    if (pendingReselectRef.current && items.length > 0) {
+      const found = items.find((it) => it.media_id === pendingReselectRef.current);
+      if (found) {
+        setSelectedItem(found);
+        setSelectedMediaId(found.media_id);
+      }
+      pendingReselectRef.current = null;
+    }
+  }, [items]);
 
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
