@@ -1156,109 +1156,52 @@ pub fn find_items_with_tags(
     items: &[BrowseItem],
     tag_names: &[String],
 ) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
-    use std::collections::HashSet;
-
-    if tag_names.is_empty() || items.is_empty() {
-        return Ok(HashSet::new());
-    }
-
+    let fuzzy = crate::settings::is_tag_search_fuzzy(app);
     let conn = get_conn(app)?;
-
-    // Collect distinct (media_id, variant_id) pairs
     let pairs: Vec<(&str, Option<&str>)> = items
         .iter()
         .map(|it| (it.media_id.as_str(), it.variant_id.as_deref()))
         .collect();
-
-    // Build condition clauses — all use unnamed ? so rusqlite binds in order
-    let mut conditions = Vec::new();
-    for (_, vid) in &pairs {
-        if vid.is_some() {
-            conditions.push("(mt.media_id = ? AND mt.variant_id = ?)".to_string());
-        } else {
-            conditions.push("(mt.media_id = ? AND mt.variant_id IS NULL)".to_string());
-        }
-    }
-
-    let tag_placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-
-    let sql = format!(
-        "SELECT DISTINCT mt.media_id, mt.variant_id
-         FROM media_tags mt
-         JOIN tags t ON mt.tag_id = t.id
-         WHERE t.name IN ({})
-           AND ({})",
-        tag_placeholders,
-        conditions.join(" OR ")
-    );
-
-    let mut stmt = conn.prepare(&sql)?;
-    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-    // Bind tag names
-    for tn in tag_names {
-        params.push(Box::new(tn.clone()));
-    }
-    // Bind (media_id, variant_id) pairs
-    for (mid, vid) in &pairs {
-        params.push(Box::new(mid.to_string()));
-        if let Some(v) = vid {
-            params.push(Box::new(v.to_string()));
-        }
-    }
-
-    let param_slice: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-    let rows = stmt.query_map(param_slice.as_slice(), |row| {
-        let mid: String = row.get(0)?;
-        let vid: Option<String> = row.get(1)?;
-        Ok(match vid {
-            Some(v) => v,         // variant item: item_id = variant_id
-            None => mid,          // original item: item_id = media_id
-        })
-    })?;
-
-    let mut result = HashSet::new();
-    for r in rows {
-        result.insert(r?);
-    }
-    Ok(result)
+    find_items_with_tags_inner(&conn, pairs.as_slice(), tag_names, fuzzy)
 }
 
-/// Path-based variant for CLI use
-pub fn find_items_with_tags_path(
-    db_path: &Path,
-    items: &[BrowseItem],
+fn find_items_with_tags_inner(
+    conn: &Connection,
+    pairs: &[(&str, Option<&str>)],
     tag_names: &[String],
+    fuzzy: bool,
 ) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
-    if tag_names.is_empty() || items.is_empty() {
+    if tag_names.is_empty() || pairs.is_empty() {
         return Ok(HashSet::new());
     }
-    let conn = Connection::open(db_path)?;
-    let pairs: Vec<(&str, Option<&str>)> = items
-        .iter()
-        .map(|it| (it.media_id.as_str(), it.variant_id.as_deref()))
-        .collect();
     let mut conditions = Vec::new();
-    for (_, vid) in &pairs {
-        if vid.is_some() {
+    for pair in pairs.iter() {
+        if pair.1.is_some() {
             conditions.push("(mt.media_id = ? AND mt.variant_id = ?)".to_string());
         } else {
             conditions.push("(mt.media_id = ? AND mt.variant_id IS NULL)".to_string());
         }
     }
-    let tag_placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let name_condition: String = if fuzzy {
+        tag_names.iter().map(|_| "t.name LIKE ?").collect::<Vec<_>>().join(" OR ")
+    } else {
+        let ph = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        format!("t.name IN ({})", ph)
+    };
     let sql = format!(
         "SELECT DISTINCT mt.media_id, mt.variant_id
          FROM media_tags mt
          JOIN tags t ON mt.tag_id = t.id
-         WHERE t.name IN ({})
-           AND ({})",
-        tag_placeholders, conditions.join(" OR ")
+         WHERE ({}) AND ({})",
+        name_condition, conditions.join(" OR ")
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-    for tn in tag_names { params.push(Box::new(tn.clone())); }
-    for (mid, vid) in &pairs {
+    for tn in tag_names {
+        if fuzzy { params.push(Box::new(format!("%{}%", tn))); }
+        else { params.push(Box::new(tn.clone())); }
+    }
+    for (mid, vid) in pairs {
         params.push(Box::new(mid.to_string()));
         if let Some(v) = vid { params.push(Box::new(v.to_string())); }
     }
@@ -1268,7 +1211,23 @@ pub fn find_items_with_tags_path(
         let vid: Option<String> = row.get(1)?;
         Ok(match vid { Some(v) => v, None => mid })
     })?;
-    Ok(rows.filter_map(|r| r.ok()).collect())
+    let mut result = HashSet::new();
+    for r in rows { result.insert(r?); }
+    Ok(result)
+}
+
+/// Path-based variant for CLI use (always exact match; fuzzy is frontend-only)
+pub fn find_items_with_tags_path(
+    db_path: &Path,
+    items: &[BrowseItem],
+    tag_names: &[String],
+) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+    let conn = Connection::open(db_path)?;
+    let pairs: Vec<(&str, Option<&str>)> = items
+        .iter()
+        .map(|it| (it.media_id.as_str(), it.variant_id.as_deref()))
+        .collect();
+    find_items_with_tags_inner(&conn, pairs.as_slice(), tag_names, false)
 }
 
 pub(crate) fn resolve_browse_thumb_paths(app: &AppHandle, items: &mut [BrowseItem]) {
@@ -1639,6 +1598,7 @@ pub fn media_search_by_tags_path(
     sort_by: &str,
     descending: bool,
     mode: TagSearchMode,
+    fuzzy: bool,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     if tag_names.is_empty() {
         return list_media_path(db_path, sort_by, descending, 0, u32::MAX);
@@ -1656,7 +1616,13 @@ pub fn media_search_by_tags_path(
         _ => "imported_at",
     };
 
-    let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let name_condition: String = if fuzzy {
+        tag_names.iter().map(|_| "t.name LIKE ?").collect::<Vec<_>>().join(" OR ")
+    } else {
+        let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        format!("t.name IN ({})", placeholders)
+    };
+
     let sql = match mode {
         TagSearchMode::Intersection => format!(
             "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip,
@@ -1664,11 +1630,11 @@ pub fn media_search_by_tags_path(
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
-             WHERE m.deleted_at IS NULL AND t.name IN ({})
+             WHERE m.deleted_at IS NULL AND ({})
              GROUP BY m.id
              HAVING COUNT(DISTINCT t.id) = {}
              ORDER BY m.{} {}",
-            placeholders, tag_names.len(), sort_column, order
+            name_condition, tag_names.len(), sort_column, order
         ),
         TagSearchMode::Union => format!(
             "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip,
@@ -1676,18 +1642,20 @@ pub fn media_search_by_tags_path(
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
              JOIN tags t ON mt.tag_id = t.id
-             WHERE m.deleted_at IS NULL AND t.name IN ({})
+             WHERE m.deleted_at IS NULL AND ({})
              ORDER BY m.{} {}",
-            placeholders, sort_column, order
+            name_condition, sort_column, order
         ),
     };
 
     let mut stmt = conn.prepare(&sql)?;
-    let params_vec: Vec<&dyn rusqlite::ToSql> = tag_names
-        .iter()
-        .map(|n| n as &dyn rusqlite::ToSql)
-        .collect();
-    let media_iter = stmt.query_map(params_vec.as_slice(), |row| {
+    let params_vec: Vec<String> = if fuzzy {
+        tag_names.iter().map(|n| format!("%{}%", n)).collect()
+    } else {
+        tag_names.to_vec()
+    };
+    let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
+    let media_iter = stmt.query_map(param_refs.as_slice(), |row| {
         Ok(Media {
             id: row.get(0)?,
             source_path: row.get(1)?,
@@ -1838,7 +1806,8 @@ pub fn media_search_by_tags(
         return list_media(app, sort_by, descending, 0, u32::MAX);
     }
     let path = db_path(app);
-    let mut results = media_search_by_tags_path(&path, tag_names, sort_by, descending, mode)?;
+    let fuzzy = crate::settings::is_tag_search_fuzzy(app);
+    let mut results = media_search_by_tags_path(&path, tag_names, sort_by, descending, mode, fuzzy)?;
     resolve_thumb_paths(app, &mut results);
     Ok(results)
 }

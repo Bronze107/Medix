@@ -81,7 +81,7 @@ fn main() {
                 .unwrap_or_default();
             let has_tag_filter = !tag_names.is_empty();
 
-            match search::execute_search_path(&db_path, &query, &sort, descending) {
+            match search::execute_search_path(&db_path, &query, &sort, descending, false) {
                 Ok(results) => {
                     let media_ids: Vec<String> = results.iter().map(|m| m.id.clone()).collect();
                     match db::browse_query_filtered_path(

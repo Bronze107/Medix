@@ -228,6 +228,14 @@ pub fn is_fts5_search_enabled(app: &AppHandle) -> bool {
         .unwrap_or(true) // enabled by default after FTS5 implementation
 }
 
+pub const KEY_TAG_SEARCH_MODE: &str = "tag_search_mode";
+
+pub fn is_tag_search_fuzzy(app: &AppHandle) -> bool {
+    get(app, KEY_TAG_SEARCH_MODE)
+        .map(|v| v == "fuzzy")
+        .unwrap_or(false) // exact match by default
+}
+
 pub const KEY_THEME: &str = "theme";
 
 pub fn get_theme(app: &AppHandle) -> String {

@@ -139,6 +139,7 @@ pub fn execute_search_path(
     query: &str,
     sort_by: &str,
     descending: bool,
+    fuzzy_tags: bool,
 ) -> Result<Vec<Media>, String> {
     let parsed = parser::parse(query);
 
@@ -151,7 +152,7 @@ pub fn execute_search_path(
                 TagMatchMode::All => TagSearchMode::Intersection,
                 TagMatchMode::Any => TagSearchMode::Union,
             };
-            crate::db::media_search_by_tags_path(db_path, &tg.tags, sort_by, descending, mode)
+            crate::db::media_search_by_tags_path(db_path, &tg.tags, sort_by, descending, mode, fuzzy_tags)
                 .map(|list| list.into_iter().map(|m| m.id).collect())
         })
         .transpose()
