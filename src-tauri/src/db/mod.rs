@@ -1020,10 +1020,7 @@ pub fn browse_query_filtered_path(
         _ => "imported_at",
     };
 
-    let placeholders: Vec<String> = (0..media_ids.len())
-        .map(|i| format!("?{}", i + 1))
-        .collect();
-    let in_clause = placeholders.join(",");
+    let in_clause = media_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
 
     let (vis_condition, _representative) = match visibility {
         VariantVisibility::All => ("'all'", false),
