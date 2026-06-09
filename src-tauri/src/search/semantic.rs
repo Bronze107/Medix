@@ -3,6 +3,7 @@ use tauri::AppHandle;
 #[derive(Debug)]
 pub struct ScoredMedia {
     pub media_id: String,
+    pub variant_id: Option<String>,
     pub score: f64,
 }
 
@@ -28,10 +29,10 @@ pub fn semantic_search_by_vector(
 
     let mut scored: Vec<ScoredMedia> = all_embs
         .into_iter()
-        .filter_map(|(media_id, _content_type, vec)| {
+        .filter_map(|(media_id, variant_id, _content_type, vec)| {
             let score = cosine_similarity(query_vec, &vec);
             if score > min_score {
-                Some(ScoredMedia { media_id, score })
+                Some(ScoredMedia { media_id, variant_id, score })
             } else {
                 None
             }

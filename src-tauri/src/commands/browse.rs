@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use crate::db;
 use crate::media::{BrowseItem, VariantVisibility};
@@ -119,26 +119,54 @@ pub async fn browse_search(
     let app_clone = app.clone();
     let sort_clone = sort_by.clone();
     let min_score = crate::settings::get_semantic_threshold(&app);
+    let query_emb_for_items = query_embedding.clone();
     let search_result = tokio::task::spawn_blocking(move || {
-        crate::search::execute_search(
+        let media = crate::search::execute_search(
             &app_clone,
             &trimmed,
             query_embedding,
             &sort_clone,
             descending,
             min_score,
-        )
+        )?;
+        // Compute item-level semantic scores: key = (media_id, variant_id)
+        let item_semantic_scores: Option<HashMap<(String, Option<String>), f64>> =
+            query_emb_for_items.and_then(|vec| {
+                match crate::search::semantic::semantic_search_by_vector(&vec, &app_clone, 500, min_score) {
+                    Ok(scored) => {
+                        let mut map = HashMap::new();
+                        for s in scored {
+                            map.insert((s.media_id, s.variant_id), s.score);
+                        }
+                        Some(map)
+                    }
+                    Err(e) => {
+                        eprintln!("[search] item-level semantic failed: {}", e);
+                        None
+                    }
+                }
+            });
+        Ok::<_, String>((media, item_semantic_scores))
     })
     .await
     .map_err(|e| e.to_string())?;
 
-    let media = search_result?;
+    let (media, item_semantic_scores) = search_result?;
     let media_ids: Vec<String> = media.iter().map(|m| m.id.clone()).collect();
 
     // Always expand in "all" mode to get full set, then filter
     let mut items = db::browse_query_filtered(
         &app, &media_ids, &sort_by, descending, 0, u32::MAX, &VariantVisibility::All,
     ).map_err(|e| e.to_string())?;
+
+    // Sort by item-level semantic score when available (overrides DB sort)
+    if let Some(ref scores) = item_semantic_scores {
+        items.sort_by(|a, b| {
+            let sa = scores.get(&(a.media_id.clone(), a.variant_id.clone())).copied().unwrap_or(0.0);
+            let sb = scores.get(&(b.media_id.clone(), b.variant_id.clone())).copied().unwrap_or(0.0);
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
 
     // Step 1: item-level tag filter — only keep items that directly have the searched tags
     if has_tag_filter {

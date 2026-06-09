@@ -46,13 +46,13 @@ pub fn auto_detect(app: AppHandle) -> models::AutoDetect {
 }
 
 #[command]
-pub fn embedding_info(app: AppHandle, media_id: String) -> Result<Vec<crate::db::EmbeddingInfo>, String> {
-    crate::db::embedding_info_list(&app, &media_id).map_err(|e| e.to_string())
+pub fn embedding_info(app: AppHandle, media_id: String, variant_id: Option<String>) -> Result<Vec<crate::db::EmbeddingInfo>, String> {
+    crate::db::embedding_info_list(&app, &media_id, variant_id.as_deref()).map_err(|e| e.to_string())
 }
 
 #[command]
-pub fn embedding_delete(app: AppHandle, media_id: String) -> Result<(), String> {
-    crate::db::embedding_delete_for_media(&app, &media_id).map_err(|e| e.to_string())
+pub fn embedding_delete(app: AppHandle, media_id: String, variant_id: Option<String>) -> Result<(), String> {
+    crate::db::embedding_delete_for_media(&app, &media_id, variant_id.as_deref()).map_err(|e| e.to_string())
 }
 
 #[command]
@@ -119,7 +119,7 @@ pub async fn embedding_rebuild_all(app: AppHandle) -> Result<String, String> {
         match crate::ai::llamacpp::embed_text(&caption, &emb_model, emb_port).await {
             Ok(vector) => {
                 if let Err(e) = crate::db::embedding_insert(
-                    &app, &media.id, &model_short, "caption", &vector,
+                    &app, &media.id, &model_short, "caption", None, &vector,
                 ) {
                     eprintln!("[embedding-rebuild] failed to store caption embedding for {}: {}", media.id, e);
                 } else {

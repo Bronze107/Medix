@@ -268,8 +268,8 @@ async fn process_generate_caption(
         }
 
         // Generate embedding for EN caption
-        if variant_id.is_none() && !result_en.caption.is_empty() {
-            generate_caption_embedding(&app, &media_id, &result_en.caption).await;
+        if !result_en.caption.is_empty() {
+            generate_caption_embedding(&app, &media_id, &result_en.caption, variant_id.as_deref()).await;
         }
 
         return Ok(());
@@ -315,38 +315,9 @@ async fn process_generate_caption(
         }
     }
 
-    // Generate caption embedding via dedicated embedding server (only for original, not variants).
-    if variant_id.is_none() && !result.caption.is_empty() {
-        let emb_model = crate::settings::get_embedding_model(&app);
-        if emb_model.is_empty() {
-            eprintln!("[ai] no embedding model configured, skipping embedding for {}", media_id);
-        } else {
-            let emb_port = crate::settings::get_embedding_port(&app);
-            let emb_server = app.state::<EmbeddingServer>();
-            if emb_server.health_check(emb_port).await {
-                let emb_model_short = std::path::Path::new(&emb_model)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(&emb_model)
-                    .to_string();
-                match embed_text(&result.caption, &emb_model, emb_port).await {
-                    Ok(vector) => {
-                        if let Err(e) =
-                            crate::db::embedding_insert(&app, &media_id, &emb_model_short, "caption", &vector)
-                        {
-                            eprintln!("[ai] failed to store caption embedding: {}", e);
-                        } else {
-                            println!("[ai] embedding stored for {} ({}d)", media_id, vector.len());
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("[ai] embedding failed: {}", e);
-                    }
-                }
-            } else {
-                eprintln!("[ai] embedding server not running, skipping embedding for {}", media_id);
-            }
-        }
+    // Generate caption embedding via dedicated embedding server
+    if !result.caption.is_empty() {
+        generate_caption_embedding(&app, &media_id, &result.caption, variant_id.as_deref()).await;
     }
 
     println!("[ai] completed processing {}", media_id);
@@ -637,9 +608,9 @@ async fn process_video_caption(
         }
     }
 
-    // 10. Generate embedding (only for original media, not variants)
-    if variant_id.is_none() && !merged_caption.is_empty() {
-        generate_caption_embedding(&app, &media_id, &merged_caption).await;
+    // 10. Generate embedding
+    if !merged_caption.is_empty() {
+        generate_caption_embedding(&app, &media_id, &merged_caption, variant_id.as_deref()).await;
     }
 
     // 11. Cleanup temp frames
@@ -753,7 +724,7 @@ fn store_video_caption(
 }
 
 /// Generate and store a caption embedding via the dedicated embedding server.
-async fn generate_caption_embedding(app: &AppHandle, media_id: &str, caption: &str) {
+async fn generate_caption_embedding(app: &AppHandle, media_id: &str, caption: &str, variant_id: Option<&str>) {
     let emb_model = crate::settings::get_embedding_model(app);
     if emb_model.is_empty() {
         eprintln!("[ai] no embedding model configured, skipping embedding for {}", media_id);
@@ -773,7 +744,7 @@ async fn generate_caption_embedding(app: &AppHandle, media_id: &str, caption: &s
     match embed_text(caption, &emb_model, emb_port).await {
         Ok(vector) => {
             if let Err(e) =
-                crate::db::embedding_insert(app, media_id, &emb_model_short, "caption", &vector)
+                crate::db::embedding_insert(app, media_id, &emb_model_short, "caption", variant_id, &vector)
             {
                 eprintln!("[ai] failed to store caption embedding for {}: {}", media_id, e);
             } else {

@@ -37,7 +37,7 @@ async fn refresh_embedding(app: &AppHandle, media_id: &str) {
 
     match crate::ai::llamacpp::embed_text(&text, &emb_model, emb_port).await {
         Ok(vector) => {
-            if let Err(e) = db::embedding_insert(app, media_id, &model_short, "caption", &vector) {
+            if let Err(e) = db::embedding_insert(app, media_id, &model_short, "caption", None, &vector) {
                 eprintln!("[caption] failed to store caption embedding for {}: {}", media_id, e);
             } else {
                 println!("[caption] embedding stored for {} ({}d)", media_id, vector.len());

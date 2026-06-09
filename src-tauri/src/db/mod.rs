@@ -462,6 +462,42 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         }
     }
 
+    // --- 0021_embeddings_unique ---
+    // Rebuild embeddings table with proper unique constraints so original and variant
+    // embeddings can coexist without overwriting each other.
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0021_embeddings_unique'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0021_embeddings_unique');
+                 CREATE TABLE embeddings_new (
+                     media_id TEXT NOT NULL,
+                     model TEXT NOT NULL,
+                     content_type TEXT NOT NULL,
+                     variant_id TEXT,
+                     vector BLOB NOT NULL,
+                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                     FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE,
+                     FOREIGN KEY (variant_id) REFERENCES variants(id) ON DELETE CASCADE
+                 );
+                 INSERT INTO embeddings_new SELECT media_id, model, content_type, variant_id, vector, created_at FROM embeddings;
+                 DROP TABLE embeddings;
+                 ALTER TABLE embeddings_new RENAME TO embeddings;
+                 CREATE UNIQUE INDEX idx_embeddings_unique_orig ON embeddings(media_id, model, content_type) WHERE variant_id IS NULL;
+                 CREATE UNIQUE INDEX idx_embeddings_unique_var ON embeddings(media_id, model, content_type, variant_id) WHERE variant_id IS NOT NULL;
+                 CREATE INDEX idx_embeddings_media ON embeddings(media_id);
+                 CREATE INDEX idx_embeddings_model ON embeddings(model);
+                 CREATE INDEX idx_embeddings_variant ON embeddings(variant_id);",
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -2256,15 +2292,31 @@ pub fn embedding_insert(
     media_id: &str,
     model: &str,
     content_type: &str,
+    variant_id: Option<&str>,
     vector: &[f32],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let bytes: Vec<u8> = vector.iter().flat_map(|v| v.to_le_bytes()).collect();
-    conn.execute(
-        "INSERT OR REPLACE INTO embeddings (media_id, model, content_type, vector)
-         VALUES (?1, ?2, ?3, ?4)",
-        params![media_id, model, content_type, bytes],
-    )?;
+    // Delete-then-insert to avoid issues with partial unique indexes and INSERT OR REPLACE
+    if let Some(vid) = variant_id {
+        conn.execute(
+            "DELETE FROM embeddings WHERE media_id=?1 AND model=?2 AND content_type=?3 AND variant_id=?4",
+            params![media_id, model, content_type, vid],
+        )?;
+        conn.execute(
+            "INSERT INTO embeddings (media_id, model, content_type, variant_id, vector) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![media_id, model, content_type, vid, bytes],
+        )?;
+    } else {
+        conn.execute(
+            "DELETE FROM embeddings WHERE media_id=?1 AND model=?2 AND content_type=?3 AND variant_id IS NULL",
+            params![media_id, model, content_type],
+        )?;
+        conn.execute(
+            "INSERT INTO embeddings (media_id, model, content_type, vector) VALUES (?1, ?2, ?3, ?4)",
+            params![media_id, model, content_type, bytes],
+        )?;
+    }
     Ok(())
 }
 
@@ -2306,37 +2358,54 @@ pub fn embedding_clear_all(
 pub fn embedding_delete_for_media(
     app: &AppHandle,
     media_id: &str,
+    variant_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    conn.execute(
-        "DELETE FROM embeddings WHERE media_id = ?1",
-        params![media_id],
-    )?;
+    if let Some(vid) = variant_id {
+        conn.execute(
+            "DELETE FROM embeddings WHERE media_id = ?1 AND variant_id = ?2",
+            params![media_id, vid],
+        )?;
+    } else {
+        conn.execute(
+            "DELETE FROM embeddings WHERE media_id = ?1 AND variant_id IS NULL",
+            params![media_id],
+        )?;
+    }
     Ok(())
 }
 
 pub fn embedding_info_list(
     app: &AppHandle,
     media_id: &str,
+    variant_id: Option<&str>,
 ) -> Result<Vec<EmbeddingInfo>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    let mut stmt = conn.prepare(
-        "SELECT model, content_type, length(vector) / 4 as vec_len, created_at
-         FROM embeddings WHERE media_id = ?1 ORDER BY content_type",
-    )?;
-    let iter = stmt.query_map(params![media_id], |row| {
-        Ok(EmbeddingInfo {
-            model: row.get(0)?,
-            content_type: row.get(1)?,
-            vec_dim: row.get(2)?,
-            created_at: row.get(3)?,
-        })
-    })?;
-    let mut results = Vec::new();
-    for r in iter {
-        results.push(r?);
-    }
-    Ok(results)
+    let (sql, vid_clause) = if variant_id.is_some() {
+        ("SELECT model, content_type, length(vector) / 4 as vec_len, created_at
+          FROM embeddings WHERE media_id = ?1 AND variant_id = ?2 ORDER BY content_type",
+         variant_id)
+    } else {
+        ("SELECT model, content_type, length(vector) / 4 as vec_len, created_at
+          FROM embeddings WHERE media_id = ?1 AND variant_id IS NULL ORDER BY content_type",
+         None)
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let rows = if let Some(vid) = vid_clause {
+        stmt.query_map(params![media_id, vid], row_mapper)?
+    } else {
+        stmt.query_map(params![media_id], row_mapper)?
+    };
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+fn row_mapper(row: &rusqlite::Row) -> rusqlite::Result<EmbeddingInfo> {
+    Ok(EmbeddingInfo {
+        model: row.get(0)?,
+        content_type: row.get(1)?,
+        vec_dim: row.get(2)?,
+        created_at: row.get(3)?,
+    })
 }
 
 use serde::{Deserialize, Serialize};
@@ -2352,22 +2421,23 @@ pub struct EmbeddingInfo {
 pub fn embedding_get_all_by_model(
     app: &AppHandle,
     model: &str,
-) -> Result<Vec<(String, String, Vec<f32>)>, Box<dyn std::error::Error>> {
+) -> Result<Vec<(String, Option<String>, String, Vec<f32>)>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT media_id, content_type, vector FROM embeddings WHERE model = ?1 AND content_type = 'caption'",
+        "SELECT media_id, variant_id, content_type, vector FROM embeddings WHERE model = ?1 AND content_type = 'caption'",
     )?;
     let iter = stmt.query_map(params![model], |row| {
         let media_id: String = row.get(0)?;
-        let content_type: String = row.get(1)?;
-        let bytes: Vec<u8> = row.get(2)?;
+        let variant_id: Option<String> = row.get(1)?;
+        let content_type: String = row.get(2)?;
+        let bytes: Vec<u8> = row.get(3)?;
         let mut vec = Vec::with_capacity(bytes.len() / 4);
         for chunk in bytes.chunks_exact(4) {
             let mut arr = [0u8; 4];
             arr.copy_from_slice(chunk);
             vec.push(f32::from_le_bytes(arr));
         }
-        Ok((media_id, content_type, vec))
+        Ok((media_id, variant_id, content_type, vec))
     })?;
     let mut results = Vec::new();
     for r in iter {

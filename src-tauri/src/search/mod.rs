@@ -26,7 +26,12 @@ pub fn execute_search(
             .as_ref()
             .and_then(|vec| match semantic::semantic_search_by_vector(vec, app, 500, min_score) {
                 Ok(results) => {
-                    Some(results.into_iter().map(|r| (r.media_id, r.score)).collect())
+                    let mut map: HashMap<String, f64> = HashMap::new();
+                    for r in results {
+                        let entry = map.entry(r.media_id).or_insert(0.0);
+                        *entry = (*entry).max(r.score);
+                    }
+                    Some(map)
                 }
                 Err(e) => {
                     eprintln!("[search] semantic search failed: {}", e);

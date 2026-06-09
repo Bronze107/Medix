@@ -353,12 +353,12 @@ export function autoDetect(): Promise<AutoDetect> {
   return invoke("auto_detect");
 }
 
-export function embeddingInfo(mediaId: string): Promise<EmbeddingInfo[]> {
-  return invoke("embedding_info", { mediaId });
+export function embeddingInfo(mediaId: string, variantId?: string | null): Promise<EmbeddingInfo[]> {
+  return invoke("embedding_info", { mediaId, variantId: variantId ?? null });
 }
 
-export function embeddingDelete(mediaId: string): Promise<void> {
-  return invoke("embedding_delete", { mediaId });
+export function embeddingDelete(mediaId: string, variantId?: string | null): Promise<void> {
+  return invoke("embedding_delete", { mediaId, variantId: variantId ?? null });
 }
 
 export function embeddingClearAll(): Promise<string> {

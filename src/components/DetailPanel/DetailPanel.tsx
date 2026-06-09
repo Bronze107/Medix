@@ -286,9 +286,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     }
   }, []);
 
-  const loadEmbeddings = useCallback(async (mediaId: string) => {
+  const loadEmbeddings = useCallback(async (mediaId: string, variantId?: string | null) => {
     try {
-      const list = await embeddingInfo(mediaId);
+      const list = await embeddingInfo(mediaId, variantId ?? null);
       setEmbeddings(list);
     } catch (e) {
       console.error("Failed to load embeddings:", e);
@@ -304,12 +304,13 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     if (media) {
       // When initialVariantId is explicitly provided (browse item click), use it;
       // otherwise fall back to the media's display_variant_id (old behavior).
-      setTargetId(initialVariantId !== undefined ? initialVariantId : (media.display_variant_id ?? null));
+      const effectiveVariantId = initialVariantId !== undefined ? initialVariantId : (media.display_variant_id ?? null);
+      setTargetId(effectiveVariantId);
       setShowVersionForm(false);
       loadMediaTags(media.id, null);
       loadVariants(media.id);
       loadCaptions(media.id);
-      loadEmbeddings(media.id);
+      loadEmbeddings(media.id, effectiveVariantId);
     } else {
       setTags([]);
       setVariants([]);
@@ -336,16 +337,24 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     }
   }, [targetId, media?.id, loadMediaTags]);
 
-  // Auto-refresh captions & tags when AI annotation completes
+  // Reload embeddings when target changes (original vs variant)
+  useEffect(() => {
+    if (media) {
+      loadEmbeddings(media.id, targetId);
+    }
+  }, [targetId, media?.id, loadEmbeddings]);
+
+  // Auto-refresh captions, tags & embeddings when AI annotation completes
   useEffect(() => {
     const unlisten = listen<{ remaining: number }>("ai-task-done", () => {
       if (media) {
         loadCaptions(media.id);
         loadMediaTags(media.id, targetId);
+        loadEmbeddings(media.id, targetId);
       }
     });
     return () => { unlisten.then((f) => f()); };
-  }, [media?.id, targetId, loadCaptions, loadMediaTags]);
+  }, [media?.id, targetId, loadCaptions, loadMediaTags, loadEmbeddings]);
 
   // Reload tags when batch-tagging or other manual tag changes happen
   useEffect(() => {
@@ -537,7 +546,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         await captionCreate(media.id, text);
       }
       await loadCaptions(media.id);
-      loadEmbeddings(media.id);
+      loadEmbeddings(media.id, targetId);
       setNewCaptionText("");
     } catch (e) {
       console.error("Failed to add caption:", e);
@@ -557,7 +566,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       await captionUpdate(editingCaptionId, text);
       if (media) {
         await loadCaptions(media.id);
-        loadEmbeddings(media.id);
+        loadEmbeddings(media.id, targetId);
       }
       setEditingCaptionId(null);
       setEditingText("");
@@ -576,7 +585,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       await captionDelete(id);
       if (media) {
         await loadCaptions(media.id);
-        loadEmbeddings(media.id);
+        loadEmbeddings(media.id, targetId);
       }
       showToast("已删除描述");
     } catch (e) {
@@ -589,7 +598,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     try {
       await captionCreate(media.id, text);
       await loadCaptions(media.id);
-      loadEmbeddings(media.id);
+      loadEmbeddings(media.id, targetId);
     } catch (e) {
       console.error("Failed to adopt AI caption:", e);
     }
@@ -841,7 +850,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
             )}
           </div>
 
-            {!isVar && embeddings.length > 0 && (
+            {embeddings.length > 0 && (
           <div className="mt-6 border-t border-[var(--color-border)] pt-4">
             <p className="mb-2 text-xs text-[var(--color-text-muted)]">向量嵌入</p>
             <div className="space-y-1.5">
@@ -858,7 +867,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                     <button
                       onClick={async () => {
                         try {
-                          await embeddingDelete(media.id);
+                          await embeddingDelete(media.id, targetId);
                           setEmbeddings([]);
                         } catch (err) {
                           console.error("Failed to delete embedding:", err);
@@ -1192,7 +1201,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                 }
                 await loadCaptions(media.id);
                 await loadMediaTags(media.id, targetId);
-                await loadEmbeddings(media.id);
+                await loadEmbeddings(media.id, targetId);
                 showToast("AI 标注完成");
               } catch (e) {
                 console.error("Failed to trigger AI annotation:", e);
