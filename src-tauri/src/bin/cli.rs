@@ -75,11 +75,48 @@ fn main() {
             variants,
         } => {
             let visibility = medix::media::VariantVisibility::parse(&variants);
+            let parsed = medix::search::parser::parse(&query);
+            let tag_names: Vec<String> = parsed.tag_group.as_ref()
+                .map(|tg| tg.tags.clone())
+                .unwrap_or_default();
+            let has_tag_filter = !tag_names.is_empty();
+
             match search::execute_search_path(&db_path, &query, &sort, descending) {
                 Ok(results) => {
                     let media_ids: Vec<String> = results.iter().map(|m| m.id.clone()).collect();
-                    match db::browse_query_filtered_path(&db_path, &media_ids, &sort, descending, 0, u32::MAX, &visibility) {
-                        Ok(browse_items) => {
+                    match db::browse_query_filtered_path(
+                        &db_path, &media_ids, &sort, descending, 0, u32::MAX,
+                        &medix::media::VariantVisibility::All, // always expand in all mode
+                    ) {
+                        Ok(mut browse_items) => {
+                            // Item-level tag filtering
+                            if has_tag_filter {
+                                if let Ok(matching) = db::find_items_with_tags_path(
+                                    &db_path, &browse_items, &tag_names
+                                ) {
+                                    browse_items.retain(|it| matching.contains(&it.item_id));
+                                }
+                            }
+                            // Representative collapse
+                            if matches!(visibility, medix::media::VariantVisibility::Representative) {
+                                let mut best: std::collections::HashMap<String, medix::media::BrowseItem> =
+                                    std::collections::HashMap::new();
+                                for it in browse_items.drain(..) {
+                                    let score = if it.is_display_variant { 3 }
+                                        else if it.item_kind == "variant" { 2 }
+                                        else { 1 };
+                                    best.entry(it.media_id.clone())
+                                        .and_modify(|existing| {
+                                            let es = if existing.is_display_variant { 3 }
+                                                else if existing.item_kind == "variant" { 2 }
+                                                else { 1 };
+                                            if score > es { *existing = it.clone(); }
+                                        })
+                                        .or_insert(it);
+                                }
+                                browse_items = best.into_values().collect();
+                                browse_items.sort_by(|a, b| b.imported_at.cmp(&a.imported_at));
+                            }
                             println!("{} results for \"{}\"\n", browse_items.len(), query);
                             print_browse_list(&browse_items);
                         }

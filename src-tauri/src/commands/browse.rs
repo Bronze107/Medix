@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::db;
 use crate::media::{BrowseItem, VariantVisibility};
 use tauri::{command, AppHandle, Manager};
@@ -14,6 +16,49 @@ pub async fn browse_list(
     let visibility = VariantVisibility::parse(&variant_visibility);
     db::list_browse_items(&app, &sort_by, descending, offset, limit, &visibility)
         .map_err(|e| e.to_string())
+}
+
+/// Given a list of browse items and tag names, return the item_ids that directly have those tags.
+/// Checks per-item: original items use variant_id=NULL, variant items use their variant_id.
+fn filter_items_by_tags(
+    app: &AppHandle,
+    items: &mut Vec<BrowseItem>,
+    tag_names: &[String],
+) -> Result<(), String> {
+    if tag_names.is_empty() || items.is_empty() {
+        return Ok(());
+    }
+    let matching = db::find_items_with_tags(app, items, tag_names)
+        .map_err(|e| e.to_string())?;
+    items.retain(|it| matching.contains(&it.item_id));
+    Ok(())
+}
+
+/// In representative mode, collapse items to at most one per media.
+/// Prefer: display variant > tag-matching variant > tag-matching original > (none).
+fn collapse_representative(items: &mut Vec<BrowseItem>) {
+    // Group by media_id, pick best item per group
+    let mut best: std::collections::HashMap<String, BrowseItem> = std::collections::HashMap::new();
+    for it in items.drain(..) {
+        let key = &it.media_id;
+        let score = if it.is_display_variant { 3 }
+            else if it.item_kind == "variant" { 2 }
+            else { 1 };
+        best.entry(key.clone())
+            .and_modify(|existing| {
+                let existing_score = if existing.is_display_variant { 3 }
+                    else if existing.item_kind == "variant" { 2 }
+                    else { 1 };
+                if score > existing_score {
+                    *existing = it.clone();
+                }
+            })
+            .or_insert(it);
+    }
+    // Sort results by imported_at (descending) for consistency
+    let mut sorted: Vec<BrowseItem> = best.into_values().collect();
+    sorted.sort_by(|a, b| b.imported_at.cmp(&a.imported_at));
+    *items = sorted;
 }
 
 #[command]
@@ -35,8 +80,13 @@ pub async fn browse_search(
             .map_err(|e| e.to_string());
     }
 
-    // Run existing search pipeline to get candidate media IDs
+    // Parse query to extract tag filters
     let parsed = crate::search::parser::parse(&trimmed);
+    let tag_names: Vec<String> = parsed.tag_group.as_ref()
+        .map(|tg| tg.tags.clone())
+        .unwrap_or_default();
+    let has_tag_filter = !tag_names.is_empty();
+
     let query_embedding: Option<Vec<f32>> = if parsed.semantic_text.is_some() {
         let emb_model = crate::settings::get_embedding_model(&app);
         if emb_model.is_empty() {
@@ -83,11 +133,36 @@ pub async fn browse_search(
     .map_err(|e| e.to_string())?;
 
     let media = search_result?;
-
-    // Extract media IDs and expand to browse items
     let media_ids: Vec<String> = media.iter().map(|m| m.id.clone()).collect();
-    db::browse_query_filtered(&app, &media_ids, &sort_by, descending, offset, limit, &visibility)
-        .map_err(|e| e.to_string())
+
+    // Always expand in "all" mode to get full set, then filter
+    let mut items = db::browse_query_filtered(
+        &app, &media_ids, &sort_by, descending, 0, u32::MAX, &VariantVisibility::All,
+    ).map_err(|e| e.to_string())?;
+
+    // Step 1: item-level tag filter — only keep items that directly have the searched tags
+    if has_tag_filter {
+        filter_items_by_tags(&app, &mut items, &tag_names)?;
+    }
+
+    // Step 2: apply visibility
+    match visibility {
+        VariantVisibility::All => {
+            // Keep all matching items (already filtered)
+        }
+        VariantVisibility::Representative => {
+            collapse_representative(&mut items);
+        }
+    }
+
+    // Apply pagination
+    let total = items.len();
+    let start = offset as usize;
+    let end = std::cmp::min(start + limit as usize, total);
+    if start >= total {
+        return Ok(vec![]);
+    }
+    Ok(items[start..end].to_vec())
 }
 
 #[command]

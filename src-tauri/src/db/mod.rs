@@ -1,6 +1,7 @@
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -1146,6 +1147,128 @@ pub fn browse_query_filtered(
         browse_query_filtered_path(&path, media_ids, sort_by, descending, offset, limit, visibility)?;
     resolve_browse_thumb_paths(app, &mut results);
     Ok(results)
+}
+
+/// Given browse items and tag names, return the set of item_ids that directly have those tags.
+/// Original items match where variant_id IS NULL; variant items match where variant_id matches.
+pub fn find_items_with_tags(
+    app: &AppHandle,
+    items: &[BrowseItem],
+    tag_names: &[String],
+) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+    use std::collections::HashSet;
+
+    if tag_names.is_empty() || items.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    let conn = get_conn(app)?;
+
+    // Collect distinct (media_id, variant_id) pairs
+    let pairs: Vec<(&str, Option<&str>)> = items
+        .iter()
+        .map(|it| (it.media_id.as_str(), it.variant_id.as_deref()))
+        .collect();
+
+    // Build condition clauses — all use unnamed ? so rusqlite binds in order
+    let mut conditions = Vec::new();
+    for (_, vid) in &pairs {
+        if vid.is_some() {
+            conditions.push("(mt.media_id = ? AND mt.variant_id = ?)".to_string());
+        } else {
+            conditions.push("(mt.media_id = ? AND mt.variant_id IS NULL)".to_string());
+        }
+    }
+
+    let tag_placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+
+    let sql = format!(
+        "SELECT DISTINCT mt.media_id, mt.variant_id
+         FROM media_tags mt
+         JOIN tags t ON mt.tag_id = t.id
+         WHERE t.name IN ({})
+           AND ({})",
+        tag_placeholders,
+        conditions.join(" OR ")
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    // Bind tag names
+    for tn in tag_names {
+        params.push(Box::new(tn.clone()));
+    }
+    // Bind (media_id, variant_id) pairs
+    for (mid, vid) in &pairs {
+        params.push(Box::new(mid.to_string()));
+        if let Some(v) = vid {
+            params.push(Box::new(v.to_string()));
+        }
+    }
+
+    let param_slice: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let rows = stmt.query_map(param_slice.as_slice(), |row| {
+        let mid: String = row.get(0)?;
+        let vid: Option<String> = row.get(1)?;
+        Ok(match vid {
+            Some(v) => v,         // variant item: item_id = variant_id
+            None => mid,          // original item: item_id = media_id
+        })
+    })?;
+
+    let mut result = HashSet::new();
+    for r in rows {
+        result.insert(r?);
+    }
+    Ok(result)
+}
+
+/// Path-based variant for CLI use
+pub fn find_items_with_tags_path(
+    db_path: &Path,
+    items: &[BrowseItem],
+    tag_names: &[String],
+) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+    if tag_names.is_empty() || items.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let conn = Connection::open(db_path)?;
+    let pairs: Vec<(&str, Option<&str>)> = items
+        .iter()
+        .map(|it| (it.media_id.as_str(), it.variant_id.as_deref()))
+        .collect();
+    let mut conditions = Vec::new();
+    for (_, vid) in &pairs {
+        if vid.is_some() {
+            conditions.push("(mt.media_id = ? AND mt.variant_id = ?)".to_string());
+        } else {
+            conditions.push("(mt.media_id = ? AND mt.variant_id IS NULL)".to_string());
+        }
+    }
+    let tag_placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT DISTINCT mt.media_id, mt.variant_id
+         FROM media_tags mt
+         JOIN tags t ON mt.tag_id = t.id
+         WHERE t.name IN ({})
+           AND ({})",
+        tag_placeholders, conditions.join(" OR ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    for tn in tag_names { params.push(Box::new(tn.clone())); }
+    for (mid, vid) in &pairs {
+        params.push(Box::new(mid.to_string()));
+        if let Some(v) = vid { params.push(Box::new(v.to_string())); }
+    }
+    let param_slice: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let rows = stmt.query_map(param_slice.as_slice(), |row| {
+        let mid: String = row.get(0)?;
+        let vid: Option<String> = row.get(1)?;
+        Ok(match vid { Some(v) => v, None => mid })
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
 pub(crate) fn resolve_browse_thumb_paths(app: &AppHandle, items: &mut [BrowseItem]) {
