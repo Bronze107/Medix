@@ -182,6 +182,18 @@ media.display_variant_id TEXT REFERENCES variants(id) ON DELETE SET NULL
 
 代表视图可以直接通过 `media.display_variant_id = variants.id` 判断。不要新增 `variants.display_variant`，否则会出现两个真相来源，容易产生不一致。
 
+**注意：FK 约束未实际生效。** 代码中未执行 `PRAGMA foreign_keys = ON`，因此 `ON DELETE SET NULL` 是空写——删除 variant 时 `media.display_variant_id` 不会自动清空。`variant_delete`（`db/mod.rs:1605`）必须在 DELETE 前手动清理：
+
+```rust
+conn.execute(
+    "UPDATE media SET display_variant_id = NULL WHERE display_variant_id = ?1",
+    params![id],
+)?;
+conn.execute("DELETE FROM variants WHERE id = ?1", params![id])?;
+```
+
+此修复应在 Phase 1 开始前完成。
+
 ### 4.2 查询模型
 
 建议新增一组 browse query，而不是改写所有 `Media` 查询：
@@ -303,6 +315,19 @@ ORDER BY imported_at DESC
 LIMIT ? OFFSET ?
 ```
 
+### 4.3.1 性能考量
+
+`UNION ALL` + 外层 `ORDER BY ... LIMIT ... OFFSET` 的模式要求 SQLite 先物化全部结果再排序分页。在 10 万+ 记录时每次翻页都会全量扫描，应提前评估：
+
+- **索引**：确保以下索引存在：
+  - `media(deleted_at, imported_at)` — 原片子查询的 WHERE + ORDER BY
+  - `variants(media_id)` — JOIN 条件（已有 `idx_variants_media`）
+  - `media(display_variant_id)` — 代表视图的 `m.display_variant_id = v.id` 条件
+- **验证**：Phase 1 验收时用 `EXPLAIN QUERY PLAN` 确认查询走了索引而非全表扫描。
+- **后续优化**（5 万+ 记录时考虑）：两个子查询内部各加 `ORDER BY ... LIMIT ?`，外层再合并排序，减少单次物化行数。
+
+小型库（< 5 万记录）当前方案直接可用，无需过度设计。
+
 ### 4.4 排序字段映射
 
 沿用现有 sort 字段：
@@ -335,7 +360,7 @@ variant 行：
 thumbnails/{variant_id}_256.jpg
 ```
 
-建议新增：
+variant 缩略图生成已有 `media::thumbnail::generate_variant_thumbnail`，产出 `thumbnails/{variant_id}_256.jpg`。需新增：
 
 ```rust
 pub(crate) fn resolve_browse_thumb_paths(app: &AppHandle, items: &mut [BrowseItem])
@@ -343,10 +368,10 @@ pub(crate) fn resolve_browse_thumb_paths(app: &AppHandle, items: &mut [BrowseIte
 
 规则：
 
-- `item_kind == "original"`：使用 `media_id`。
-- `item_kind == "variant"`：使用 `variant_id`。
+- `item_kind == "original"`：使用 `media_id` 解析 `thumbnails/{media_id}_256.jpg`。
+- `item_kind == "variant"`：使用 `variant_id` 解析 `thumbnails/{variant_id}_256.jpg`。
 
-这样主浏览页的 variant card 不会误用原图缩略图。
+注意当前 `media_thumbnail` / `media_thumbnail_batch` 的 display variant 查找基于 `media_id`，browse item 场景下 variant 行需要按 `variant_id` 独立解析。`resolve_browse_thumb_paths` 应在 `browse_list` 返回前调用，确保前端拿到的 `BrowseItem` 已携带正确的 `thumb_256` 路径。
 
 ---
 
@@ -382,6 +407,17 @@ pub async fn browse_search(
     variant_visibility: String,
 ) -> Result<Vec<BrowseItem>, String>
 ```
+
+分页需要总数，应同步新增计数查询：
+
+```rust
+pub fn browse_count(
+    db_path: &Path,
+    visibility: VariantVisibility,
+) -> Result<u32, Box<dyn std::error::Error>>;
+```
+
+COUNT 逻辑与 list 查询的 WHERE 条件一致，只是外层包 `SELECT COUNT(*) FROM (union)` 替代 `SELECT * ... ORDER BY ... LIMIT`。
 
 集合页可按需要新增：
 
@@ -635,8 +671,8 @@ Lightbox 入参应改为 `BrowseItem[]` 或增加适配层。
 
 如果删除的是 display variant：
 
-- 后端 `variant_delete` 应先清空所有引用该 variant 的 `media.display_variant_id`。
-- 或依赖 FK `ON DELETE SET NULL`，但测试必须验证实际 SQLite foreign key 是否启用。
+- `variant_delete` 必须在 DELETE 前执行 `UPDATE media SET display_variant_id = NULL WHERE display_variant_id = ?1`。
+- 已验证：SQLite 未启用 `PRAGMA foreign_keys = ON`，`ON DELETE SET NULL` 不会自动触发。不可依赖 FK。
 - 前端收到结果后刷新，代表视图中该 display variant 行消失。
 
 ### 7.3 标签
@@ -696,6 +732,8 @@ struct BrowseCandidates {
 ```
 
 但首版为了降低改造面，可先只按 `media_ids` 展开。
+
+**后续优化**：将 FTS5 匹配条件直接写入 browse query 的 WHERE 子查询（`m.id IN (SELECT rowid FROM media_fts WHERE ...)`），合并为一次 DB 查询，省去中间 `media_ids` 收集和二次 round-trip。首版不需要做，Phase 4 或后续迭代时考虑。
 
 ### 8.2 结构化过滤
 
@@ -778,16 +816,17 @@ ID        KIND       DIMENSIONS       SIZE  DATE         PATH
 
 ### 9.3 完整性测试补充
 
-在 `tests/integrity.sh` 增加：
+在 `tests/integrity.sh` 增加 orphan display variant 检查：
 
 ```sql
+-- 检查悬空的 display_variant_id（FK 未生效时必须靠此检测）
 SELECT COUNT(*)
 FROM media
 WHERE display_variant_id IS NOT NULL
   AND display_variant_id NOT IN (SELECT id FROM variants);
 ```
 
-期望为 `0`。
+期望为 `0`。此检查尤为重要，因为 SQLite 未启用 `PRAGMA foreign_keys = ON`，`ON DELETE SET NULL` 不会自动生效。若 `variant_delete` 修复（4.1 节）正确实施，此检查应始终通过。
 
 ---
 

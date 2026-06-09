@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 use ulid::Ulid;
 
 use crate::captions::Caption;
-use crate::media::Media;
+use crate::media::{BrowseItem, Media, VariantVisibility};
 use crate::tag::Tag;
 use crate::variants::Variant;
 
@@ -443,6 +443,24 @@ fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error
         }
     }
 
+    // --- 0020_browse_indexes ---
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0020_browse_indexes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0020_browse_indexes');
+                 CREATE INDEX IF NOT EXISTS idx_media_display_variant ON media(display_variant_id);
+                 CREATE INDEX IF NOT EXISTS idx_media_deleted_imported ON media(deleted_at, imported_at);",
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -816,6 +834,340 @@ pub fn list_media(
     let mut results = list_media_path(&path, sort_by, descending, offset, limit)?;
     resolve_thumb_paths(app, &mut results);
     Ok(results)
+}
+
+// --- Browse item queries (variant browse filter) ---
+
+pub fn list_browse_items_path(
+    db_path: &Path,
+    sort_by: &str,
+    descending: bool,
+    offset: u32,
+    limit: u32,
+    visibility: &VariantVisibility,
+) -> Result<Vec<BrowseItem>, Box<dyn std::error::Error>> {
+    let conn = Connection::open(db_path)?;
+
+    let order = if descending { "DESC" } else { "ASC" };
+    let sort_column = match sort_by {
+        "created_at" => "created_at",
+        "modified_at" => "modified_at",
+        "file_size" => "file_size",
+        "width" => "width",
+        "height" => "height",
+        _ => "imported_at",
+    };
+
+    let (vis_condition, _representative) = match visibility {
+        VariantVisibility::All => ("'all'", false),
+        VariantVisibility::Representative => ("'representative'", true),
+    };
+
+    let sql = format!(
+        "SELECT * FROM (
+            SELECT
+                m.id AS item_id,
+                'original' AS item_kind,
+                m.id AS media_id,
+                NULL AS variant_id,
+                0 AS is_display_variant,
+                m.source_path, m.width, m.height, m.file_size,
+                m.created_at, m.modified_at, m.imported_at,
+                m.source_url, m.page_url, m.source,
+                m.sha256, m.deleted_at, m.display_variant_id,
+                m.lqip, m.media_type, m.duration, m.video_codec, m.video_fps,
+                NULL AS label, NULL AS preset_name
+            FROM media m
+            WHERE m.deleted_at IS NULL
+              AND ({} = 'all'
+                   OR m.display_variant_id IS NULL
+                   OR NOT EXISTS (SELECT 1 FROM variants dv WHERE dv.id = m.display_variant_id))
+
+            UNION ALL
+
+            SELECT
+                v.id AS item_id,
+                'variant' AS item_kind,
+                m.id AS media_id,
+                v.id AS variant_id,
+                CASE WHEN m.display_variant_id = v.id THEN 1 ELSE 0 END AS is_display_variant,
+                v.file_path AS source_path,
+                v.width, v.height, v.file_size,
+                v.created_at, NULL AS modified_at, v.created_at AS imported_at,
+                m.source_url, m.page_url, v.source,
+                m.sha256, m.deleted_at, m.display_variant_id,
+                NULL AS lqip,
+                COALESCE(v.media_type, m.media_type) AS media_type,
+                COALESCE(v.duration, m.duration) AS duration,
+                COALESCE(v.video_codec, m.video_codec) AS video_codec,
+                COALESCE(v.video_fps, m.video_fps) AS video_fps,
+                v.label, v.preset_name
+            FROM variants v
+            JOIN media m ON m.id = v.media_id
+            WHERE m.deleted_at IS NULL
+              AND ({} = 'all' OR m.display_variant_id = v.id)
+        ) browse
+        ORDER BY {} {}
+        LIMIT ? OFFSET ?",
+        vis_condition, vis_condition, sort_column, order
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
+        Ok(BrowseItem {
+            item_id: row.get(0)?,
+            item_kind: row.get(1)?,
+            media_id: row.get(2)?,
+            variant_id: row.get(3)?,
+            is_display_variant: row.get::<_, i32>(4)? != 0,
+            source_path: row.get(5)?,
+            width: row.get(6)?,
+            height: row.get(7)?,
+            file_size: row.get(8)?,
+            created_at: row.get(9)?,
+            modified_at: row.get(10)?,
+            imported_at: row.get(11)?,
+            source_url: row.get(12)?,
+            page_url: row.get(13)?,
+            source: row.get(14)?,
+            sha256: row.get(15)?,
+            deleted_at: row.get(16)?,
+            display_variant_id: row.get(17)?,
+            lqip: row.get(18)?,
+            media_type: row.get(19)?,
+            duration: row.get(20)?,
+            video_codec: row.get(21)?,
+            video_fps: row.get(22)?,
+            label: row.get(23)?,
+            preset_name: row.get(24)?,
+            thumb_256: None,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+pub fn list_browse_items(
+    app: &AppHandle,
+    sort_by: &str,
+    descending: bool,
+    offset: u32,
+    limit: u32,
+    visibility: &VariantVisibility,
+) -> Result<Vec<BrowseItem>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let mut results =
+        list_browse_items_path(&path, sort_by, descending, offset, limit, visibility)?;
+    resolve_browse_thumb_paths(app, &mut results);
+    Ok(results)
+}
+
+pub fn browse_count_path(
+    db_path: &Path,
+    visibility: &VariantVisibility,
+) -> Result<u32, Box<dyn std::error::Error>> {
+    let conn = Connection::open(db_path)?;
+    let vis_condition = match visibility {
+        VariantVisibility::All => "'all'",
+        VariantVisibility::Representative => "'representative'",
+    };
+    let sql = format!(
+        "SELECT COUNT(*) FROM (
+            SELECT m.id FROM media m
+            WHERE m.deleted_at IS NULL
+              AND ({} = 'all' OR m.display_variant_id IS NULL
+                   OR NOT EXISTS (SELECT 1 FROM variants dv WHERE dv.id = m.display_variant_id))
+            UNION ALL
+            SELECT v.id FROM variants v
+            JOIN media m ON m.id = v.media_id
+            WHERE m.deleted_at IS NULL
+              AND ({} = 'all' OR m.display_variant_id = v.id)
+        )",
+        vis_condition, vis_condition
+    );
+    let count: u32 = conn.query_row(&sql, [], |row| row.get(0))?;
+    Ok(count)
+}
+
+/// Browse query filtered to specific media_ids.
+/// Used by search and collection browsing to expand candidate media into browse items.
+pub fn browse_query_filtered_path(
+    db_path: &Path,
+    media_ids: &[String],
+    sort_by: &str,
+    descending: bool,
+    offset: u32,
+    limit: u32,
+    visibility: &VariantVisibility,
+) -> Result<Vec<BrowseItem>, Box<dyn std::error::Error>> {
+    if media_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let conn = Connection::open(db_path)?;
+
+    let order = if descending { "DESC" } else { "ASC" };
+    let sort_column = match sort_by {
+        "created_at" => "created_at",
+        "modified_at" => "modified_at",
+        "file_size" => "file_size",
+        "width" => "width",
+        "height" => "height",
+        _ => "imported_at",
+    };
+
+    let placeholders: Vec<String> = (0..media_ids.len())
+        .map(|i| format!("?{}", i + 1))
+        .collect();
+    let in_clause = placeholders.join(",");
+
+    let (vis_condition, _representative) = match visibility {
+        VariantVisibility::All => ("'all'", false),
+        VariantVisibility::Representative => ("'representative'", true),
+    };
+
+    let sql = format!(
+        "SELECT * FROM (
+            SELECT
+                m.id AS item_id,
+                'original' AS item_kind,
+                m.id AS media_id,
+                NULL AS variant_id,
+                0 AS is_display_variant,
+                m.source_path, m.width, m.height, m.file_size,
+                m.created_at, m.modified_at, m.imported_at,
+                m.source_url, m.page_url, m.source,
+                m.sha256, m.deleted_at, m.display_variant_id,
+                m.lqip, m.media_type, m.duration, m.video_codec, m.video_fps,
+                NULL AS label, NULL AS preset_name
+            FROM media m
+            WHERE m.deleted_at IS NULL
+              AND m.id IN ({})
+              AND ({} = 'all'
+                   OR m.display_variant_id IS NULL
+                   OR NOT EXISTS (SELECT 1 FROM variants dv WHERE dv.id = m.display_variant_id))
+
+            UNION ALL
+
+            SELECT
+                v.id AS item_id,
+                'variant' AS item_kind,
+                m.id AS media_id,
+                v.id AS variant_id,
+                CASE WHEN m.display_variant_id = v.id THEN 1 ELSE 0 END AS is_display_variant,
+                v.file_path AS source_path,
+                v.width, v.height, v.file_size,
+                v.created_at, NULL AS modified_at, v.created_at AS imported_at,
+                m.source_url, m.page_url, v.source,
+                m.sha256, m.deleted_at, m.display_variant_id,
+                NULL AS lqip,
+                COALESCE(v.media_type, m.media_type) AS media_type,
+                COALESCE(v.duration, m.duration) AS duration,
+                COALESCE(v.video_codec, m.video_codec) AS video_codec,
+                COALESCE(v.video_fps, m.video_fps) AS video_fps,
+                v.label, v.preset_name
+            FROM variants v
+            JOIN media m ON m.id = v.media_id
+            WHERE m.deleted_at IS NULL
+              AND m.id IN ({})
+              AND ({} = 'all' OR m.display_variant_id = v.id)
+        ) browse
+        ORDER BY {} {}
+        LIMIT ? OFFSET ?",
+        in_clause, vis_condition,
+        in_clause, vis_condition,
+        sort_column, order
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let mut param_refs: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    // Bind media_ids twice (once for each subquery)
+    for id in media_ids {
+        param_refs.push(Box::new(id.clone()));
+    }
+    for id in media_ids {
+        param_refs.push(Box::new(id.clone()));
+    }
+    // Bind limit and offset
+    param_refs.push(Box::new(limit as i64));
+    param_refs.push(Box::new(offset as i64));
+
+    let param_slice: Vec<&dyn rusqlite::types::ToSql> = param_refs.iter().map(|p| p.as_ref()).collect();
+    let rows = stmt.query_map(param_slice.as_slice(), |row| {
+        Ok(BrowseItem {
+            item_id: row.get(0)?,
+            item_kind: row.get(1)?,
+            media_id: row.get(2)?,
+            variant_id: row.get(3)?,
+            is_display_variant: row.get::<_, i32>(4)? != 0,
+            source_path: row.get(5)?,
+            width: row.get(6)?,
+            height: row.get(7)?,
+            file_size: row.get(8)?,
+            created_at: row.get(9)?,
+            modified_at: row.get(10)?,
+            imported_at: row.get(11)?,
+            source_url: row.get(12)?,
+            page_url: row.get(13)?,
+            source: row.get(14)?,
+            sha256: row.get(15)?,
+            deleted_at: row.get(16)?,
+            display_variant_id: row.get(17)?,
+            lqip: row.get(18)?,
+            media_type: row.get(19)?,
+            duration: row.get(20)?,
+            video_codec: row.get(21)?,
+            video_fps: row.get(22)?,
+            label: row.get(23)?,
+            preset_name: row.get(24)?,
+            thumb_256: None,
+        })
+    })?;
+
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+pub fn browse_query_filtered(
+    app: &AppHandle,
+    media_ids: &[String],
+    sort_by: &str,
+    descending: bool,
+    offset: u32,
+    limit: u32,
+    visibility: &VariantVisibility,
+) -> Result<Vec<BrowseItem>, Box<dyn std::error::Error>> {
+    let path = db_path(app);
+    let mut results =
+        browse_query_filtered_path(&path, media_ids, sort_by, descending, offset, limit, visibility)?;
+    resolve_browse_thumb_paths(app, &mut results);
+    Ok(results)
+}
+
+pub(crate) fn resolve_browse_thumb_paths(app: &AppHandle, items: &mut [BrowseItem]) {
+    let Ok(app_dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let thumbs_dir = app_dir.join("thumbnails");
+    for item in items {
+        let thumb_id = match item.item_kind.as_str() {
+            "variant" => item.variant_id.as_deref().unwrap_or(&item.media_id),
+            _ => &item.media_id,
+        };
+        item.thumb_256 = Some(
+            thumbs_dir
+                .join(format!("{}_256.jpg", thumb_id))
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
+    }
 }
 
 pub fn list_media_count(app: &AppHandle) -> Result<usize, Box<dyn std::error::Error>> {
@@ -1604,6 +1956,11 @@ pub fn variant_insert(
 
 pub fn variant_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
+    // FK is not enforced (PRAGMA foreign_keys is OFF); manually clear display_variant_id
+    conn.execute(
+        "UPDATE media SET display_variant_id = NULL WHERE display_variant_id = ?1",
+        params![id],
+    )?;
     conn.execute("DELETE FROM variants WHERE id = ?1", params![id])?;
     Ok(())
 }

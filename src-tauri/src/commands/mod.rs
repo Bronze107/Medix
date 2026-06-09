@@ -1,3 +1,4 @@
+mod browse;
 mod caption;
 mod collection;
 mod export;
@@ -9,6 +10,7 @@ mod tag;
 mod thumbnail;
 mod variant;
 
+pub use browse::*;
 pub use caption::*;
 pub use collection::*;
 pub use export::*;

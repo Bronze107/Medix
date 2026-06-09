@@ -1,8 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Media } from "@/types/media";
+import type { BrowseItem } from "@/types/browse";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { mediaListTrash, mediaRecover, mediaPermanentDelete, mediaEmptyTrash } from "@/lib/tauri";
 import Gallery from "@/components/Gallery/Gallery";
+
+function mediaToBrowseItem(m: Media): BrowseItem {
+  return {
+    item_id: m.id, item_kind: "original" as const, media_id: m.id,
+    variant_id: null, is_display_variant: false,
+    source_path: m.source_path, width: m.width, height: m.height,
+    file_size: m.file_size, created_at: m.created_at, modified_at: m.modified_at,
+    imported_at: m.imported_at, source_url: m.source_url, page_url: m.page_url,
+    source: m.source, sha256: m.sha256, deleted_at: m.deleted_at,
+    display_variant_id: m.display_variant_id, thumb_256: m.thumb_256, lqip: m.lqip,
+    media_type: m.media_type, duration: m.duration,
+    video_codec: m.video_codec, video_fps: m.video_fps,
+    label: null, preset_name: null,
+  };
+}
 
 type ConfirmType = "permanent" | "empty" | "batchDelete" | "batchRecover" | null;
 
@@ -62,7 +78,7 @@ function Trash() {
     }
   }, [selected?.id, media]);
 
-  const handleToggleSelect = (_item: Media, index: number, shiftKey: boolean) => {
+  const handleToggleSelect = (_item: BrowseItem, index: number, shiftKey: boolean) => {
     if (shiftKey && lastSelectedIndex !== null) {
       const start = Math.min(lastSelectedIndex, index);
       const end = Math.max(lastSelectedIndex, index);
@@ -75,8 +91,9 @@ function Trash() {
     } else {
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        if (next.has(_item.id)) next.delete(_item.id);
-        else next.add(_item.id);
+        const key = _item.media_id; // Trash uses media id as key
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
         return next;
       });
       setLastSelectedIndex(index);
@@ -214,15 +231,18 @@ function Trash() {
             </div>
           ) : (
             <Gallery
-              media={media}
+              media={media.map(mediaToBrowseItem)}
               selectedId={selected?.id ?? null}
-              onSelect={setSelected}
+              onSelect={(item: BrowseItem) => {
+                const m = media.find(x => x.id === item.media_id);
+                if (m) setSelected(m);
+              }}
               selectedIds={Array.from(selectedIds)}
               onToggleSelect={(item, index, shiftKey) => handleToggleSelect(item, index, shiftKey)}
               onContextMenu={(e, item) => {
                 e.preventDefault();
-                setSelected(item);
-                setCtxMenu({ x: e.clientX, y: e.clientY, media: item });
+                const m = media.find(x => x.id === item.media_id);
+                if (m) { setSelected(m); setCtxMenu({ x: e.clientX, y: e.clientY, media: m }); }
               }}
             />
           )}

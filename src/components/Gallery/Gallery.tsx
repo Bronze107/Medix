@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { Media } from "@/types/media";
+import type { BrowseItem } from "@/types/browse";
 import { useThumbnail, preloadThumbnails } from "@/hooks/useThumbnail";
 
 function formatDuration(seconds: number): string {
@@ -19,24 +19,24 @@ interface GroupInfo {
 }
 
 interface GalleryProps {
-  media: Media[];
+  media: BrowseItem[];
   selectedId: string | null;
-  onSelect: (media: Media) => void;
-  onDoubleClick?: (media: Media) => void;
-  onContextMenu?: (e: React.MouseEvent, media: Media) => void;
+  onSelect: (media: BrowseItem) => void;
+  onDoubleClick?: (media: BrowseItem) => void;
+  onContextMenu?: (e: React.MouseEvent, media: BrowseItem) => void;
   groups?: GroupInfo[];
   selectedIds: string[];
-  onToggleSelect: (media: Media, index: number, shiftKey: boolean) => void;
+  onToggleSelect: (media: BrowseItem, index: number, shiftKey: boolean) => void;
   gap?: number;
   scale?: number;
 }
 
-type MediaRow = { type: "media"; items: Media[]; height: number; startIndex: number };
+type MediaRow = { type: "media"; items: BrowseItem[]; height: number; startIndex: number };
 type GroupRow = { type: "group"; label: string; count: number; height: number };
 type Row = MediaRow | GroupRow;
 
 function computeRows(
-  media: Media[],
+  media: BrowseItem[],
   containerWidth: number,
   gap: number,
   scale: number,
@@ -56,7 +56,7 @@ function computeRows(
       }
     }
 
-    const rowItems: Media[] = [];
+    const rowItems: BrowseItem[] = [];
     let totalRatio = 0;
 
     for (; i < media.length; i++) {
@@ -129,7 +129,7 @@ function Gallery({
 
   // Preload thumbnails in batch when media list changes
   useEffect(() => {
-    const ids = media.map((m) => m.id);
+    const ids = media.map((m) => m.item_id);
     preloadThumbnails(ids);
   }, [media]);
 
@@ -224,11 +224,11 @@ function Gallery({
                   const itemWidth = rowHeight * ratio;
                   const absIndex = row.startIndex + row.items.indexOf(item);
                   return (
-                    <div key={item.id} style={{ width: `${itemWidth}px`, flexShrink: 0 }}>
+                    <div key={item.item_id} style={{ width: `${itemWidth}px`, flexShrink: 0 }}>
                       <ThumbnailCard
                         item={item}
-                        isSelected={item.id === selectedId}
-                        isMultiSelected={selectedIds.includes(item.id)}
+                        isSelected={item.item_id === selectedId}
+                        isMultiSelected={selectedIds.includes(item.item_id)}
                         onClick={() => onSelect(item)}
                         onDoubleClick={onDoubleClick ? () => onDoubleClick(item) : undefined}
                         onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
@@ -257,7 +257,7 @@ function ThumbnailCard({
   onContextMenu,
   onToggleSelect,
 }: {
-  item: Media;
+  item: BrowseItem;
   isSelected: boolean;
   isMultiSelected: boolean;
   onClick: () => void;
@@ -265,7 +265,7 @@ function ThumbnailCard({
   onContextMenu?: (e: React.MouseEvent) => void;
   onToggleSelect: (shiftKey: boolean) => void;
 }) {
-  const thumbUrl = useThumbnail(item.id, item.display_variant_id);
+  const thumbUrl = useThumbnail(item.item_id, item.display_variant_id);
   const [loaded, setLoaded] = useState(false);
 
   return (
@@ -351,9 +351,19 @@ function ThumbnailCard({
         {/* Hover info overlay */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/50 to-transparent pb-2 pt-8 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <p className="truncate px-3 text-[11px] font-medium text-white/90">
-            {item.id.slice(0, 8)}…
+            {item.item_id.slice(0, 8)}…
           </p>
         </div>
+        {/* Kind badge for variants */}
+        {item.item_kind === "variant" && (
+          <div className={`absolute left-2 top-2 z-10 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+            item.is_display_variant
+              ? "bg-[var(--color-accent)]/80 text-white"
+              : "bg-white/20 text-white/90"
+          }`}>
+            {item.is_display_variant ? "展示版本" : (item.label || item.preset_name || "版本")}
+          </div>
+        )}
         {/* Duration badge for video */}
         {item.media_type === "video" && item.duration != null && (
           <div className="absolute right-2 bottom-2 z-10 rounded bg-black/60 px-1.5 py-0.5 text-[11px] tabular-nums text-white">

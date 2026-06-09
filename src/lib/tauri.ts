@@ -7,6 +7,7 @@ import type { Collection } from "@/types/collection";
 import type { LlamaServerStatus, GgufModelList, AutoDetect, EmbeddingInfo } from "@/types/ai";
 import type { SavedFilter } from "@/types/search";
 import type { ExportOptions } from "@/types/export";
+import type { BrowseItem, VariantVisibility } from "@/types/browse";
 
 export function greet(name: string): Promise<string> {
   return invoke("greet", { name });
@@ -23,6 +24,44 @@ export function mediaList(
   limit: number = 500,
 ): Promise<Media[]> {
   return invoke("media_list", { sortBy, descending, offset, limit });
+}
+
+export function browseSearch(
+  query: string,
+  sortBy: string = "imported_at",
+  descending: boolean = true,
+  offset: number = 0,
+  limit: number = 500,
+  variantVisibility: VariantVisibility = "representative",
+): Promise<BrowseItem[]> {
+  return invoke("browse_search", { query, sortBy, descending, offset, limit, variantVisibility });
+}
+
+export function browseListByCollection(
+  collectionId: string,
+  sortBy: string = "imported_at",
+  descending: boolean = true,
+  offset: number = 0,
+  limit: number = 500,
+  variantVisibility: VariantVisibility = "representative",
+): Promise<BrowseItem[]> {
+  return invoke("browse_list_by_collection", { collectionId, sortBy, descending, offset, limit, variantVisibility });
+}
+
+export function browseList(
+  sortBy: string = "imported_at",
+  descending: boolean = true,
+  offset: number = 0,
+  limit: number = 500,
+  variantVisibility: VariantVisibility = "representative",
+): Promise<BrowseItem[]> {
+  return invoke("browse_list", {
+    sortBy,
+    descending,
+    offset,
+    limit,
+    variantVisibility,
+  });
 }
 
 export function mediaThumbnail(id: string): Promise<string> {

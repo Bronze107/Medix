@@ -52,6 +52,7 @@ interface DetailPanelProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onDeleted?: () => void;
+  initialVariantId?: string | null;
 }
 
 function parsePlatform(url: string | null): string | null {
@@ -206,7 +207,7 @@ function MenuThumb({ itemId, filePath }: { itemId: string; filePath?: string }) 
   );
 }
 
-function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPanelProps) {
+function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVariantId }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<"details" | "captions" | "tags">("details");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDeleteVariantConfirm, setShowDeleteVariantConfirm] = useState(false);
@@ -318,6 +319,20 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted }: DetailPa
       setTargetId(null);
     }
   }, [media?.id, loadMediaTags, loadVariants, loadCaptions, loadEmbeddings]);
+
+  // Apply initialVariantId when navigating from browse items (overrides media.display_variant_id)
+  const initialVariantRef = useRef(initialVariantId);
+  useEffect(() => {
+    if (initialVariantId !== undefined && media) {
+      // Only apply when it actually changed (not on every media.id change)
+      const prev = initialVariantRef.current;
+      initialVariantRef.current = initialVariantId;
+      if (prev !== initialVariantId || targetId === null && initialVariantId !== media.display_variant_id) {
+        setTargetId(initialVariantId);
+        setCaptionVariantId(initialVariantId);
+      }
+    }
+  }, [initialVariantId, media?.id]);
 
   // Reload tags when target changes
   useEffect(() => {

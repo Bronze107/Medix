@@ -23,6 +23,10 @@ enum Command {
         /// Sort descending
         #[arg(short = 'D', long, default_value = "true")]
         descending: bool,
+
+        /// Variant visibility: "representative" (default) or "all"
+        #[arg(long = "variants", default_value = "representative")]
+        variants: String,
     },
 
     /// List all media
@@ -34,6 +38,10 @@ enum Command {
         /// Sort descending
         #[arg(short = 'D', long, default_value = "true")]
         descending: bool,
+
+        /// Variant visibility: "representative" (default) or "all"
+        #[arg(long = "variants", default_value = "representative")]
+        variants: String,
     },
 
     /// List all tags
@@ -64,11 +72,22 @@ fn main() {
             query,
             sort,
             descending,
+            variants,
         } => {
+            let visibility = medix::media::VariantVisibility::parse(&variants);
             match search::execute_search_path(&db_path, &query, &sort, descending) {
                 Ok(results) => {
-                    println!("{} results for \"{}\"", results.len(), query);
-                    print_media_list(&results);
+                    let media_ids: Vec<String> = results.iter().map(|m| m.id.clone()).collect();
+                    match db::browse_query_filtered_path(&db_path, &media_ids, &sort, descending, 0, u32::MAX, &visibility) {
+                        Ok(browse_items) => {
+                            println!("{} results for \"{}\"\n", browse_items.len(), query);
+                            print_browse_list(&browse_items);
+                        }
+                        Err(e) => {
+                            eprintln!("Browse expansion error: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
                 Err(e) => {
                     eprintln!("Search error: {}", e);
@@ -76,11 +95,12 @@ fn main() {
                 }
             }
         }
-        Command::List { sort, descending } => {
-            match db::list_media_path(&db_path, &sort, descending, 0, u32::MAX) {
+        Command::List { sort, descending, variants } => {
+            let visibility = medix::media::VariantVisibility::parse(&variants);
+            match db::list_browse_items_path(&db_path, &sort, descending, 0, u32::MAX, &visibility) {
                 Ok(results) => {
-                    println!("{} media\n", results.len());
-                    print_media_list(&results);
+                    println!("{} items\n", results.len());
+                    print_browse_list(&results);
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -164,6 +184,36 @@ fn format_size(bytes: Option<i64>) -> String {
         Some(b) if b < 1024 => format!("{} B", b),
         Some(b) if b < 1024 * 1024 => format!("{:.1} KB", b as f64 / 1024.0),
         Some(b) => format!("{:.1} MB", b as f64 / (1024.0 * 1024.0)),
+    }
+}
+
+fn print_browse_list(items: &[medix::media::BrowseItem]) {
+    if items.is_empty() {
+        println!("  (empty)");
+        return;
+    }
+    println!(
+        "{:<10} {:<10} {:>10} {:>10} {:<12} {}",
+        "ID", "KIND", "DIMENSIONS", "SIZE", "DATE", "PATH"
+    );
+    println!("{}", "-".repeat(80));
+    for item in items {
+        let kind = if item.item_kind == "variant" {
+            if item.is_display_variant { "display" } else { "variant" }
+        } else {
+            "original"
+        };
+        let dims = match (item.width, item.height) {
+            (Some(w), Some(h)) => format!("{}x{}", w, h),
+            _ => "—".to_string(),
+        };
+        let short_id: String = item.item_id.chars().take(8).collect();
+        let date = item.imported_at.chars().take(10).collect::<String>();
+        let path = item.source_path.as_deref().unwrap_or("—");
+        println!(
+            "{:<10} {:<10} {:>10} {:>10} {:<12} {}",
+            short_id, kind, dims, format_size(item.file_size), date, path,
+        );
     }
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { Media } from "@/types/media";
+import type { BrowseItem } from "@/types/browse";
 import { useThumbnail, preloadThumbnails } from "@/hooks/useThumbnail";
 
 function formatDuration(seconds: number): string {
@@ -21,19 +21,19 @@ interface GroupInfo {
 }
 
 interface TableViewProps {
-  media: Media[];
+  media: BrowseItem[];
   selectedId: string | null;
-  onSelect: (media: Media) => void;
-  onDoubleClick?: (media: Media) => void;
-  onContextMenu?: (e: React.MouseEvent, media: Media) => void;
+  onSelect: (media: BrowseItem) => void;
+  onDoubleClick?: (media: BrowseItem) => void;
+  onContextMenu?: (e: React.MouseEvent, media: BrowseItem) => void;
   groups?: GroupInfo[];
   sortBy: SortField;
   descending: boolean;
   onSortChange: (field: SortField) => void;
   selectedIds: string[];
-  onToggleSelect: (media: Media, index: number, shiftKey: boolean) => void;
-  onAddToCollection?: (media: Media) => void;
-  onDelete?: (media: Media) => void;
+  onToggleSelect: (media: BrowseItem, index: number, shiftKey: boolean) => void;
+  onAddToCollection?: (media: BrowseItem) => void;
+  onDelete?: (media: BrowseItem) => void;
 }
 
 function formatFileSize(bytes: number | null): string {
@@ -61,7 +61,7 @@ function TableView({
 
   // Preload thumbnails in batch when media list changes
   useEffect(() => {
-    const ids = media.map((m) => m.id);
+    const ids = media.map((m) => m.item_id);
     preloadThumbnails(ids);
   }, [media]);
 
@@ -148,10 +148,10 @@ function TableView({
 
           return (
             <TableRow
-              key={item.id}
+              key={item.item_id}
               item={item}
-              isSelected={item.id === selectedId}
-              isMultiSelected={selectedIds.includes(item.id)}
+              isSelected={item.item_id === selectedId}
+              isMultiSelected={selectedIds.includes(item.item_id)}
               onClick={() => onSelect(item)}
               onDoubleClick={
                 onDoubleClick ? () => onDoubleClick(item) : undefined
@@ -188,7 +188,7 @@ function TableRow({
   onDelete,
   style,
 }: {
-  item: Media;
+  item: BrowseItem;
   isSelected: boolean;
   isMultiSelected: boolean;
   onClick: () => void;
@@ -199,7 +199,7 @@ function TableRow({
   onDelete?: () => void;
   style: React.CSSProperties;
 }) {
-  const thumbUrl = useThumbnail(item.id, item.display_variant_id);
+  const thumbUrl = useThumbnail(item.item_id, item.display_variant_id);
 
   return (
     <div
@@ -262,8 +262,19 @@ function TableRow({
       {/* File info */}
       <div className="flex-1 min-w-0">
         <p className="truncate text-xs text-[var(--color-text-secondary)]">
-          {item.id.slice(0, 8)}
+          {item.item_id.slice(0, 8)}
         </p>
+      </div>
+
+      {/* Kind */}
+      <div className="w-14 text-center text-[11px]">
+        {item.item_kind === "variant" ? (
+          <span className={item.is_display_variant ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)]"}>
+            {item.is_display_variant ? "展示" : "版本"}
+          </span>
+        ) : (
+          <span className="text-[var(--color-text-muted)]/40">原图</span>
+        )}
       </div>
 
       {/* Dimensions */}

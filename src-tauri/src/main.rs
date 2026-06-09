@@ -19,7 +19,7 @@ use ai::imagine::queue::{
 };
 
 use commands::{
-    ai_pending_count, auto_detect, caption_create, caption_create_batch,
+    ai_pending_count, auto_detect, browse_list, browse_list_by_collection, browse_search, caption_create, caption_create_batch,
     caption_create_for_variant, caption_delete, caption_list, caption_update,
     collection_add_batch, collection_add_item, collection_create, collection_delete,
     collection_first_media_id, collection_get, collection_get_item_ids, collection_list,
@@ -161,6 +161,9 @@ fn main() {
             image_queue_import,
             image_queue_discard,
             image_queue_dismiss,
+            browse_list,
+            browse_search,
+            browse_list_by_collection,
             media_import,
             media_list,
             media_list_trash,
