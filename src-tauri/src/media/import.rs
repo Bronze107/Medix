@@ -81,55 +81,43 @@ pub fn import_files(
     }
 
     let total = file_paths.len();
-    let mut results: Vec<MediaImportResult> = Vec::with_capacity(total);
-
-    println!("[import::batch] starting {} files...", total);
+    println!("[import::batch] starting {} files (rayon pool)...", total);
     let t_batch = std::time::Instant::now();
 
-    // Process files in parallel batches — 4 concurrent workers for I/O + CPU overlap
-    let concurrency = 4usize;
-    let chunks: Vec<Vec<String>> = file_paths
-        .chunks(concurrency)
-        .map(|c| c.iter().map(|s| s.clone()).collect())
-        .collect();
+    // Rayon work-stealing pool — no thread waits for a slow batch-mate.
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let counter = AtomicUsize::new(0);
 
-    for (chunk_idx, chunk) in chunks.iter().enumerate() {
-        let mut chunk_results: Vec<MediaImportResult> = Vec::with_capacity(chunk.len());
-        std::thread::scope(|s| {
-            let handles: Vec<_> = chunk.iter().map(|path_str| {
-                s.spawn(|| {
-                    let path = Path::new(path_str);
-                    let ext = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .map(|e| e.to_lowercase())
-                        .unwrap_or_default();
-                    let is_video = super::video_metadata::VIDEO_EXTENSIONS.contains(&ext.as_str());
-                    let result = if is_video {
-                        super::video_import::import_single_video(app, path, &library_dir)
-                    } else {
-                        import_single_file(app, path, &library_dir)
-                    };
-                    let filename = path.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("")
-                        .to_string();
-                    (result, filename)
-                })
-            }).collect();
-            for handle in handles {
-                let (result, filename) = handle.join().unwrap();
-                let idx = results.len() + chunk_results.len();
-                let _ = app.emit("import-progress", serde_json::json!({
-                    "current": idx + 1,
-                    "total": total,
-                    "filename": filename,
-                }));
-                chunk_results.push(result);
-            }
-        });
-        results.extend(chunk_results);
-    }
+    let results: Vec<MediaImportResult> = file_paths
+        .par_iter()
+        .map(|path_str| {
+            let path = Path::new(path_str);
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase())
+                .unwrap_or_default();
+            let is_video = super::video_metadata::VIDEO_EXTENSIONS.contains(&ext.as_str());
+            let result = if is_video {
+                super::video_import::import_single_video(app, path, &library_dir)
+            } else {
+                import_single_file(app, path, &library_dir)
+            };
+            let filename = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+            let idx = counter.fetch_add(1, Ordering::Relaxed);
+            let _ = app.emit("import-progress", serde_json::json!({
+                "current": idx + 1,
+                "total": total,
+                "filename": filename,
+            }));
+            result
+        })
+        .collect();
 
     println!(
         "[import::batch] done {} files in {}ms ({:.1}s)",
@@ -312,7 +300,7 @@ fn import_single_file(
     }
     let dedup_ms = t_dedup.elapsed().as_millis();
 
-    // Step 4: Decode image once — shared across dimensions, pHash, and thumbnails
+    // Step 4: Decode image (image 0.25 uses zune-jpeg internally for JPEG)
     let t_decode = Instant::now();
     let img = match image::open(&dest_path) {
         Ok(i) => i,
