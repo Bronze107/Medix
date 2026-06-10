@@ -176,6 +176,8 @@ async fn process_generate_caption(
             let (fw, fh) = (full.width(), full.height());
             (full, fw, fh)
         };
+        // Reset: DCT decode was already logged. Only time pixel-domain steps below.
+        let t_pixel = Instant::now();
 
         let long_side = w.max(h);
         if long_side > max_dim {
@@ -199,7 +201,7 @@ async fn process_generate_caption(
             inference_path_ref = &inference_path;
             println!(
                 "[ai] resized {}x{} → {}x{} for inference ({}ms)",
-                w, h, new_w, new_h, t_resize.elapsed().as_millis()
+                w, h, new_w, new_h, t_pixel.elapsed().as_millis()
             );
         } else if is_jpeg {
             // DCT image already within max_dim, encode to temp file for VLM
