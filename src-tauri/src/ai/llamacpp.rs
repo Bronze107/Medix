@@ -190,7 +190,8 @@ impl Default for SamplingParams {
 }
 
 /// Build a base64 data URL from an image file path.
-async fn image_to_data_url(image_path: &Path) -> Result<String, AiError> {
+async fn image_to_data_url(image_path: &Path) -> Result<(String, u128), AiError> {
+    let t = std::time::Instant::now();
     let image_bytes = tokio::fs::read(image_path).await?;
     let image_b64 =
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image_bytes);
@@ -206,7 +207,8 @@ async fn image_to_data_url(image_path: &Path) -> Result<String, AiError> {
         "bmp" => "image/bmp",
         _ => "image/jpeg",
     };
-    Ok(format!("data:{};base64,{}", mime, image_b64))
+    let ms = t.elapsed().as_millis();
+    Ok((format!("data:{};base64,{}", mime, image_b64), ms))
 }
 
 /// Shared helper: send a ChatCompletionRequest with retry and parse the response.
@@ -236,11 +238,14 @@ async fn chat_completion(
     let max_attempts = 2;
     let mut last_error = AiError::EmptyResponse;
     for attempt in 1..=max_attempts {
+        let t_req = std::time::Instant::now();
         let resp = SHARED_CLIENT
             .post(format!("http://127.0.0.1:{}/v1/chat/completions", port))
             .json(&req_body)
             .send()
             .await?;
+        let http_ms = t_req.elapsed().as_millis();
+        println!("[ai] HTTP POST /v1/chat/completions {}ms (attempt {})", http_ms, attempt);
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
@@ -279,7 +284,8 @@ pub async fn generate_caption(
     sampling: &SamplingParams,
 ) -> Result<AiResult, AiError> {
     let prompt_text = custom_prompt.unwrap_or(CAPTION_PROMPT);
-    let data_url = image_to_data_url(image_path).await?;
+    let (data_url, b64_ms) = image_to_data_url(image_path).await?;
+    println!("[ai] base64 encode {}ms (file: {})", b64_ms, image_path.file_name().and_then(|n| n.to_str()).unwrap_or("?"));
 
     let mut user_content: Vec<ContentPart> = Vec::new();
     if let Some(text) = user_text {
@@ -343,7 +349,7 @@ pub async fn generate_caption_multi_image(
                 image_url: None,
             });
         }
-        let data_url = image_to_data_url(image_path).await?;
+        let (data_url, _b64_ms) = image_to_data_url(image_path).await?;
         content_parts.push(ContentPart {
             content_type: "image_url".to_string(),
             text: None,
@@ -392,11 +398,14 @@ pub async fn embed_text(text: &str, model: &str, port: u16) -> Result<Vec<f32>, 
         input: text.to_string(),
     };
 
+    let t = std::time::Instant::now();
     let resp = SHARED_CLIENT
         .post(format!("http://127.0.0.1:{}/v1/embeddings", port))
         .json(&req_body)
         .send()
         .await?;
+    let http_ms = t.elapsed().as_millis();
+    println!("[ai] embedding HTTP {}ms", http_ms);
 
     if !resp.status().is_success() {
         let text = resp.text().await.unwrap_or_default();

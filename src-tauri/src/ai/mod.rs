@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub enum AiTask {
@@ -103,6 +104,7 @@ async fn process_generate_caption(
     image_path: PathBuf,
     variant_id: Option<String>,
 ) -> Result<(), String> {
+    let t_total = Instant::now();
     let ai_mode = crate::settings::get_ai_mode(&app);
 
     if ai_mode == "cloud" {
@@ -113,6 +115,7 @@ async fn process_generate_caption(
     let port = crate::settings::get_llama_port(&app);
 
     // Check llama-server is running
+    let t_health = Instant::now();
     let server = app.state::<LlamaServer>();
     if !server.health_check(port).await {
         if ai_mode == "local" {
@@ -128,6 +131,7 @@ async fn process_generate_caption(
         }
         return Ok(());
     }
+    let health_ms = t_health.elapsed().as_millis();
 
     let model = crate::settings::get_llama_model(&app);
     if model.is_empty() {
@@ -138,6 +142,7 @@ async fn process_generate_caption(
     println!("[ai] generating caption for {}...", media_id);
 
     // Resize image if max dim is configured
+    let t_resize = Instant::now();
     let inference_path: PathBuf;
     let inference_path_ref: &PathBuf;
     let max_dim = crate::settings::get_llama_max_image_dim(&app);
@@ -166,8 +171,8 @@ async fn process_generate_caption(
             inference_path = tmp;
             inference_path_ref = &inference_path;
             println!(
-                "[ai] resized {}x{} → {}x{} for inference",
-                w, h, new_w, new_h
+                "[ai] resized {}x{} → {}x{} for inference ({}ms)",
+                w, h, new_w, new_h, t_resize.elapsed().as_millis()
             );
         } else {
             inference_path_ref = &image_path;
@@ -175,6 +180,7 @@ async fn process_generate_caption(
     } else {
         inference_path_ref = &image_path;
     }
+    let resize_ms = t_resize.elapsed().as_millis();
 
     let custom_prompt = crate::settings::get_ai_custom_prompt(&app);
     let language = crate::settings::get_ai_language(&app);
@@ -187,6 +193,8 @@ async fn process_generate_caption(
         max_tokens: crate::settings::get_llama_max_tokens(&app),
         seed: crate::settings::get_llama_seed(&app),
     };
+
+    let t_infer = Instant::now();
     let result = generate_caption(
         inference_path_ref,
         &model,
@@ -198,15 +206,16 @@ async fn process_generate_caption(
         eprintln!("[ai] caption generation failed for {}: {}", media_id, e);
         e.to_string()
     })?;
+    let infer_ms = t_infer.elapsed().as_millis();
+    println!("[ai] inference took {}ms for {}", infer_ms, media_id);
 
     // Bilingual mode: call VLM twice — EN then ZH.
-    // Two separate calls are more reliable than a single bilingual prompt
-    // (many models ignore structured [EN]/[ZH]/TAGS: format instructions).
     if language == crate::settings::AiLanguage::Bilingual {
         let prompt_en = resolve_prompt(crate::settings::AiLanguage::English, None);
         let prompt_zh = resolve_prompt(crate::settings::AiLanguage::Chinese, None);
 
         // English call
+        let t_en = Instant::now();
         let result_en = generate_caption(
             inference_path_ref, &model, port,
             Some(&prompt_en), None, &sampling,
@@ -214,39 +223,50 @@ async fn process_generate_caption(
             eprintln!("[ai] EN caption failed for {}: {}", media_id, e);
             e.to_string()
         })?;
+        let en_ms = t_en.elapsed().as_millis();
 
         // Store EN caption
+        let t_store_en = Instant::now();
         if let Some(ref variant_id) = variant_id {
             let _ = crate::db::caption_create_for_variant(&app, &media_id, variant_id, &result_en.caption, Some("ai_en"));
         } else {
             let _ = crate::db::caption_create_with_source(&app, &media_id, &result_en.caption, Some("ai_en"));
         }
-        println!("[ai] EN caption stored for {}: {}... ({} tags)",
+        let store_en_ms = t_store_en.elapsed().as_millis();
+        println!("[ai] EN caption stored for {}: {}... ({} tags) | EN infer={}ms store={}ms",
             media_id,
             result_en.caption.chars().take(40).collect::<String>(),
-            result_en.tags.len());
+            result_en.tags.len(), en_ms, store_en_ms);
 
         // Chinese call
+        let t_zh = Instant::now();
+        let zh_infer_ms;
         match generate_caption(
             inference_path_ref, &model, port,
             Some(&prompt_zh), None, &sampling,
         ).await {
             Ok(result_zh) => {
+                zh_infer_ms = t_zh.elapsed().as_millis();
+                let t_store_zh = Instant::now();
                 if let Some(ref variant_id) = variant_id {
                     let _ = crate::db::caption_create_for_variant(&app, &media_id, variant_id, &result_zh.caption, Some("ai_zh"));
                 } else {
                     let _ = crate::db::caption_create_with_source(&app, &media_id, &result_zh.caption, Some("ai_zh"));
                 }
-                println!("[ai] ZH caption stored for {}: {}...",
+                let store_zh_ms = t_store_zh.elapsed().as_millis();
+                println!("[ai] ZH caption stored for {}: {}... | ZH infer={}ms store={}ms",
                     media_id,
-                    result_zh.caption.chars().take(40).collect::<String>());
+                    result_zh.caption.chars().take(40).collect::<String>(),
+                    zh_infer_ms, store_zh_ms);
             }
             Err(e) => {
-                eprintln!("[ai] ZH caption failed for {}: {}", media_id, e);
+                zh_infer_ms = t_zh.elapsed().as_millis();
+                eprintln!("[ai] ZH caption failed for {}: {} | failed after {}ms", media_id, e, zh_infer_ms);
             }
         }
 
         // Store tags from English result
+        let t_tags = Instant::now();
         let mut all_tags = crate::db::tag_list(&app).map_err(|e| e.to_string())?;
         for tag_name in &result_en.tags {
             let tag_id = match ensure_tag_cached(&app, &mut all_tags, tag_name) {
@@ -266,11 +286,20 @@ async fn process_generate_caption(
                 eprintln!("[ai] failed to add tag '{}': {}", tag_name, e);
             }
         }
+        let tags_ms = t_tags.elapsed().as_millis();
 
         // Generate embedding for EN caption
+        let t_emb = Instant::now();
         if !result_en.caption.is_empty() {
             generate_caption_embedding(&app, &media_id, &result_en.caption, variant_id.as_deref()).await;
         }
+        let emb_ms = t_emb.elapsed().as_millis();
+
+        println!(
+            "[ai] {} done in {}ms | health={}ms resize={}ms infer_en={}ms infer_zh={}ms tags={}ms emb={}ms",
+            media_id, t_total.elapsed().as_millis(),
+            health_ms, resize_ms, en_ms, zh_infer_ms, tags_ms, emb_ms
+        );
 
         return Ok(());
     }
@@ -283,6 +312,7 @@ async fn process_generate_caption(
     );
 
     // Store caption with source='ai'
+    let t_store = Instant::now();
     if let Some(ref variant_id) = variant_id {
         crate::db::caption_create_for_variant(&app, &media_id, variant_id, &result.caption, Some("ai"))
             .map_err(|e| e.to_string())?;
@@ -290,9 +320,10 @@ async fn process_generate_caption(
         crate::db::caption_create_with_source(&app, &media_id, &result.caption, Some("ai"))
             .map_err(|e| e.to_string())?;
     }
+    let store_ms = t_store.elapsed().as_millis();
 
-    // Load all existing tags once, then do in-memory lookups per tag.
-    // Saves ~10-15 `SELECT * FROM tags` round trips per image.
+    // Tags
+    let t_tags = Instant::now();
     let mut all_tags = crate::db::tag_list(&app).map_err(|e| e.to_string())?;
     for tag_name in &result.tags {
         let tag_id = match ensure_tag_cached(&app, &mut all_tags, tag_name) {
@@ -314,11 +345,18 @@ async fn process_generate_caption(
             eprintln!("[ai] failed to add tag '{}': {}", tag_name, e);
         }
     }
+    let tags_ms = t_tags.elapsed().as_millis();
 
-    // Generate caption embedding via dedicated embedding server
+    // Embedding
+    let t_emb = Instant::now();
     if !result.caption.is_empty() {
         generate_caption_embedding(&app, &media_id, &result.caption, variant_id.as_deref()).await;
     }
+    let emb_ms = t_emb.elapsed().as_millis();
+
+    println!("[ai] {} done in {}ms | health={}ms resize={}ms infer={}ms store={}ms tags={}ms emb={}ms",
+        media_id, t_total.elapsed().as_millis(),
+        health_ms, resize_ms, infer_ms, store_ms, tags_ms, emb_ms);
 
     println!("[ai] completed processing {}", media_id);
     // Clean up temp inference file (if any)
