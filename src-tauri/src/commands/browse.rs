@@ -159,16 +159,38 @@ pub async fn browse_search(
         &app, &media_ids, &sort_by, descending, 0, u32::MAX, &VariantVisibility::All,
     ).map_err(|e| e.to_string())?;
 
-    // Sort and filter by item-level semantic score when available
+    // Item-level semantic ranking: sort by own embedding score,
+    // drop items whose score is far below their media group's top scorer.
     if let Some(ref scores) = item_semantic_scores {
+        eprintln!("[search] item-level scores map has {} entries", scores.len());
+        let item_score: HashMap<String, f64> = items.iter().map(|it| {
+            let key = (it.media_id.clone(), it.variant_id.clone());
+            let s = scores.get(&key).copied().unwrap_or(0.0);
+            eprintln!("[search]   item={} media={} vid={:?} score={:.4}",
+                &it.item_id[..8.min(it.item_id.len())], &it.media_id[..8], it.variant_id.as_deref().map(|v| &v[..8]), s);
+            (it.item_id.clone(), s)
+        }).collect();
+        let mut group_max: HashMap<String, f64> = HashMap::new();
+        for it in items.iter() {
+            let s = item_score[&it.item_id];
+            let e = group_max.entry(it.media_id.clone()).or_insert(0.0);
+            *e = (*e).max(s);
+        }
+        items.retain(|it| {
+            let s = item_score.get(&it.item_id).copied().unwrap_or(0.0);
+            let max = group_max.get(&it.media_id).copied().unwrap_or(0.0);
+            let keep = max == 0.0 || s >= max * 0.5;
+            if !keep {
+                eprintln!("[search]   DROP item={} (score={:.4} < max*0.5={:.4})",
+                    &it.item_id[..8.min(it.item_id.len())], s, max * 0.5);
+            }
+            keep
+        });
         items.sort_by(|a, b| {
-            let sa = scores.get(&(a.media_id.clone(), a.variant_id.clone())).copied().unwrap_or(0.0);
-            let sb = scores.get(&(b.media_id.clone(), b.variant_id.clone())).copied().unwrap_or(0.0);
+            let sa = item_score.get(&a.item_id).copied().unwrap_or(0.0);
+            let sb = item_score.get(&b.item_id).copied().unwrap_or(0.0);
             sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
         });
-        // Drop items without a semantic match — they were only included because
-        // their parent media got a high score from a co-located variant/original.
-        items.retain(|it| scores.contains_key(&(it.media_id.clone(), it.variant_id.clone())));
     }
 
     // Step 1: item-level tag filter — only keep items that directly have the searched tags
