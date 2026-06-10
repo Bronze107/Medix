@@ -2,6 +2,7 @@ use sha2::{Sha256, Digest};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
 use ulid::Ulid;
 
@@ -82,6 +83,9 @@ pub fn import_files(
     let total = file_paths.len();
     let mut results: Vec<MediaImportResult> = Vec::with_capacity(total);
 
+    println!("[import::batch] starting {} files...", total);
+    let t_batch = std::time::Instant::now();
+
     // Process files in parallel batches — 4 concurrent workers for I/O + CPU overlap
     let concurrency = 4usize;
     let chunks: Vec<Vec<String>> = file_paths
@@ -126,6 +130,13 @@ pub fn import_files(
         });
         results.extend(chunk_results);
     }
+
+    println!(
+        "[import::batch] done {} files in {}ms ({:.1}s)",
+        total,
+        t_batch.elapsed().as_millis(),
+        t_batch.elapsed().as_secs_f32()
+    );
 
     Ok(results)
 }
@@ -176,7 +187,13 @@ fn import_single_file(
     source_path: &Path,
     library_dir: &Path,
 ) -> MediaImportResult {
+    let t_total = Instant::now();
     let path_str = source_path.to_string_lossy().to_string();
+    let fname = source_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
 
     if !source_path.exists() {
         return MediaImportResult {
@@ -190,6 +207,7 @@ fn import_single_file(
     let id = Ulid::new().to_string();
 
     // Step 1: Open source and read first 64KB for magic-byte detection + EXIF + hashing
+    let t_copy = Instant::now();
     let source_file = match fs::File::open(source_path) {
         Ok(f) => f,
         Err(e) => {
@@ -275,8 +293,10 @@ fn import_single_file(
     }
 
     let sha256 = Some(hashing_reader.finalize());
+    let copy_ms = t_copy.elapsed().as_millis();
 
     // Step 3: Dedup check
+    let t_dedup = Instant::now();
     if let Some(ref hash) = sha256 {
         match crate::db::media_get_by_sha256(app, hash) {
             Ok(Some(existing)) => {
@@ -290,8 +310,10 @@ fn import_single_file(
             _ => {}
         }
     }
+    let dedup_ms = t_dedup.elapsed().as_millis();
 
     // Step 4: Decode image once — shared across dimensions, pHash, and thumbnails
+    let t_decode = Instant::now();
     let img = match image::open(&dest_path) {
         Ok(i) => i,
         Err(e) => {
@@ -301,9 +323,25 @@ fn import_single_file(
             };
         }
     };
+    let decode_ms = t_decode.elapsed().as_millis();
 
     let width = img.width() as i32;
     let height = img.height() as i32;
+
+    // Downscale to work copy for CPU-heavy ops (pHash/thumbnail/LQIP).
+    // Nearest-neighbor from 8000px→512px is near-instant and makes Lanczos3
+    // operations on the full 50MP image unnecessary — saving 40-70s per image.
+    let max_dim = 512u32;
+    let img_work = if img.width() > max_dim || img.height() > max_dim {
+        let t = Instant::now();
+        let small = img.resize(max_dim, max_dim, image::imageops::FilterType::Nearest);
+        println!("[import] {} downscale {}x{} -> {}x{} in {}ms",
+            fname, img.width(), img.height(), small.width(), small.height(), t.elapsed().as_millis());
+        small
+    } else {
+        img
+    };
+
     let canonical_file_size = match fs::metadata(&dest_path) {
         Ok(m) => m.len() as i64,
         Err(_) => 0,
@@ -311,17 +349,23 @@ fn import_single_file(
     let file_size = Some(canonical_file_size);
 
     // Step 5: EXIF from buffered first chunk
+    let t_exif = Instant::now();
     let (created_at, modified_at) = read_exif_from_bytes(&first_chunk);
+    let exif_ms = t_exif.elapsed().as_millis();
 
-    // Step 6: pHash from shared image
-    let phash = super::phash::compute_phash_from_image(&img)
+    // Step 6: pHash from work copy (tiny → near-instant)
+    let t_phash = Instant::now();
+    let phash = super::phash::compute_phash_from_image(&img_work)
         .map(|h| h.to_le_bytes().to_vec());
+    let phash_ms = t_phash.elapsed().as_millis();
 
     // Step 6.5: LQIP placeholder (20px base64, ~300 bytes)
+    let t_lqip = Instant::now();
     let lqip = {
-        let data_url = super::thumbnail::generate_lqip(&img);
+        let data_url = super::thumbnail::generate_lqip(&img_work);
         if data_url.is_empty() { None } else { Some(data_url) }
     };
+    let lqip_ms = t_lqip.elapsed().as_millis();
 
     let media = Media {
         id: id.clone(),
@@ -347,6 +391,7 @@ fn import_single_file(
         video_fps: None,
     };
 
+    let t_db = Instant::now();
     if let Err(e) = db::insert_media(app, &media) {
         let _ = fs::remove_file(&dest_path);
         return MediaImportResult {
@@ -356,21 +401,33 @@ fn import_single_file(
             error: Some(format!("Database error: {}", e)),
         };
     }
+    let db_ms = t_db.elapsed().as_millis();
 
-    // Step 7: Generate thumbnails from the shared image
-    // (we're already in an OS thread from std::thread::scope, so call directly)
-    if let Err(e) = super::thumbnail::generate_thumbnails_from_image(app, &id, &img) {
+    // Step 7: Generate thumbnails from the work copy (already ≤512px → near-instant)
+    let t_thumb = Instant::now();
+    if let Err(e) = super::thumbnail::generate_thumbnails_from_image(app, &id, &img_work) {
         eprintln!("[thumbnail] failed to generate thumbnails for {}: {}", id, e);
     }
+    let thumb_ms = t_thumb.elapsed().as_millis();
 
     // Step 8: Trigger AI caption generation
     // AiQueue uses std::sync::mpsc — safe to call from any thread
+    let t_ai = Instant::now();
     let queue = app.state::<crate::ai::AiQueue>();
     let _ = queue.send(crate::ai::AiTask::GenerateCaption {
         media_id: id.clone(),
         image_path: dest_path.clone(),
         variant_id: None,
     });
+    let ai_ms = t_ai.elapsed().as_millis();
+
+    let total_ms = t_total.elapsed().as_millis();
+
+    println!(
+        "[import] {} | total={}ms copy={}ms decode={}ms thumb={}ms phash={}ms db={}ms lqip={}ms exif={}ms dedup={}ms ai_enq={}ms | {}x{} {:?}",
+        fname, total_ms, copy_ms, decode_ms, thumb_ms, phash_ms, db_ms, lqip_ms, exif_ms, dedup_ms, ai_ms,
+        width, height, file_size
+    );
 
     MediaImportResult {
         id,
