@@ -419,24 +419,38 @@ pub async fn embed_text(text: &str, model: &str, port: u16) -> Result<Vec<f32>, 
         .ok_or(AiError::EmptyResponse)
 }
 
-fn parse_caption_response(text: &str) -> (String, Vec<String>) {
-    // Caption = everything before the first "TAGS:" marker (case-insensitive).
+/// Find the earliest "TAG:" or "TAGS:" marker (case-insensitive).
+/// Returns (byte_index, marker_len) — marker_len is 4 for "TAG:" and 5 for "TAGS:".
+/// When both match at the same position (TAG: is a prefix of TAGS:), prefers TAGS:.
+fn find_tag_marker(text: &str) -> Option<(usize, usize)> {
     let upper = text.to_uppercase();
-    let first_tags_idx = upper.find("TAGS:");
+    let idx_tags = upper.find("TAGS:");
+    let idx_tag = upper.find("TAG:");
+    match (idx_tag, idx_tags) {
+        (Some(t), Some(ts)) if t < ts => Some((t, 4)),
+        (_, Some(ts)) => Some((ts, 5)),
+        (Some(t), None) => Some((t, 4)),
+        (None, None) => None,
+    }
+}
 
-    let caption = match first_tags_idx {
-        Some(idx) => text[..idx].trim().to_string(),
+fn parse_caption_response(text: &str) -> (String, Vec<String>) {
+    // Caption = everything before the first "TAG:" or "TAGS:" marker (case-insensitive).
+    let first_marker = find_tag_marker(text);
+
+    let caption = match first_marker {
+        Some((idx, _)) => text[..idx].trim().to_string(),
         None => text.to_string(),
     };
 
-    // Collect tags from ALL "TAGS:" lines, not just the first.
-    // Multi-frame mode may produce per-frame output with multiple TAGS lines.
+    // Collect tags from ALL "TAG:" / "TAGS:" lines, not just the first.
+    // Multi-frame mode may produce per-frame output with multiple TAG(S) lines.
     let mut tags = Vec::new();
-    let mut remaining = &text[first_tags_idx.unwrap_or(text.len())..];
-    while let Some(idx) = remaining.to_uppercase().find("TAGS:") {
-        let tags_part = &remaining[idx + 5..];
-        // Take until the next "TAGS:" or end of string
-        let end = tags_part.to_uppercase().find("TAGS:").unwrap_or(tags_part.len());
+    let mut remaining = &text[first_marker.map(|(idx, _)| idx).unwrap_or(text.len())..];
+    while let Some((idx, marker_len)) = find_tag_marker(remaining) {
+        let tags_part = &remaining[idx + marker_len..];
+        // Take until the next marker or end of string
+        let end = find_tag_marker(tags_part).map(|(i, _)| i).unwrap_or(tags_part.len());
         let segment = &tags_part[..end];
         for tag in segment.split([',', '\n']) {
             let t = tag.trim().to_lowercase();
