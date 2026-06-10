@@ -7,6 +7,7 @@ pub use embedding::EmbeddingServer;
 pub use llamacpp::{embed_text, generate_caption, generate_caption_multi_image, resolve_prompt, SamplingParams};
 pub use server::LlamaServer;
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
@@ -142,14 +143,40 @@ async fn process_generate_caption(
     println!("[ai] generating caption for {}...", media_id);
 
     // Resize image if max dim is configured
+    // JPEG images use DCT-domain scaling (1/8 1/4 1/2) to avoid full 50MP decode.
     let t_resize = Instant::now();
     let inference_path: PathBuf;
-    let inference_path_ref: &PathBuf;
+    let inference_path_ref: &Path;
     let max_dim = crate::settings::get_llama_max_image_dim(&app);
     if max_dim > 0 {
-        let img = image::open(&image_path)
-            .map_err(|e| format!("failed to open image for resize: {}", e))?;
-        let (w, h) = (img.width(), img.height());
+        let mut magic = [0u8; 3];
+        let is_jpeg = std::fs::File::open(&image_path)
+            .ok()
+            .and_then(|mut f| f.read_exact(&mut magic).ok())
+            .is_some()
+            && is_jpeg(&magic);
+
+        let (img, w, h) = if is_jpeg {
+            match decode_jpeg_fast(&image_path, max_dim) {
+                Ok((dct_img, _)) => {
+                    let (iw, ih) = (dct_img.width(), dct_img.height());
+                    (dct_img, iw, ih)
+                }
+                Err(e) => {
+                    eprintln!("[ai] DCT decode failed, falling back to full decode: {}", e);
+                    let full = image::open(&image_path)
+                        .map_err(|e| format!("failed to open image: {}", e))?;
+                    let (fw, fh) = (full.width(), full.height());
+                    (full, fw, fh)
+                }
+            }
+        } else {
+            let full = image::open(&image_path)
+                .map_err(|e| format!("failed to open image: {}", e))?;
+            let (fw, fh) = (full.width(), full.height());
+            (full, fw, fh)
+        };
+
         let long_side = w.max(h);
         if long_side > max_dim {
             let ratio = max_dim as f64 / long_side as f64;
@@ -158,7 +185,7 @@ async fn process_generate_caption(
             let resized = img.resize_exact(
                 new_w,
                 new_h,
-                image::imageops::FilterType::Lanczos3,
+                image::imageops::FilterType::Nearest,
             );
             let mut buf = std::io::Cursor::new(Vec::new());
             image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
@@ -174,6 +201,18 @@ async fn process_generate_caption(
                 "[ai] resized {}x{} → {}x{} for inference ({}ms)",
                 w, h, new_w, new_h, t_resize.elapsed().as_millis()
             );
+        } else if is_jpeg {
+            // DCT image already within max_dim, encode to temp file for VLM
+            let mut buf = std::io::Cursor::new(Vec::new());
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
+                .encode_image(&img)
+                .map_err(|e| format!("failed to encode image: {}", e))?;
+            let tmp = std::env::temp_dir().join(format!("medix_infer_{}.jpg", media_id));
+            tokio::fs::write(&tmp, buf.into_inner())
+                .await
+                .map_err(|e| format!("failed to write temp inference image: {}", e))?;
+            inference_path = tmp;
+            inference_path_ref = &inference_path;
         } else {
             inference_path_ref = &image_path;
         }
@@ -686,7 +725,7 @@ async fn resize_frame_for_inference(
             let new_w = (w as f64 * ratio).round() as u32;
             let new_h = (h as f64 * ratio).round() as u32;
             let resized =
-                img.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3);
+                img.resize_exact(new_w, new_h, image::imageops::FilterType::Nearest);
             let mut buf = std::io::Cursor::new(Vec::new());
             if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
                 .encode_image(&resized)
@@ -793,4 +832,48 @@ async fn generate_caption_embedding(app: &AppHandle, media_id: &str, caption: &s
             eprintln!("[ai] embedding failed for {}: {}", media_id, e);
         }
     }
+}
+
+/// Detect JPEG by magic bytes (FF D8 FF).
+fn is_jpeg(bytes: &[u8]) -> bool {
+    bytes.len() >= 3 && bytes[0..3] == [0xFF, 0xD8, 0xFF]
+}
+
+/// Decode JPEG at reduced resolution using DCT-domain scaling, avoiding full decode.
+/// Uses 1/8 (DC-only), 1/4, or 1/2 scaling to get closest to `max_dim` without going under.
+/// Returns the decoded DynamicImage and elapsed ms.
+fn decode_jpeg_fast(path: &Path, max_dim: u32) -> Result<(image::DynamicImage, u128), String> {
+    let t = Instant::now();
+    let jpeg_data = std::fs::read(path).map_err(|e| format!("read: {}", e))?;
+
+    let mut decoder = libjpeg_turbo_rs::Decoder::new(&jpeg_data)
+        .map_err(|e| format!("jpeg decoder: {}", e))?;
+    let (hdr_w, hdr_h) = {
+        let header = decoder.header();
+        (header.width, header.height)
+    };
+    let long_side = (hdr_w.max(hdr_h)) as u32;
+
+    let scale: u32 = if long_side / 8 >= max_dim { 8 }
+        else if long_side / 4 >= max_dim { 4 }
+        else if long_side / 2 >= max_dim { 2 }
+        else { 1 };
+
+    decoder.set_scale(libjpeg_turbo_rs::ScalingFactor::new(1, scale));
+    let img = decoder.decode_image()
+        .map_err(|e| format!("jpeg decode: {}", e))?;
+
+    println!(
+        "[ai] DCT decode 1/{}: {}x{} → {}x{} ({}ms)",
+        scale,
+        hdr_w, hdr_h,
+        img.width, img.height,
+        t.elapsed().as_millis()
+    );
+
+    let dynamic = image::DynamicImage::ImageRgb8(
+        image::RgbImage::from_raw(img.width as u32, img.height as u32, img.data)
+            .ok_or("failed to construct image from decoded data")?
+    );
+    Ok((dynamic, t.elapsed().as_millis()))
 }
