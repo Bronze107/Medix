@@ -243,7 +243,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const [newCaptionText, setNewCaptionText] = useState("");
   const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
-  const [captionVariantId, setCaptionVariantId] = useState<string | null>(null);
   const [targetId, setTargetId] = useState<string | null>(null); // null=original, string=variant_id
   const [showVersionForm, setShowVersionForm] = useState(false);
   const [showAiEdit, setShowAiEdit] = useState(false);
@@ -323,12 +322,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     }
   }, [media?.id, initialVariantId, loadMediaTags, loadVariants, loadCaptions, loadEmbeddings]);
 
-  // Sync captionVariantId with initialVariantId
-  useEffect(() => {
-    if (initialVariantId !== undefined && media) {
-      setCaptionVariantId(initialVariantId);
-    }
-  }, [initialVariantId, media?.id]);
 
   // Reload tags when target changes
   useEffect(() => {
@@ -540,8 +533,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     const text = newCaptionText.trim();
     if (!text) return;
     try {
-      if (captionVariantId) {
-        await captionCreateForVariant(media.id, captionVariantId, text);
+      if (targetId) {
+        await captionCreateForVariant(media.id, targetId, text);
       } else {
         await captionCreate(media.id, text);
       }
@@ -662,7 +655,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
               targetId={targetId}
               onSelect={(id) => {
                 setTargetId(id);
-                setCaptionVariantId(id);
                 setShowTargetMenu(false);
               }}
               onAdd={() => { setShowTargetMenu(false); setShowVersionForm(true); }}
