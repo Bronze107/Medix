@@ -73,7 +73,20 @@ Medix/
 │   │   ├── export/         # 数据集导出: 目录/ZIP, caption 选择
 │   │   ├── server/         # 本地 HTTP 服务: 浏览器插件通信
 │   │   └── tag/            # Tag 结构体定义
+│   ├── benches/         # 性能基准测试 (criterion)
+│   │   ├── phash_bench.rs
+│   │   ├── parser_bench.rs
+│   │   ├── import_bench.rs
+│   │   └── search_bench.rs
 │   └── Cargo.toml
+├── tests/                   # CLI 后端回归测试脚本
+│   ├── _helpers.sh          # 共享测试函数库
+│   ├── search.sh
+│   ├── integrity.sh
+│   ├── operations.sh
+│   ├── tags-collections.sh
+│   ├── cascade.sh
+│   └── variants-browse.sh
 ├── extension/              # Chrome/Firefox 浏览器插件
 │   ├── manifest.json
 │   ├── background.js
@@ -125,9 +138,9 @@ Medix/
    - `docs:` 文档
    - `test:` 测试
    - `chore:` 构建/工具
-3. **代码审查**: 关键模块 (db, ai, export) 的变更必须有 Rust 单元测试
+3. **代码审查**: 关键模块 (db, ai, export) 的变更必须有 Rust 单元测试；性能敏感路径建议追加 criterion benchmark
 4. **ADR**: 架构决策记录在 `docs/decisions/YYYY-MM-DD-title.md`
-5. **回归测试**: 后端功能变更必须追加 CLI 回归用例到 `tests/*.sh`，提交前全量通过
+5. **回归测试**: 后端功能变更必须追加 CLI 回归用例到 `tests/*.sh`，提交前全量通过；前端组件变更追加 Vitest 用例到 `*.test.tsx`
 
 ## Tauri Command 命名约定
 
@@ -166,43 +179,109 @@ Medix/
 
 ## 测试策略
 
-### CLI 后端回归测试（优先级最高）
+### 总览
 
-`medix-cli` 可直接操作生产 DB 验证后端功能，无需启动 GUI。测试脚本在 `tests/` 目录。
+| 层级 | 类型 | 工具 | 当前规模 |
+|------|------|------|----------|
+| 后端 CLI | 回归测试 | `medix-cli` + `tests/*.sh` | 6 脚本, 120 断言 |
+| Rust 核心 | 单元测试 | `cargo test` | 43 tests (parser + db + search + media + export) |
+| Rust 核心 | 性能基准 | `cargo bench` (criterion) | 4 套件 (phash, parser, import, search) |
+| 前端组件 | 单元测试 | Vitest + @testing-library/react | 26 tests (SearchBar, ConfirmDialog, appStore) |
+| Rust 核心 | Fuzz 测试 | proptest | 4 property tests (parser 随机输入) |
+
+### CLI 回归测试（优先级最高）
+
+所有脚本统一通过 `tests/_helpers.sh` 共享工具函数。写入型脚本使用 **隔离临时数据库**，`trap EXIT` 自动清理，零生产数据风险。
 
 ```
 cd src-tauri && bash ../tests/<name>.sh
 ```
 
-| 脚本 | 用例 | 覆盖范围 |
-|------|------|----------|
-| `tests/search.sh` | 18 | 标签过滤、尺寸、文件大小、`media_type:image/video`、混合查询、纯文本回归 |
-| `tests/integrity.sh` | 26 | 6 表孤儿记录、schema 版本、媒体字段完整性、video 迁移列 + 默认值、迁移幂等性 |
-| `tests/operations.sh` | 27 | 软删除→恢复、集合操作、SHA256 去重、视频导入(条件)、视频 AI 帧提取(条件) |
-| `tests/tags-collections.sh` | 13 | 标签 CRUD、批量标签、交集查询、集合置顶/取消置顶、集合内搜索 |
-| `tests/cascade.sh` | 21 | FK 级联删除(5 表)、caption/variant CRUD、视频 variant FK 结构 |
+| 脚本 | 用例 | DB 模式 | 覆盖范围 |
+|------|------|---------|----------|
+| `tests/search.sh` | 19 | 隔离 + seed 30 条 | 标签、尺寸、文件大小、media_type、混合、精确断言 |
+| `tests/integrity.sh` | 26 | 生产(只读) | 6 表孤儿记录、schema 版本、视频迁移、迁移幂等 |
+| `tests/operations.sh` | 26 | 隔离 | 软删除→恢复、集合、SHA256、视频导入(条件) |
+| `tests/tags-collections.sh` | 15 | 隔离 | 标签 CRUD、批量标签、交集、集合置顶、集合内搜索 |
+| `tests/cascade.sh` | 21 | 隔离 | FK 级联删除(5 表)、caption/variant CRUD |
+| `tests/variants-browse.sh` | 13 | 隔离 | variant 浏览模式 (representative/all)、display_variant 回退 |
 
-**开发规范**：任何后端功能变更（搜索语法、DB schema、CRUD 操作）必须在对应测试脚本追加用例，提交前 `bash tests/*.sh` 全量通过。
+**开发规范**：后端功能变更必须在对应测试脚本追加用例，提交前 `bash tests/*.sh` 全量通过。
+
+### Rust 单元测试
+
+覆盖 5 个核心模块，使用 `tempfile` 创建隔离 SQLite 数据库：
+
+```bash
+cd src-tauri && cargo test --lib     # 43 tests
+```
+
+| 模块 | 文件 | 覆盖 |
+|------|------|------|
+| `search::parser` | `parser.rs` (17 tests + 4 proptest) | 查询解析 + 随机输入不 panic |
+| `db` | `mod.rs` (11 tests) | schema 幂等、CRUD、FK 级联、软删除、settings |
+| `search` | `search_tests.rs` (6 tests) | execute_search_path 标签/尺寸/大小/混合 |
+| `media` | `media_tests.rs` (9 tests) | pHash 确定性、magic bytes、is_supported |
+| `export` | `export_tests.rs` (1 test) | is_ai_source |
+
+### 性能基准测试
+
+基于 criterion，覆盖 3 个数据量级（100 / 1k / 10k 条记录）：
+
+```bash
+cd src-tauri && cargo bench              # 全部 (~5 min)
+cargo bench --bench phash_bench          # 单个套件
+cargo bench -- --save-baseline base      # 保存基准
+cargo bench -- --baseline base           # 与基准对比检测回归
+open target/criterion/report/index.html  # HTML 报告
+```
+
+| 套件 | 覆盖 |
+|------|------|
+| `phash_bench` | DCT pHash (8x8 + 512x512)、hamming_distance |
+| `parser_bench` | 简单/复杂/quoted/中文查询解析 |
+| `import_bench` | magic byte 检测、is_supported |
+| `search_bench` | execute_search_path + find_items_with_tags (100/1k/10k) |
+
+### 前端单元测试
+
+```bash
+npm test            # 26 tests
+npm run test:watch  # 交互模式
+```
+
+| 组件 | 文件 | 测试数 | 覆盖 |
+|------|------|--------|------|
+| SearchBar | `SearchBar.test.tsx` | 13 | 渲染、pill 解析/删除、tag/width/height/date/size、大小写 |
+| ConfirmDialog | `ConfirmDialog.test.tsx` | 8 | 渲染/隐藏、确认/取消/遮罩点击、自定义文本、danger 样式 |
+| appStore | `appStore.test.ts` | 5 | 初始状态、sidebar/detail 切换、选中媒体 |
 
 ### CLI 命令速查
 
 ```bash
-cargo run --bin medix-cli -- search "tag:cat"           # 搜索测试
-cargo run --bin medix-cli -- query "SELECT ..."         # 只读查询
-cargo run --bin medix-cli -- exec "UPDATE/DELETE ..."   # 写操作（仅测试用）
-cargo run --bin medix-cli -- list                       # 列出全部媒体
-cargo run --bin medix-cli -- list-tags                  # 列出全部标签
-cargo run --bin medix-cli -- stats                      # 统计概览
+# 数据库管理
+cargo run --bin medix-cli -- setup-db --db-path /tmp/test.db   # 初始化空库
+cargo run --bin medix-cli -- seed -c 100 --with-collections --db-path /tmp/test.db
+
+# 搜索与浏览
+cargo run --bin medix-cli -- search "tag:cat width:>1920"      # 搜索
+cargo run --bin medix-cli -- search -n "tag:cat"               # 仅返回计数
+cargo run --bin medix-cli -- list                               # 列出全部媒体
+cargo run --bin medix-cli -- list -n                            # 仅返回数量
+cargo run --bin medix-cli -- list-tags                          # 列出标签
+cargo run --bin medix-cli -- list-tags -n                       # 标签数
+cargo run --bin medix-cli -- list-collections                   # 列出集合
+cargo run --bin medix-cli -- list-variants <media_id>           # 列出版本
+
+# 数据查询与写入
+cargo run --bin medix-cli -- query "SELECT ..."                 # 只读 SQL
+cargo run --bin medix-cli -- exec "INSERT/UPDATE/DELETE ..."    # 写 SQL (测试用)
+cargo run --bin medix-cli -- stats                              # 统计概览
+
+# 全局 flag
+--db-path <path>    # 指定数据库路径
+--json              # JSON 输出（机器可解析）
 ```
-
-### 层级策略
-
-| 层级 | 类型 | 工具 |
-|------|------|------|
-| 后端 CLI | 回归测试 | `medix-cli` + `tests/*.sh` |
-| Rust 核心 | 单元测试 | `cargo test` |
-| 前端组件 | 视觉测试 | Storybook |
-| 端到端 | 场景测试 | Playwright (Tauri 模式) |
 
 ## 常见任务速查
 
@@ -223,20 +302,28 @@ cargo run --bin medix-cli -- stats                      # 统计概览
 
 ### 编写 CLI 后端回归测试
 
-CLI 测试无需启动 GUI，直接操作生产 DB（共享同一数据库路径 `%APPDATA%/com.bronze107.medix/medix.db`）。
+测试脚本通过 `source "$(dirname "$0")/_helpers.sh"` 引入共享函数库，写入型测试使用隔离临时数据库。
 
 ```
 tests/<name>.sh
-├── cli()    → cargo run --bin medix-cli -- <command>
-├── q()      → cli query "<SQL>"       (只读查询)
-├── exec_sql() → cli exec "<SQL>"      (写操作，测试后必须还原)
-└── check()  → 断言 expected == actual
+├── source _helpers.sh          # 共享函数库
+├── setup_isolated_db <hint> [n] # 创建临时 DB，可选 seed n 条记录
+├── cli()    → cargo run --bin medix-cli -- <cmd>  (自动附加 --db-path)
+├── q()      → cli query "<SQL>"                    (只读查询)
+├── exec_sql() → cli exec "<SQL>"                   (写操作)
+├── search_count() → cli search -n "<query>"        (精确计数)
+├── media_count()  → cli list -n                    (媒体总数)
+├── tag_count()    → cli list-tags -n               (标签总数)
+├── check()  → 断言 expected == actual
+└── final_report → 打印汇总并 exit
 ```
 
 测试模式：
-- **查询验证**：`q "SELECT COUNT(*) FROM ..."` 获取数据，与 CLI 命令结果交叉验证
-- **操作还原**：写操作前保存原始值，测试后通过 SQL 还原（如软删除→恢复）
-- **数据清洁**：创建的测试记录使用 `_test_` 或 `_cli_` 前缀 ID，测试末尾清理
+- **隔离优先**：写入型脚本调用 `setup_isolated_db` 使用临时 DB，`trap EXIT` 自动清理
+- **种子数据**：`setup_isolated_db "hint" 30` 自动调用 `seed -c 30 --with-collections` 创建 8 个标准 tag + 4 个集合
+- **精确断言**：优先用 `search_count` / `media_count` / `tag_count`（依赖 CLI `--count` flag），避免 `grep`/`sed` 解析人类可读输出
+- **只读测试**：integrity.sh 仍使用生产 DB（纯 SELECT），其余 5 个脚本全部隔离
+- **数据清洁**：隔离模式下无需手动清理；如必须操作生产 DB，使用 `_test_` 前缀 ID 并在末尾还原
 
 ### 配置 ffmpeg Sidecar
 
