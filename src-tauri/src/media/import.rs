@@ -16,7 +16,7 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
 
 /// Detect image format from magic bytes (file header).
 /// Returns the canonical extension (without dot): "jpg", "png", "webp", "gif", "bmp".
-pub(crate) fn detect_format_from_bytes(bytes: &[u8]) -> Option<&'static str> {
+pub fn detect_format_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     if bytes.len() >= 12 {
         // PNG: 89 50 4E 47 0D 0A 1A 0A
         if bytes[0..8] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {

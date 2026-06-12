@@ -26,7 +26,7 @@ pub struct ExportOptions {
 }
 
 /// Check if a caption source is AI-generated (including bilingual variants).
-pub(crate) fn is_ai_source(source: Option<&str>) -> bool {
+pub fn is_ai_source(source: Option<&str>) -> bool {
     matches!(source, Some("ai" | "ai_en" | "ai_zh"))
 }
 
