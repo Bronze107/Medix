@@ -39,7 +39,7 @@ AFTER_TAGS=$(q "SELECT COUNT(*) FROM media_tags WHERE media_id='$M1'")
 check "添加标签后媒体标签数 +1" "$((BEFORE_TAGS + 1))" "$AFTER_TAGS"
 
 # Search should find exactly 1 media by this tag
-C=$(cli search "tag:${TAG_NAME}" | head -1 | sed -n 's/^\([0-9]*\) results.*/\1/p')
+C=$(search_count "tag:${TAG_NAME}")
 check "搜索新增标签有结果" "1" "${C:-0}"
 
 # Remove tag from media
@@ -47,7 +47,7 @@ exec_sql "DELETE FROM media_tags WHERE media_id='$M1' AND tag_id='_test_tag_01'"
 RM_TAGS=$(q "SELECT COUNT(*) FROM media_tags WHERE media_id='$M1'")
 check "移除标签后媒体标签数还原" "$BEFORE_TAGS" "$RM_TAGS"
 
-C=$(cli search "tag:${TAG_NAME}" | head -1 | sed -n 's/^\([0-9]*\) results.*/\1/p')
+C=$(search_count "tag:${TAG_NAME}")
 check "搜索已移除标签返回 0" "0" "${C:-0}"
 
 # Rename tag

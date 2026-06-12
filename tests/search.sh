@@ -5,25 +5,24 @@ source "$(dirname "$0")/_helpers.sh"
 echo "=== 搜索测试 ==="
 echo ""
 
-# Get total media count from stats
-TOTAL_MEDIA=$(cli stats | grep "^Media:" | sed 's/[^0-9]//g')
+TOTAL_MEDIA=$(media_count)
 echo "Total media in DB: $TOTAL_MEDIA"
 echo ""
 
 # ============================================================
 echo "--- 标签过滤 ---"
 
-C=$(result_count "tag:cat")
+C=$(search_count "tag:cat")
 if nz "$C" && [ "$C" -lt "$TOTAL_MEDIA" ]; then
     check "tag:cat 返回部分结果(非全部)" "ok" "ok"
 else
     check "tag:cat 返回部分结果(非全部, got=${C:-0} total=$TOTAL_MEDIA)" "ok" "fail"
 fi
 
-C=$(result_count "tag:QXZ_NOEXIST_XYZ")
+C=$(search_count "tag:QXZ_NOEXIST_XYZ")
 check "tag:nonexistent 返回 0" "0" "${C:-0}"
 
-C=$(result_count "tag:cat | dog")
+C=$(search_count "tag:cat | dog")
 if [ "${C:-0}" -ge 0 ]; then
     check "tag 并集 (|) 有效" "ok" "ok"
 else
@@ -33,24 +32,24 @@ fi
 # ============================================================
 echo "--- 尺寸过滤 ---"
 
-C=$(result_count "width:>1000")
+C=$(search_count "width:>1000")
 if nz "$C"; then
     check "width:>1000 有结果" "ok" "ok"
 else
     check "width:>1000 有结果" "ok" "fail"
 fi
 
-C=$(result_count "width:<100")
+C=$(search_count "width:<100")
 check "width:<100 返回 0" "0" "${C:-0}"
 
-C=$(result_count "height:>500")
+C=$(search_count "height:>500")
 if nz "$C"; then
     check "height:>500 有结果" "ok" "ok"
 else
     check "height:>500 有结果" "ok" "fail"
 fi
 
-C=$(result_count "width:500..2000")
+C=$(search_count "width:500..2000")
 if nz "$C"; then
     check "width:500..2000 (范围) 有结果" "ok" "ok"
 else
@@ -60,20 +59,20 @@ fi
 # ============================================================
 echo "--- 文件大小过滤 ---"
 
-C=$(result_count "size:>1kb")
+C=$(search_count "size:>1kb")
 if nz "$C"; then
     check "size:>1kb 有结果" "ok" "ok"
 else
     check "size:>1kb 有结果" "ok" "fail"
 fi
 
-C=$(result_count "size:>1gb")
+C=$(search_count "size:>1gb")
 check "size:>1gb 返回 0" "0" "${C:-0}"
 
 # ============================================================
 echo "--- 纯文本搜索 ---"
 
-C=$(result_count "xyzzy_random_word_nonexistent")
+C=$(search_count "xyzzy_random_word_nonexistent")
 if [ "${C:-0}" != "$TOTAL_MEDIA" ]; then
     check "随机文本不返回全部 (回归防护)" "ok" "ok"
 else
@@ -83,7 +82,7 @@ fi
 # ============================================================
 echo "--- 混合查询 ---"
 
-C=$(result_count "tag:cat width:>100")
+C=$(search_count "tag:cat width:>100")
 if nz "$C"; then
     check "混合 tag:cat + width:>100" "ok" "ok"
 else
@@ -93,24 +92,22 @@ fi
 # ============================================================
 echo "--- media_type 过滤 ---"
 
-C=$(result_count "media_type:image")
+C=$(search_count "media_type:image")
 DB_IMAGES=$(q "SELECT COUNT(*) FROM media WHERE media_type = 'image' AND deleted_at IS NULL;")
 check "media_type:image 返回全部图片" "$DB_IMAGES" "${C:-0}"
 
-C=$(result_count "media_type:video")
+C=$(search_count "media_type:video")
 DB_VIDEOS=$(q "SELECT COUNT(*) FROM media WHERE media_type = 'video' AND deleted_at IS NULL;")
 check "media_type:video 匹配数据库计数" "$DB_VIDEOS" "${C:-0}"
 
-# media_type combined with other filters
-C=$(result_count "media_type:image width:>100")
+C=$(search_count "media_type:image width:>100")
 if nz "$C"; then
     check "media_type:image width:>100 有结果" "ok" "ok"
 else
     check "media_type:image width:>100 有结果" "ok" "fail"
 fi
 
-# Invalid media_type value is ignored (falls through to semantic text)
-C=$(result_count "media_type:invalid")
+C=$(search_count "media_type:invalid")
 if [ "${C:-0}" -eq "$TOTAL_MEDIA" ] || [ "${C:-0}" -gt 0 ]; then
     check "media_type:invalid 返回结果（作为语义搜索）" "ok" "ok"
 else

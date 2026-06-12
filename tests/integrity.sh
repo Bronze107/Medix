@@ -17,8 +17,8 @@ TRASHED=$(q "SELECT COUNT(*) FROM media WHERE deleted_at IS NOT NULL")
 check "活跃 + 回收站 = 总数" "$TOTAL" "$((ACTIVE + TRASHED))"
 
 # CLI stats 应与 SQL 一致
-CLI_TOTAL=$(cli stats | grep "^Media:" | sed 's/[^0-9]//g')
-check "CLI stats 媒体数 = SQL count" "$ACTIVE" "$CLI_TOTAL"
+CLI_TOTAL=$(media_count)
+check "CLI list -n = SQL count" "$ACTIVE" "$CLI_TOTAL"
 
 # 所有活跃媒体应有导入时间
 NULL_DATES=$(q "SELECT COUNT(*) FROM media WHERE deleted_at IS NULL AND imported_at IS NULL")
@@ -37,7 +37,7 @@ ORPHAN_TAG_REF=$(q "SELECT COUNT(*) FROM media_tags WHERE tag_id NOT IN (SELECT 
 [ "$TAG_COUNT" -gt 0 ] && check "tags 表非空" "ok" "ok" || check "tags 表非空 (无标签?)" "ok" "fail"
 check "media_tags 无孤儿 (media_id 存在)" "0" "$ORPHAN_TAGS"
 check "media_tags 无孤儿 (tag_id 存在)" "0" "$ORPHAN_TAG_REF"
-check "CLI list-tags 数量 = SQL count" "$TAG_COUNT" "$(cli list-tags | grep -c '^\s')"
+check "CLI list-tags -n = SQL count" "$TAG_COUNT" "$(tag_count)"
 
 # ============================================================
 # 集合完整性
@@ -57,7 +57,7 @@ PINNED=$(q "SELECT COUNT(*) FROM collections WHERE pinned_at IS NOT NULL")
 [ "$PINNED" -le 5 ] && check "置顶集合 ≤ 5" "ok" "ok" || echo -e "  \033[33mWARN: 置顶集合数=$PINNED (超过5个上限)\033[0m"
 
 # CLI stats 集合数
-CLI_COLL=$(cli stats | grep "^Collections:" | sed 's/[^0-9]//g')
+CLI_COLL=$(cli list-collections 2>/dev/null | head -1 | sed 's/ collections.*//')
 check "CLI stats 集合数 = SQL count" "$COLL_COUNT" "$CLI_COLL"
 
 # ============================================================

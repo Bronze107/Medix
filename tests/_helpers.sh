@@ -41,21 +41,24 @@ check() {
 # Check that a value is non-empty and > 0.
 nz() { local v="$1"; [ -n "${v:-}" ] && [ "${v:-0}" -gt 0 ]; }
 
-# Extract result count from CLI search output (e.g. "2 results for ..." -> "2").
-result_count() {
-    cli search "$1" | head -1 | sed -n 's/^\([0-9]*\) results.*/\1/p'
-}
+# Use CLI --count flag for precise result counts (no fragile sed/grep).
+search_count() { cli search -n "$1"; }
+media_count()  { cli list -n; }
+tag_count()    { cli list-tags -n; }
 
 # Set up an isolated test database and point CLI_DB_PATH at it.
-# Call this at the top of each test script.
-# Usage: setup_isolated_db [name_hint]
+# Usage: setup_isolated_db [name_hint] [seed_count]
+# If seed_count is provided, also seeds N test records.
 setup_isolated_db() {
     local hint="${1:-test}"
+    local seed_n="${2:-0}"
     CLI_DB_PATH="$(mktemp -t "medix_test_${hint}_XXXXXX.db" 2>/dev/null || mktemp "medix_test_${hint}.XXXXXX.db")"
     export CLI_DB_PATH
     echo "[test] Using isolated DB: $CLI_DB_PATH"
     cli setup-db
-    # Trap cleanup on script exit
+    if [ "$seed_n" -gt 0 ]; then
+        cli seed -c "$seed_n" --with-collections
+    fi
     trap 'rm -f "$CLI_DB_PATH"' EXIT
 }
 

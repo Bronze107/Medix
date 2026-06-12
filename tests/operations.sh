@@ -36,7 +36,7 @@ check "软删除后回收站 +1" "$((BEFORE_TRASH + 1))" "$AFTER_TRASH"
 check "媒体标记为已删除" "1" "$IN_TRASH"
 
 # Verify search excludes soft-deleted media
-C=$(cli search "/tmp/test_ops.png" | head -1 | sed -n 's/^\([0-9]*\) results.*/\1/p')
+C=$(search_count "/tmp/test_ops.png")
 check "搜索不返回已删除媒体" "0" "${C:-0}"
 
 # Recover
