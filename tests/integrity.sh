@@ -1,24 +1,5 @@
 #!/bin/bash
-set -uo pipefail
-
-PASS=0; FAIL=0
-
-green() { echo -e "\033[32m$1\033[0m"; }
-red()   { echo -e "\033[31m$1\033[0m"; }
-
-cli() { cargo run --bin medix-cli -- "$@" 2>/dev/null; }
-q()   { cli query "$1"; }
-
-check() {
-    local desc="$1" expected="$2" actual="$3"
-    if [ "$expected" = "$actual" ]; then
-        green "  PASS: $desc"
-        PASS=$((PASS + 1))
-    else
-        red   "  FAIL: $desc (expected=$expected, got=$actual)"
-        FAIL=$((FAIL + 1))
-    fi
-}
+source "$(dirname "$0")/_helpers.sh"
 
 echo "=== 数据完整性测试 ==="
 echo ""
@@ -161,10 +142,4 @@ cli list --sort width | head -10 | grep "results" > /dev/null 2>&1
 check "按 width 排序" "ok" "ok"
 
 # ============================================================
-echo ""
-echo "=============================="
-echo "  Passed: $PASS"
-echo "  Failed: $FAIL"
-echo "=============================="
-
-[ "$FAIL" -eq 0 ]
+final_report

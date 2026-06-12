@@ -55,7 +55,16 @@ pub fn init(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error>> {
+/// Create a fresh test database at the given path with all migrations applied.
+/// The parent directory must exist.
+pub fn setup_test_db(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut conn = Connection::open(path)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    run_migrations(&mut conn)?;
+    Ok(())
+}
+
+pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error>> {
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS _migrations (
@@ -2852,3 +2861,591 @@ pub fn media_get_by_id(app: &AppHandle, id: &str) -> Result<Option<Media>, Box<d
     let list = media_get_batch(app, &[id.to_string()])?;
     Ok(list.into_iter().next())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn new_test_db() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempdir().expect("tempdir");
+        let db_path = dir.path().join("test.db");
+        setup_test_db(&db_path).expect("setup_test_db");
+        (dir, db_path)
+    }
+
+    fn open(path: &Path) -> Connection {
+        Connection::open(path).expect("open test db")
+    }
+
+    fn count(conn: &Connection, table: &str) -> i64 {
+        conn.query_row(
+            &format!("SELECT COUNT(*) FROM {}", table),
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_migrations_idempotent() {
+        let (_dir, db_path) = new_test_db();
+        let mut conn = open(&db_path);
+
+        // Count tables before re-running
+        let before: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        // Re-run migrations — should not error
+        run_migrations(&mut conn).expect("second run_migrations");
+
+        let after: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(before, after, "migrations should be idempotent");
+    }
+
+    #[test]
+    fn test_media_insert_and_list() {
+        let (_dir, db_path) = new_test_db();
+
+        // Insert via raw SQL
+        let conn = open(&db_path);
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at, source, sha256)
+             VALUES ('test_01', '/tmp/a.jpg', 800, 600, 50000, '2026-01-01T00:00:00', 'test', 'abc123')",
+            [],
+        )
+        .unwrap();
+
+        // Query via list_media_path
+        let media = list_media_path(&db_path, "imported_at", true, 0, 100).unwrap();
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].id, "test_01");
+        assert_eq!(media[0].width, Some(800));
+        assert_eq!(media[0].height, Some(600));
+        assert_eq!(media[0].file_size, Some(50000));
+    }
+
+    #[test]
+    fn test_tag_crud() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+
+        // Create
+        conn.execute(
+            "INSERT INTO tags (id, name) VALUES ('t1', 'landscape')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            conn.query_row::<String, _, _>(
+                "SELECT name FROM tags WHERE id='t1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            "landscape"
+        );
+
+        // Rename
+        conn.execute("UPDATE tags SET name='scenery' WHERE id='t1'", [])
+            .unwrap();
+        assert_eq!(
+            conn.query_row::<String, _, _>(
+                "SELECT name FROM tags WHERE id='t1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            "scenery"
+        );
+
+        // List via tag_list_path
+        let tags = tag_list_path(&db_path).unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].name, "scenery");
+
+        // Delete
+        conn.execute("DELETE FROM tags WHERE id='t1'", []).unwrap();
+        assert_eq!(count(&conn, "tags"), 0);
+    }
+
+    #[test]
+    fn test_tag_add_remove_from_media() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at) VALUES ('m1', '/tmp/x.png', 100, 100, 1024, '2026-01-01T00:00:00')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO tags (id, name) VALUES ('t1', 'sunset')",
+            [],
+        )
+        .unwrap();
+
+        // Add tag to media
+        conn.execute(
+            "INSERT INTO media_tags (media_id, tag_id) VALUES ('m1', 't1')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM media_tags WHERE media_id='m1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            1
+        );
+
+        // Remove
+        conn.execute(
+            "DELETE FROM media_tags WHERE media_id='m1' AND tag_id='t1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM media_tags WHERE media_id='m1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_collection_create_and_pin() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+
+        // Create collection
+        conn.execute(
+            "INSERT INTO collections (id, name) VALUES ('c1', 'Favorites')",
+            [],
+        )
+        .unwrap();
+
+        let collections = conn
+            .query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM collections",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(collections, 1);
+
+        // Pin
+        conn.execute(
+            "UPDATE collections SET pinned_at='2026-01-01T00:00:00' WHERE id='c1'",
+            [],
+        )
+        .unwrap();
+        let pinned: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM collections WHERE pinned_at IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pinned, 1);
+
+        // Unpin
+        conn.execute("UPDATE collections SET pinned_at=NULL WHERE id='c1'", [])
+            .unwrap();
+        let unpinned: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM collections WHERE pinned_at IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unpinned, 0);
+    }
+
+    #[test]
+    fn test_collection_add_remove_items() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+
+        conn.execute(
+            "INSERT INTO collections (id, name) VALUES ('c1', 'Album')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at) VALUES ('m1', '/tmp/1.jpg', 100, 100, 500, '2026-01-01T00:00:00')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at) VALUES ('m2', '/tmp/2.jpg', 200, 200, 500, '2026-01-01T00:00:00')",
+            [],
+        ).unwrap();
+
+        // Add items
+        conn.execute(
+            "INSERT INTO collection_items (collection_id, media_id) VALUES ('c1', 'm1')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO collection_items (collection_id, media_id) VALUES ('c1', 'm2')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(count(&conn, "collection_items"), 2);
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM collection_items WHERE collection_id='c1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            2
+        );
+
+        // Remove one
+        conn.execute(
+            "DELETE FROM collection_items WHERE collection_id='c1' AND media_id='m1'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM collection_items WHERE collection_id='c1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_fk_cascade_delete_media() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+        let now = "2026-01-01T00:00:00";
+
+        // Create media with all dependent records
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at, source, sha256)
+             VALUES ('del_test', '/tmp/del.png', 100, 100, 1024, ?1, 'test', 'deadbeef')",
+            params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tags (id, name) VALUES ('dt', 'temp')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO media_tags (media_id, tag_id) VALUES ('del_test', 'dt')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO captions (id, media_id, text, created_at, updated_at) VALUES ('cap_del', 'del_test', 'hello', ?1, ?1)",
+            params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO embeddings (media_id, content_type, model, vector) VALUES ('del_test', 'caption', 'test', X'0000803F')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO variants (id, media_id, preset_name, label, source, width, height, file_size, file_path, quality, format, created_at)
+             VALUES ('var_del', 'del_test', 'custom', 'v', 'generated', 50, 50, 256, '/tmp/v.jpg', 80, 'jpeg', ?1)",
+            params![now],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO collections (id, name) VALUES ('col_del', 'Test')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO collection_items (collection_id, media_id) VALUES ('col_del', 'del_test')",
+            [],
+        )
+        .unwrap();
+
+        // Verify all exist
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM captions WHERE media_id='del_test'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM media_tags WHERE media_id='del_test'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            1
+        );
+
+        // Delete media — cascade should clean up
+        conn.execute("DELETE FROM media WHERE id='del_test'", [])
+            .unwrap();
+
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM captions WHERE media_id='del_test'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            0,
+            "captions should cascade"
+        );
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM embeddings WHERE media_id='del_test'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            0,
+            "embeddings should cascade"
+        );
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM variants WHERE media_id='del_test'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            0,
+            "variants should cascade"
+        );
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM media_tags WHERE media_id='del_test'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            0,
+            "media_tags should cascade"
+        );
+        assert_eq!(
+            conn.query_row::<i64, _, _>(
+                "SELECT COUNT(*) FROM collection_items WHERE media_id='del_test'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+            0,
+            "collection_items should cascade"
+        );
+
+        // Clean up reference data
+        conn.execute("DELETE FROM tags WHERE id='dt'", []).unwrap();
+        conn.execute("DELETE FROM collections WHERE id='col_del'", [])
+            .unwrap();
+    }
+
+    #[test]
+    fn test_soft_delete_and_recover() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at) VALUES ('sd1', '/tmp/sd.jpg', 100, 100, 1024, '2026-01-01T00:00:00')",
+            [],
+        ).unwrap();
+
+        // Soft delete
+        conn.execute(
+            "UPDATE media SET deleted_at='2026-06-01T00:00:00' WHERE id='sd1'",
+            [],
+        )
+        .unwrap();
+        let in_trash: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM media WHERE id='sd1' AND deleted_at IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(in_trash, 1);
+
+        // Recover
+        conn.execute("UPDATE media SET deleted_at=NULL WHERE id='sd1'", [])
+            .unwrap();
+        let recovered: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM media WHERE id='sd1' AND deleted_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(recovered, 1);
+    }
+
+    #[test]
+    fn test_settings_crud() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+
+        // Insert
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('test_theme', 'dark')",
+            [],
+        )
+        .unwrap();
+        let val: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key='test_theme'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(val, "dark");
+
+        // Update
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('test_theme', 'light')",
+            [],
+        )
+        .unwrap();
+        let val: String = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key='test_theme'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(val, "light");
+
+        // Delete
+        conn.execute("DELETE FROM settings WHERE key='test_theme'", [])
+            .unwrap();
+        let gone: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM settings WHERE key='test_theme'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(gone, 0);
+    }
+
+    #[test]
+    fn test_all_core_tables_created() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+
+        let expected = [
+            "_migrations", "media", "tags", "media_tags",
+            "collections", "collection_items", "captions",
+            "embeddings", "variants", "settings",
+        ];
+
+        for table in &expected {
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    params![table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(exists, 1, "table '{}' should exist", table);
+        }
+    }
+
+    #[test]
+    fn test_find_items_with_tags() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+
+        // Insert test data
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at) VALUES ('ft1', '/tmp/ft1.jpg', 100, 100, 100, '2026-01-01T00:00:00')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at) VALUES ('ft2', '/tmp/ft2.jpg', 200, 200, 200, '2026-01-01T00:00:00')",
+            [],
+        ).unwrap();
+        conn.execute("INSERT INTO tags (id, name) VALUES ('tag_a', 'alpha')", []).unwrap();
+        conn.execute("INSERT INTO tags (id, name) VALUES ('tag_b', 'beta')", []).unwrap();
+
+        // ft1 has both tags, ft2 has only tag_a
+        conn.execute("INSERT INTO media_tags (media_id, tag_id) VALUES ('ft1', 'tag_a')", []).unwrap();
+        conn.execute("INSERT INTO media_tags (media_id, tag_id) VALUES ('ft1', 'tag_b')", []).unwrap();
+        conn.execute("INSERT INTO media_tags (media_id, tag_id) VALUES ('ft2', 'tag_a')", []).unwrap();
+
+        // Build minimal browse items
+        fn make_item(id: &str, w: i32, h: i32, sz: i64) -> BrowseItem {
+            BrowseItem {
+                item_id: id.into(),
+                media_id: id.into(),
+                item_kind: "original".into(),
+                variant_id: None,
+                is_display_variant: false,
+                source_path: Some(format!("/tmp/{}.jpg", id)),
+                width: Some(w),
+                height: Some(h),
+                file_size: Some(sz),
+                created_at: None,
+                modified_at: None,
+                imported_at: "2026-01-01T00:00:00".into(),
+                source_url: None,
+                page_url: None,
+                source: None,
+                sha256: None,
+                deleted_at: None,
+                display_variant_id: None,
+                thumb_256: None,
+                lqip: None,
+                media_type: Some("image".into()),
+                duration: None,
+                video_codec: None,
+                video_fps: None,
+                label: None,
+                preset_name: None,
+            }
+        }
+        let items = vec![make_item("ft1", 100, 100, 100), make_item("ft2", 200, 200, 200)];
+
+        // Union (any tag) — both media have alpha, so both match
+        let matching = find_items_with_tags_path(&db_path, &items, &["alpha".into(), "beta".into()]).unwrap();
+        assert_eq!(matching.len(), 2, "union of alpha+beta should match both media");
+        assert!(matching.contains("ft1"));
+        assert!(matching.contains("ft2"));
+
+        // Single tag — both should match
+        let matching = find_items_with_tags_path(&db_path, &items, &["alpha".into()]).unwrap();
+        assert_eq!(matching.len(), 2);
+        assert!(matching.contains("ft1"));
+        assert!(matching.contains("ft2"));
+
+        // Non-existent tag — no matches
+        let matching = find_items_with_tags_path(&db_path, &items, &["nope".into()]).unwrap();
+        assert_eq!(matching.len(), 0);
+    }
+}
+

@@ -1,34 +1,9 @@
 #!/bin/bash
-set -uo pipefail
+source "$(dirname "$0")/_helpers.sh"
 
-PASS=0
-FAIL=0
-
-green() { echo -e "\033[32m$1\033[0m"; }
-red()   { echo -e "\033[31m$1\033[0m"; }
-
-cli() {
-    cargo run --bin medix-cli -- "$@" 2>/dev/null
-}
-q() { cli query "$1"; }
-
-check() {
-    local desc="$1" expected="$2" actual="$3"
-    if [ "$expected" = "$actual" ]; then
-        green "  PASS: $desc"
-        PASS=$((PASS + 1))
-    else
-        red   "  FAIL: $desc (expected=$expected, got=$actual)"
-        FAIL=$((FAIL + 1))
-    fi
-}
-
-nz() { local v="$1"; [ -n "${v:-}" ] && [ "${v:-0}" -gt 0 ]; }
-
-# Extract result count from CLI output (e.g. "2 results for ..." → "2")
-result_count() {
-    cli search "$1" | head -1 | sed -n 's/^\([0-9]*\) results.*/\1/p'
-}
+# search.sh uses production DB (read-only) — data-dependent tests
+echo "=== 搜索测试 ==="
+echo ""
 
 # Get total media count from stats
 TOTAL_MEDIA=$(cli stats | grep "^Media:" | sed 's/[^0-9]//g')
@@ -179,10 +154,4 @@ else
 fi
 
 # ============================================================
-echo ""
-echo "=============================="
-echo "  Passed: $PASS"
-echo "  Failed: $FAIL"
-echo "=============================="
-
-[ "$FAIL" -eq 0 ]
+final_report

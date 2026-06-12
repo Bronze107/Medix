@@ -42,6 +42,10 @@ opt-level = 3
 lto = true
 strip = true
 
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+
 [[bin]]
 name = "medix-cli"
 path = "src/bin/cli.rs"

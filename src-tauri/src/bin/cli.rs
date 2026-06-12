@@ -5,6 +5,10 @@ use medix::search;
 #[derive(Parser)]
 #[command(name = "medix-cli", about = "Medix CLI dev tool for testing backend commands")]
 struct Cli {
+    /// Override the database path (for testing with isolated DBs)
+    #[arg(long = "db-path", global = true)]
+    db_path: Option<String>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -61,11 +65,22 @@ enum Command {
         /// SQL statement (INSERT / UPDATE / DELETE)
         sql: String,
     },
+
+    /// Initialize a fresh database at the given path (runs all migrations)
+    SetupDb,
 }
 
 fn main() {
     let cli = Cli::parse();
-    let db_path = db::db_path_standalone();
+    let db_path = if let Some(ref p) = cli.db_path {
+        let p = std::path::PathBuf::from(p);
+        if let Some(parent) = p.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        p
+    } else {
+        db::db_path_standalone()
+    };
 
     match cli.command {
         Command::Search {
@@ -210,6 +225,12 @@ fn main() {
             match conn.execute(&sql, []) {
                 Ok(n) => println!("{} rows affected", n),
                 Err(e) => { eprintln!("SQL error: {}", e); std::process::exit(1); }
+            }
+        }
+        Command::SetupDb => {
+            match db::setup_test_db(&db_path) {
+                Ok(()) => println!("Database initialized at {}", db_path.display()),
+                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
     }

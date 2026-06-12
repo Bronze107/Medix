@@ -5,6 +5,9 @@ pub mod video_import;
 pub mod video_metadata;
 pub mod video_thumbnail;
 
+#[cfg(test)]
+mod media_tests;
+
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]

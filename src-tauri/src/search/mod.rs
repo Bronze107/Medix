@@ -1,6 +1,9 @@
 pub mod parser;
 pub mod semantic;
 
+#[cfg(test)]
+mod search_tests;
+
 use crate::db::TagSearchMode;
 use crate::media::Media;
 use crate::settings;

@@ -498,4 +498,46 @@ mod tests {
             _ => panic!(),
         }
     }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn parse_does_not_panic(s in "\\PC*") {
+            // Any arbitrary string should not cause a panic
+            let _ = parse(&s);
+        }
+
+        #[test]
+        fn parse_preserves_semantic_text(s in "[a-zA-Z0-9 \\u{4e00}-\\u{9fff}]{0,100}") {
+            let r = parse(&s);
+            // If no structured prefix appears, semantic_text should capture it
+            if !s.contains(':') && !s.is_empty() {
+                assert!(r.tag_group.is_none() || r.semantic_text.is_some());
+            }
+        }
+
+        #[test]
+        fn tag_filter_roundtrip(tags in prop::collection::vec("[a-zA-Z0-9_\\u{4e00}-\\u{9fff}]{1,20}", 1..5)) {
+            let joined = tags.join(" ");
+            let query = format!("tag:{}", joined);
+            let r = parse(&query);
+            if let Some(tg) = r.tag_group {
+                assert!(!tg.tags.is_empty(), "tag: with content should produce tags");
+                for t in &tg.tags {
+                    assert!(!t.is_empty(), "individual tags should not be empty");
+                }
+            }
+        }
+
+        #[test]
+        fn width_filter_roundtrip(w in 0i64..100000i64) {
+            let r = parse(&format!("width:>{}", w));
+            if let Some(DimFilter::Width { op }) = r.dimensions.first() {
+                assert!(matches!(op, Comparison::Gt(v) if *v == w));
+            } else {
+                panic!("width:>{} should produce a Width Gt filter", w);
+            }
+        }
+    }
 }

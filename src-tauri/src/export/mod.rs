@@ -5,6 +5,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 
+#[cfg(test)]
+mod export_tests;
+
 #[derive(Clone, Serialize)]
 pub struct ExportProgress {
     pub current: usize,
@@ -23,7 +26,7 @@ pub struct ExportOptions {
 }
 
 /// Check if a caption source is AI-generated (including bilingual variants).
-fn is_ai_source(source: Option<&str>) -> bool {
+pub(crate) fn is_ai_source(source: Option<&str>) -> bool {
     matches!(source, Some("ai" | "ai_en" | "ai_zh"))
 }
 
