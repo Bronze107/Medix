@@ -289,8 +289,8 @@ async fn chat_completion(
             .unwrap_or_default();
 
         if !text.is_empty() {
-            let (caption, tags) = parse_caption_response(&text);
-            return Ok(AiResult { caption, tags });
+            let result = parse_json_response(&text)?;
+            return Ok(result);
         }
 
         eprintln!(
