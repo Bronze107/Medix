@@ -459,17 +459,22 @@ fn strip_code_fence(text: &str) -> &str {
         .find('\n')
         .map(|i| &trimmed[i + 1..])
         .unwrap_or(trimmed);
-    // Remove trailing fence if present
-    if let Some(end) = rest.rfind("```") {
-        rest[..end].trim()
-    } else {
-        rest.trim()
+    // Remove trailing fence only if the last non-empty line is exactly ```
+    let trimmed_rest = rest.trim_end_matches(|c: char| c == '\n' || c == '\r');
+    if let Some(last_nl) = trimmed_rest.rfind('\n') {
+        let last_line = &trimmed_rest[last_nl + 1..];
+        if last_line.trim() == "```" {
+            return trimmed_rest[..last_nl].trim();
+        }
+    } else if trimmed_rest.trim() == "```" {
+        return "";
     }
+    rest.trim()
 }
 
 /// Parse the model's JSON response into caption and tags.
 /// Cleans tags (trim, lowercase, deduplicate) and rejects empty captions.
-pub fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
+pub(crate) fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
     let cleaned = strip_code_fence(text);
     let parsed: AiResult = serde_json::from_str(cleaned)?;
     let caption = parsed.caption.trim().to_string();
@@ -746,9 +751,33 @@ mod tests {
 
     #[test]
     fn parse_json_response_extra_properties_ignored() {
-        // We rely on grammar to reject extra fields; serde ignores unknown by default.
+        // serde ignores unknown fields by default; grammar rejects extra fields at the server.
         let text = r#"{"caption": "x", "tags": [], "extra": 1}"#;
         let result = parse_json_response(text).unwrap();
         assert_eq!(result.caption, "x");
+    }
+
+    #[test]
+    fn parse_json_response_malformed_json_fails() {
+        let text = r#"{"caption": "x", "tags": [}"#;
+        assert!(parse_json_response(text).is_err());
+    }
+
+    #[test]
+    fn parse_json_response_missing_tags_fails() {
+        let text = r#"{"caption": "x"}"#;
+        assert!(parse_json_response(text).is_err());
+    }
+
+    #[test]
+    fn strip_code_fence_no_language_tag() {
+        let text = "```\n{\"caption\": \"x\", \"tags\": []}\n```";
+        assert_eq!(strip_code_fence(text), r#"{"caption": "x", "tags": []}"#);
+    }
+
+    #[test]
+    fn strip_code_fence_no_fence_returns_trimmed() {
+        let text = "  {\"caption\": \"x\", \"tags\": []}  ";
+        assert_eq!(strip_code_fence(text), r#"{"caption": "x", "tags": []}"#);
     }
 }
