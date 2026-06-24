@@ -448,6 +448,47 @@ pub async fn embed_text(text: &str, model: &str, port: u16) -> Result<Vec<f32>, 
         .ok_or(AiError::EmptyResponse)
 }
 
+/// Strip an optional markdown code fence (```json ... ```) from model output.
+fn strip_code_fence(text: &str) -> &str {
+    let trimmed = text.trim();
+    if !trimmed.starts_with("```") {
+        return trimmed;
+    }
+    // Skip first fence line, e.g. ```json
+    let rest = trimmed
+        .find('\n')
+        .map(|i| &trimmed[i + 1..])
+        .unwrap_or(trimmed);
+    // Remove trailing fence if present
+    if let Some(end) = rest.rfind("```") {
+        rest[..end].trim()
+    } else {
+        rest.trim()
+    }
+}
+
+/// Parse the model's JSON response into caption and tags.
+/// Cleans tags (trim, lowercase, deduplicate) and rejects empty captions.
+pub fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
+    let cleaned = strip_code_fence(text);
+    let parsed: AiResult = serde_json::from_str(cleaned)?;
+    let caption = parsed.caption.trim().to_string();
+    if caption.is_empty() {
+        return Err(AiError::Server(
+            "model returned empty caption".to_string(),
+        ));
+    }
+    let mut tags: Vec<String> = parsed
+        .tags
+        .into_iter()
+        .map(|t| t.trim().to_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    tags.sort();
+    tags.dedup();
+    Ok(AiResult { caption, tags })
+}
+
 /// Find the earliest "TAG:" or "TAGS:" marker (case-insensitive).
 /// Returns (byte_index, marker_len) — marker_len is 4 for "TAG:" and 5 for "TAGS:".
 /// When both match at the same position (TAG: is a prefix of TAGS:), prefers TAGS:.
@@ -654,4 +695,60 @@ pub fn parse_bilingual_response(text: &str) -> BilingualResult {
     };
 
     BilingualResult { caption_en, caption_zh, tags }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_json_response_basic() {
+        let text = r#"{"caption": "a cat on a sofa", "tags": ["cat", "sofa", "indoor"]}"#;
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.caption, "a cat on a sofa");
+        assert_eq!(result.tags, vec!["cat", "indoor", "sofa"]);
+    }
+
+    #[test]
+    fn parse_json_response_empty_tags() {
+        let text = r#"{"caption": "a simple scene", "tags": []}"#;
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.caption, "a simple scene");
+        assert!(result.tags.is_empty());
+    }
+
+    #[test]
+    fn parse_json_response_strips_code_fence() {
+        let text = "```json\n{\"caption\": \"test\", \"tags\": [\"a\", \"b\"]}\n```";
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.caption, "test");
+        assert_eq!(result.tags, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn parse_json_response_cleans_tags() {
+        let text = r#"{"caption": "x", "tags": ["  Cat ", "CAT", "", "dog"]}"#;
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.tags, vec!["cat", "dog"]);
+    }
+
+    #[test]
+    fn parse_json_response_missing_caption_fails() {
+        let text = r#"{"tags": ["cat"]}"#;
+        assert!(parse_json_response(text).is_err());
+    }
+
+    #[test]
+    fn parse_json_response_empty_caption_fails() {
+        let text = r#"{"caption": "   ", "tags": []}"#;
+        assert!(parse_json_response(text).is_err());
+    }
+
+    #[test]
+    fn parse_json_response_extra_properties_ignored() {
+        // We rely on grammar to reject extra fields; serde ignores unknown by default.
+        let text = r#"{"caption": "x", "tags": [], "extra": 1}"#;
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.caption, "x");
+    }
 }
