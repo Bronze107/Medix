@@ -394,8 +394,10 @@ pub async fn generate_caption_multi_image(
          Cover the video's overall content, setting, subjects, lighting, \
          colors, composition, and any notable changes, motion, or progression \
          you observe across the frames. \
-         End with exactly one TAGS: line listing the most distinctive \
-         tags for the video as a whole."
+         Respond with a single JSON object containing exactly two fields: \
+         \"caption\" (a dense sentence factual description) and \"tags\" \
+         (an array of at most 10 distinctive lowercase danbooru-style tags). \
+         Do not include markdown code blocks or any extra text outside the JSON."
     );
     content_parts.push(ContentPart {
         content_type: "text".to_string(),
