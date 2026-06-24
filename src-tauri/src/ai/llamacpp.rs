@@ -175,8 +175,7 @@ Focus on:
 8. Photography style — portrait, landscape, macro, street, documentary, snapshot.
 9. Notable visual elements — text, logos, UI elements, signs. Skip if none present.
 
-Produce your response in this format:
-A dense sentence factual description. Then on a new line starting with "TAGS:", list 10 at most distinctive key objects, concepts, and visual elements as comma-separated lowercase danbooru style tags."#;
+Respond with a single JSON object containing exactly two fields: "caption" (a dense sentence factual description) and "tags" (an array of at most 10 distinctive lowercase danbooru-style tags). Do not include markdown code blocks or any extra text outside the JSON."#;
 
 const CAPTION_PROMPT_ZH: &str = r#"你是一名专业摄影师。分析图像并仅描述可直接观察到的信息。
 
@@ -192,30 +191,8 @@ const CAPTION_PROMPT_ZH: &str = r#"你是一名专业摄影师。分析图像并
 8. 摄影风格 — 人像、风景、微距、街拍、纪实、快照。
 9. 显著的视觉元素 — 文字、标志、UI 元素、标识。没有则跳过。
 
-按以下格式输出：
-一段密集的中文事实描述。然后新起一行以"TAGS:"开头，列出最多10个最具特色的中文关键词，用逗号分隔。"#;
+请只输出一个 JSON 对象，包含两个字段："caption"（一段密集的中文事实描述）和 "tags"（最多 10 个中文关键词的数组）。不要包含 markdown 代码块或 JSON 之外的任何额外文字。"#;
 
-const CAPTION_PROMPT_BILINGUAL: &str = r#"You are a professional photographer. Analyze the image and describe only information that is directly observable.
-
-Focus on:
-
-1. Main subject — For people: apparent age range, build, hairstyle, gender presentation, clothing, pose, expression. For objects/animals: type, condition, position.
-2. Scene and environment — indoor/outdoor, setting, background elements.
-3. Composition — framing, angle, rule of thirds, leading lines, symmetry.
-4. Lighting conditions — direction, quality (hard/soft), source (natural/artificial), time of day cues.
-5. Colors and tones — dominant palette, saturation level, warm/cool/neutral cast.
-6. Camera perspective — eye-level, high angle, low angle, aerial, close-up.
-7. Depth of field — shallow/deep, bokeh quality, focus plane.
-8. Photography style — portrait, landscape, macro, street, documentary, snapshot.
-9. Notable visual elements — text, logos, UI elements, signs. Skip if none present.
-
-Produce your response in this EXACT format:
-
-[EN]
-A dense sentence factual description in English.
-[ZH]
-一段密集的中文事实描述。
-TAGS: tag1, tag2, tag3 (10 at most, comma-separated lowercase danbooru style tags)"#;
 
 #[derive(Debug, Clone)]
 pub struct SamplingParams {
@@ -522,14 +499,17 @@ fn parse_caption_response(text: &str) -> (String, Vec<String>) {
 /// If a custom prompt is set, it always takes precedence.
 /// Otherwise returns the appropriate built-in prompt for the language.
 pub fn resolve_prompt(language: crate::settings::AiLanguage, custom_prompt: Option<&str>) -> String {
+    let base = match language {
+        crate::settings::AiLanguage::English => CAPTION_PROMPT,
+        crate::settings::AiLanguage::Chinese => CAPTION_PROMPT_ZH,
+        crate::settings::AiLanguage::Bilingual => CAPTION_PROMPT,
+    };
+    let mut prompt = base.to_string();
     if let Some(cp) = custom_prompt {
-        return cp.to_string();
+        prompt.push_str("\n\nAdditional user instructions:\n");
+        prompt.push_str(cp);
     }
-    match language {
-        crate::settings::AiLanguage::English => CAPTION_PROMPT.to_string(),
-        crate::settings::AiLanguage::Chinese => CAPTION_PROMPT_ZH.to_string(),
-        crate::settings::AiLanguage::Bilingual => CAPTION_PROMPT_BILINGUAL.to_string(),
-    }
+    prompt
 }
 
 /// Bilingual response after parsing [EN] and [ZH] sections.
