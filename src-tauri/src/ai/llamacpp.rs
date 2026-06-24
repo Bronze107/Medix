@@ -142,7 +142,7 @@ static CAPTION_JSON_SCHEMA: LazyLock<serde_json::Value> = LazyLock::new(|| {
                     "minLength": 1,
                     "maxLength": 100
                 },
-                "maxItems": 50
+                "maxItems": 10
             }
         },
         "required": ["caption", "tags"],
@@ -495,9 +495,8 @@ fn parse_caption_response(text: &str) -> (String, Vec<String>) {
     (caption, tags)
 }
 
-/// Resolve which system prompt to use for the given language and custom prompt.
-/// If a custom prompt is set, it always takes precedence.
-/// Otherwise returns the appropriate built-in prompt for the language.
+/// Returns the base system prompt for the given language, with an optional
+/// custom prompt appended as additional instructions.
 pub fn resolve_prompt(language: crate::settings::AiLanguage, custom_prompt: Option<&str>) -> String {
     let base = match language {
         crate::settings::AiLanguage::English => CAPTION_PROMPT,
