@@ -126,6 +126,41 @@ static SHARED_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("failed to build shared HTTP client")
 });
 
+static CAPTION_JSON_SCHEMA: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "caption": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+            },
+            "tags": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                },
+                "maxItems": 50
+            }
+        },
+        "required": ["caption", "tags"],
+        "additionalProperties": false
+    })
+});
+
+fn caption_response_format() -> ResponseFormat {
+    ResponseFormat {
+        r#type: "json_schema".to_string(),
+        json_schema: JsonSchema {
+            name: "caption".to_string(),
+            strict: true,
+            schema: CAPTION_JSON_SCHEMA.clone(),
+        },
+    }
+}
+
 const CAPTION_PROMPT: &str = r#"You are a professional photographer. Analyze the image and describe only information that is directly observable.
 
 Focus on:
@@ -249,7 +284,7 @@ async fn chat_completion(
         } else {
             None
         },
-        response_format: None,
+        response_format: Some(caption_response_format()),
     };
 
     let max_attempts = 2;
