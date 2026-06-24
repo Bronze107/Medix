@@ -27,6 +27,20 @@ pub enum AiError {
 // --- Chat Completion (VLM) ---
 
 #[derive(Debug, Serialize)]
+struct ResponseFormat {
+    #[serde(rename = "type")]
+    r#type: String,
+    json_schema: JsonSchema,
+}
+
+#[derive(Debug, Serialize)]
+struct JsonSchema {
+    name: String,
+    strict: bool,
+    schema: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<Message>,
@@ -45,6 +59,8 @@ struct ChatCompletionRequest {
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     seed: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ResponseFormat>,
 }
 
 #[derive(Debug, Serialize)]
@@ -233,6 +249,7 @@ async fn chat_completion(
         } else {
             None
         },
+        response_format: None,
     };
 
     let max_attempts = 2;
