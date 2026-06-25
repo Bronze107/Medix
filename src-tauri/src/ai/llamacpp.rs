@@ -477,6 +477,38 @@ fn extract_json_object(text: &str) -> Option<String> {
     None
 }
 
+/// Trim whitespace from the inside of every JSON string value.
+/// Used as a repair step when the model emits keys like `" caption"`.
+fn trim_json_strings(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '"' {
+            let mut content = String::new();
+            let mut escaped = false;
+            for nc in chars.by_ref() {
+                if escaped {
+                    content.push(nc);
+                    escaped = false;
+                } else if nc == '\\' {
+                    content.push(nc);
+                    escaped = true;
+                } else if nc == '"' {
+                    break;
+                } else {
+                    content.push(nc);
+                }
+            }
+            result.push('"');
+            result.push_str(content.trim());
+            result.push('"');
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// Try to repair common model JSON mistakes before giving up:
 /// - `=` used as a key/value separator instead of `:`
 /// - unquoted object keys
@@ -548,13 +580,22 @@ pub(crate) fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
 
     let parsed: AiResult = serde_json::from_str(&json_text)
         .or_else(|e| {
-            eprintln!(
-                "[ai] strict JSON parse failed ({}), attempting repair...",
-                e
-            );
+            eprintln!("[ai] strict parse failed ({}), attempting repair...", e);
             let repaired = repair_json_keys(&json_text).replace('\'', "\"");
             serde_json::from_str(&repaired).map(|v| {
-                eprintln!("[ai] repaired JSON parsed successfully");
+                eprintln!("[ai] repaired (keys) parsed successfully");
+                v
+            })
+        })
+        .or_else(|e| {
+            eprintln!(
+                "[ai] key repair failed ({}), attempting string trim...",
+                e
+            );
+            let trimmed = trim_json_strings(&json_text);
+            let repaired = repair_json_keys(&trimmed).replace('\'', "\"");
+            serde_json::from_str(&repaired).map(|v| {
+                eprintln!("[ai] repaired (keys + trim) parsed successfully");
                 v
             })
         })
@@ -778,5 +819,22 @@ mod tests {
         let result = parse_json_response(text).unwrap();
         assert_eq!(result.caption, "a cat");
         assert_eq!(result.tags, vec!["cat"]);
+    }
+
+    #[test]
+    fn trim_json_strings_removes_key_padding() {
+        assert_eq!(
+            trim_json_strings(r#"{" caption": "x", "tags ": []}"#),
+            r#"{"caption": "x", "tags": []}"#
+        );
+    }
+
+    #[test]
+    fn parse_json_response_repairs_padded_quoted_keys() {
+        // Exact reproduction of the real model output
+        let text = r#"{=" caption": "city view", "tags": ["city", "sky"]}"#;
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.caption, "city view");
+        assert_eq!(result.tags, vec!["city", "sky"]);
     }
 }
