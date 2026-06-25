@@ -4,14 +4,16 @@ pub mod llamacpp;
 pub mod server;
 
 pub use embedding::EmbeddingServer;
-pub use llamacpp::{embed_text, generate_caption, generate_caption_multi_image, resolve_prompt, SamplingParams};
+pub use llamacpp::{
+    embed_text, generate_caption, generate_caption_multi_image, resolve_prompt, SamplingParams,
+};
 pub use server::LlamaServer;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -70,7 +72,8 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
                         variant_id,
                     } => {
                         if let Err(e) =
-                            process_generate_caption(app.clone(), media_id, image_path, variant_id).await
+                            process_generate_caption(app.clone(), media_id, image_path, variant_id)
+                                .await
                         {
                             eprintln!("[ai] failed to process caption generation: {}", e);
                         }
@@ -83,8 +86,14 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
                         duration_secs,
                         variant_id,
                     } => {
-                        if let Err(e) =
-                            process_video_caption(app.clone(), media_id, video_path, duration_secs, variant_id).await
+                        if let Err(e) = process_video_caption(
+                            app.clone(),
+                            media_id,
+                            video_path,
+                            duration_secs,
+                            variant_id,
+                        )
+                        .await
                         {
                             eprintln!("[ai] failed to process video caption: {}", e);
                         }
@@ -96,7 +105,10 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
         });
     });
 
-    AiQueue { sender: tx, pending }
+    AiQueue {
+        sender: tx,
+        pending,
+    }
 }
 
 async fn process_generate_caption(
@@ -171,8 +183,8 @@ async fn process_generate_caption(
                 }
             }
         } else {
-            let full = image::open(&image_path)
-                .map_err(|e| format!("failed to open image: {}", e))?;
+            let full =
+                image::open(&image_path).map_err(|e| format!("failed to open image: {}", e))?;
             let (fw, fh) = (full.width(), full.height());
             (full, fw, fh)
         };
@@ -184,11 +196,7 @@ async fn process_generate_caption(
             let ratio = max_dim as f64 / long_side as f64;
             let new_w = (w as f64 * ratio).round() as u32;
             let new_h = (h as f64 * ratio).round() as u32;
-            let resized = img.resize_exact(
-                new_w,
-                new_h,
-                image::imageops::FilterType::Nearest,
-            );
+            let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Nearest);
             let mut buf = std::io::Cursor::new(Vec::new());
             image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
                 .encode_image(&resized)
@@ -201,7 +209,11 @@ async fn process_generate_caption(
             inference_path_ref = &inference_path;
             println!(
                 "[ai] resized {}x{} → {}x{} for inference ({}ms)",
-                w, h, new_w, new_h, t_pixel.elapsed().as_millis()
+                w,
+                h,
+                new_w,
+                new_h,
+                t_pixel.elapsed().as_millis()
             );
         } else if is_jpeg {
             // DCT image already within max_dim, encode to temp file for VLM
@@ -243,7 +255,9 @@ async fn process_generate_caption(
         Some(&system_prompt),
         None,
         &sampling,
-    ).await.map_err(|e| {
+    )
+    .await
+    .map_err(|e| {
         eprintln!("[ai] caption generation failed for {}: {}", media_id, e);
         e.to_string()
     })?;
@@ -259,9 +273,15 @@ async fn process_generate_caption(
         // English call
         let t_en = Instant::now();
         let result_en = generate_caption(
-            inference_path_ref, &model, port,
-            Some(&prompt_en), None, &sampling,
-        ).await.map_err(|e| {
+            inference_path_ref,
+            &model,
+            port,
+            Some(&prompt_en),
+            None,
+            &sampling,
+        )
+        .await
+        .map_err(|e| {
             eprintln!("[ai] EN caption failed for {}: {}", media_id, e);
             e.to_string()
         })?;
@@ -270,40 +290,78 @@ async fn process_generate_caption(
         // Store EN caption
         let t_store_en = Instant::now();
         if let Some(ref variant_id) = variant_id {
-            let _ = crate::db::caption_create_for_variant(&app, &media_id, variant_id, &result_en.caption, Some("ai_en"));
+            let _ = crate::db::caption_create_for_variant(
+                &app,
+                &media_id,
+                variant_id,
+                &result_en.caption,
+                Some("ai_en"),
+            );
         } else {
-            let _ = crate::db::caption_create_with_source(&app, &media_id, &result_en.caption, Some("ai_en"));
+            let _ = crate::db::caption_create_with_source(
+                &app,
+                &media_id,
+                &result_en.caption,
+                Some("ai_en"),
+            );
         }
         let store_en_ms = t_store_en.elapsed().as_millis();
-        println!("[ai] EN caption stored for {}: {}... ({} tags) | EN infer={}ms store={}ms",
+        println!(
+            "[ai] EN caption stored for {}: {}... ({} tags) | EN infer={}ms store={}ms",
             media_id,
             result_en.caption.chars().take(40).collect::<String>(),
-            result_en.tags.len(), en_ms, store_en_ms);
+            result_en.tags.len(),
+            en_ms,
+            store_en_ms
+        );
 
         // Chinese call
         let t_zh = Instant::now();
         let zh_infer_ms;
         match generate_caption(
-            inference_path_ref, &model, port,
-            Some(&prompt_zh), None, &sampling,
-        ).await {
+            inference_path_ref,
+            &model,
+            port,
+            Some(&prompt_zh),
+            None,
+            &sampling,
+        )
+        .await
+        {
             Ok(result_zh) => {
                 zh_infer_ms = t_zh.elapsed().as_millis();
                 let t_store_zh = Instant::now();
                 if let Some(ref variant_id) = variant_id {
-                    let _ = crate::db::caption_create_for_variant(&app, &media_id, variant_id, &result_zh.caption, Some("ai_zh"));
+                    let _ = crate::db::caption_create_for_variant(
+                        &app,
+                        &media_id,
+                        variant_id,
+                        &result_zh.caption,
+                        Some("ai_zh"),
+                    );
                 } else {
-                    let _ = crate::db::caption_create_with_source(&app, &media_id, &result_zh.caption, Some("ai_zh"));
+                    let _ = crate::db::caption_create_with_source(
+                        &app,
+                        &media_id,
+                        &result_zh.caption,
+                        Some("ai_zh"),
+                    );
                 }
                 let store_zh_ms = t_store_zh.elapsed().as_millis();
-                println!("[ai] ZH caption stored for {}: {}... | ZH infer={}ms store={}ms",
+                println!(
+                    "[ai] ZH caption stored for {}: {}... | ZH infer={}ms store={}ms",
                     media_id,
                     result_zh.caption.chars().take(40).collect::<String>(),
-                    zh_infer_ms, store_zh_ms);
+                    zh_infer_ms,
+                    store_zh_ms
+                );
             }
             Err(e) => {
                 zh_infer_ms = t_zh.elapsed().as_millis();
-                eprintln!("[ai] ZH caption failed for {}: {} | failed after {}ms", media_id, e, zh_infer_ms);
+                eprintln!(
+                    "[ai] ZH caption failed for {}: {} | failed after {}ms",
+                    media_id, e, zh_infer_ms
+                );
             }
         }
 
@@ -319,12 +377,18 @@ async fn process_generate_caption(
                 }
             };
             if let Some(ref vid) = variant_id {
-                if let Err(e) = crate::db::media_tag_add_for_variant(&app, &media_id, vid, &tag_id, Some("ai")) {
+                if let Err(e) =
+                    crate::db::media_tag_add_for_variant(&app, &media_id, vid, &tag_id, Some("ai"))
+                {
                     eprintln!("[ai] failed to add variant tag '{}': {}", tag_name, e);
                 }
-            } else if let Err(e) =
-                crate::db::media_tag_add_with_source(&app, &media_id, &tag_id, Some(0.9), Some("ai"))
-            {
+            } else if let Err(e) = crate::db::media_tag_add_with_source(
+                &app,
+                &media_id,
+                &tag_id,
+                Some(0.9),
+                Some("ai"),
+            ) {
                 eprintln!("[ai] failed to add tag '{}': {}", tag_name, e);
             }
         }
@@ -333,7 +397,8 @@ async fn process_generate_caption(
         // Generate embedding for EN caption
         let t_emb = Instant::now();
         if !result_en.caption.is_empty() {
-            generate_caption_embedding(&app, &media_id, &result_en.caption, variant_id.as_deref()).await;
+            generate_caption_embedding(&app, &media_id, &result_en.caption, variant_id.as_deref())
+                .await;
         }
         let emb_ms = t_emb.elapsed().as_millis();
 
@@ -356,8 +421,14 @@ async fn process_generate_caption(
     // Store caption with source='ai'
     let t_store = Instant::now();
     if let Some(ref variant_id) = variant_id {
-        crate::db::caption_create_for_variant(&app, &media_id, variant_id, &result.caption, Some("ai"))
-            .map_err(|e| e.to_string())?;
+        crate::db::caption_create_for_variant(
+            &app,
+            &media_id,
+            variant_id,
+            &result.caption,
+            Some("ai"),
+        )
+        .map_err(|e| e.to_string())?;
     } else {
         crate::db::caption_create_with_source(&app, &media_id, &result.caption, Some("ai"))
             .map_err(|e| e.to_string())?;
@@ -376,9 +447,9 @@ async fn process_generate_caption(
             }
         };
         if let Some(ref vid) = variant_id {
-            if let Err(e) = crate::db::media_tag_add_for_variant(
-                &app, &media_id, vid, &tag_id, Some("ai"),
-            ) {
+            if let Err(e) =
+                crate::db::media_tag_add_for_variant(&app, &media_id, vid, &tag_id, Some("ai"))
+            {
                 eprintln!("[ai] failed to add variant tag '{}': {}", tag_name, e);
             }
         } else if let Err(e) =
@@ -396,9 +467,17 @@ async fn process_generate_caption(
     }
     let emb_ms = t_emb.elapsed().as_millis();
 
-    println!("[ai] {} done in {}ms | health={}ms resize={}ms infer={}ms store={}ms tags={}ms emb={}ms",
-        media_id, t_total.elapsed().as_millis(),
-        health_ms, resize_ms, infer_ms, store_ms, tags_ms, emb_ms);
+    println!(
+        "[ai] {} done in {}ms | health={}ms resize={}ms infer={}ms store={}ms tags={}ms emb={}ms",
+        media_id,
+        t_total.elapsed().as_millis(),
+        health_ms,
+        resize_ms,
+        infer_ms,
+        store_ms,
+        tags_ms,
+        emb_ms
+    );
 
     println!("[ai] completed processing {}", media_id);
     // Clean up temp inference file (if any)
@@ -439,7 +518,10 @@ async fn process_video_caption(
     // 1. Check AI mode
     let ai_mode = crate::settings::get_ai_mode(&app);
     if ai_mode == "cloud" {
-        println!("[video_ai] cloud mode not supported for video, skipping {}", media_id);
+        println!(
+            "[video_ai] cloud mode not supported for video, skipping {}",
+            media_id
+        );
         return Ok(());
     }
 
@@ -473,22 +555,23 @@ async fn process_video_caption(
     };
 
     // 5. Extract frames
-    println!("[video_ai] extracting {} frames from {}", n_frames, video_path.display());
-    let frames = match crate::media::video_metadata::extract_frames(
-        &video_path,
-        duration_secs,
+    println!(
+        "[video_ai] extracting {} frames from {}",
         n_frames,
-    ) {
-        Ok(f) if !f.is_empty() => f,
-        Ok(_) => {
-            println!("[video_ai] no frames extracted, skipping");
-            return Ok(());
-        }
-        Err(e) => {
-            eprintln!("[video_ai] frame extraction failed: {}", e);
-            return Err(e);
-        }
-    };
+        video_path.display()
+    );
+    let frames =
+        match crate::media::video_metadata::extract_frames(&video_path, duration_secs, n_frames) {
+            Ok(f) if !f.is_empty() => f,
+            Ok(_) => {
+                println!("[video_ai] no frames extracted, skipping");
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("[video_ai] frame extraction failed: {}", e);
+                return Err(e);
+            }
+        };
 
     // 6. Send frames to VLM (single-frame loop or multi-frame batch)
     let mut all_captions: Vec<String> = Vec::new();
@@ -506,10 +589,8 @@ async fn process_video_caption(
 
         let max_dim = crate::settings::get_llama_max_image_dim(&app);
         for (i, frame_path) in frames.iter().enumerate() {
-            let inf_path = resize_frame_for_inference(
-                frame_path, &media_id, i + 1, n, max_dim,
-            )
-            .await;
+            let inf_path =
+                resize_frame_for_inference(frame_path, &media_id, i + 1, n, max_dim).await;
             if inf_path != *frame_path {
                 tmp_paths.push(inf_path.clone());
             }
@@ -557,7 +638,10 @@ async fn process_video_caption(
 
         // Bilingual: second call with Chinese prompt (updates outer zh_caption)
         if is_bilingual {
-            let zh_prompt = resolve_prompt(crate::settings::AiLanguage::Chinese, custom_prompt.as_deref());
+            let zh_prompt = resolve_prompt(
+                crate::settings::AiLanguage::Chinese,
+                custom_prompt.as_deref(),
+            );
             match crate::ai::llamacpp::generate_caption_multi_image(
                 &path_refs, &model, port,
                 Some(&zh_prompt), Some("这些帧来自同一段视频，按时间顺序排列。请综合所有帧进行分析，给出一个整体描述（不要逐帧分别描述）。涵盖视频的整体内容、场景、主体、光线、色彩、构图，以及帧与帧之间的变化、运动或进展。最后以一行 TAGS: 列出最显著的标签。"),
@@ -583,13 +667,15 @@ async fn process_video_caption(
                 if language == crate::settings::AiLanguage::Chinese {
                     Some(format!(
                         "视频的第 {}/{} 帧。请描述这一帧的画面内容，注意它是视频序列的一部分。",
-                        i + 1, n
+                        i + 1,
+                        n
                     ))
                 } else {
                     Some(format!(
                         "Frame {}/{} from a video. Describe what you see in this frame, \
                          keeping in mind it is part of a sequence.",
-                        i + 1, n
+                        i + 1,
+                        n
                     ))
                 }
             } else {
@@ -598,10 +684,7 @@ async fn process_video_caption(
 
             let inference_path_ref = {
                 let max_dim = crate::settings::get_llama_max_image_dim(&app);
-                resize_frame_for_inference(
-                    frame_path, &media_id, i + 1, n, max_dim,
-                )
-                .await
+                resize_frame_for_inference(frame_path, &media_id, i + 1, n, max_dim).await
             };
             let is_tmp = inference_path_ref != *frame_path;
 
@@ -650,17 +733,35 @@ async fn process_video_caption(
     // 8. Store caption(s). Bilingual multi-frame stores EN + ZH separately.
     if is_bilingual && is_multi {
         // EN caption from the first multi-image call
-        store_video_caption(&app, &media_id, variant_id.as_deref(), &merged_caption, "ai_en");
+        store_video_caption(
+            &app,
+            &media_id,
+            variant_id.as_deref(),
+            &merged_caption,
+            "ai_en",
+        );
         // ZH caption from the second multi-image call
         if let Some(ref zh) = zh_caption {
             store_video_caption(&app, &media_id, variant_id.as_deref(), zh, "ai_zh");
         }
     } else if is_bilingual {
         // Single-frame bilingual: fall back to single "ai" caption
-        store_video_caption(&app, &media_id, variant_id.as_deref(), &merged_caption, "ai");
+        store_video_caption(
+            &app,
+            &media_id,
+            variant_id.as_deref(),
+            &merged_caption,
+            "ai",
+        );
     } else {
         // Single-language or single-frame: store as one caption
-        store_video_caption(&app, &media_id, variant_id.as_deref(), &merged_caption, "ai");
+        store_video_caption(
+            &app,
+            &media_id,
+            variant_id.as_deref(),
+            &merged_caption,
+            "ai",
+        );
     }
 
     // 9. Store tags
@@ -675,13 +776,17 @@ async fn process_video_caption(
                 }
             };
             if let Some(ref vid) = variant_id {
-                if let Err(e) = crate::db::media_tag_add_for_variant(
-                    &app, &media_id, vid, &tag_id, Some("ai"),
-                ) {
+                if let Err(e) =
+                    crate::db::media_tag_add_for_variant(&app, &media_id, vid, &tag_id, Some("ai"))
+                {
                     eprintln!("[video_ai] failed to add variant tag '{}': {}", tag_name, e);
                 }
             } else if let Err(e) = crate::db::media_tag_add_with_source(
-                &app, &media_id, &tag_id, Some(0.9), Some("ai"),
+                &app,
+                &media_id,
+                &tag_id,
+                Some(0.9),
+                Some("ai"),
             ) {
                 eprintln!("[video_ai] failed to add tag '{}': {}", tag_name, e);
             }
@@ -727,17 +832,14 @@ async fn resize_frame_for_inference(
             let ratio = max_dim as f64 / long_side as f64;
             let new_w = (w as f64 * ratio).round() as u32;
             let new_h = (h as f64 * ratio).round() as u32;
-            let resized =
-                img.resize_exact(new_w, new_h, image::imageops::FilterType::Nearest);
+            let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Nearest);
             let mut buf = std::io::Cursor::new(Vec::new());
             if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
                 .encode_image(&resized)
                 .is_ok()
             {
-                let tmp = std::env::temp_dir().join(format!(
-                    "medix_video_infer_{}_{}.jpg",
-                    media_id, frame_idx
-                ));
+                let tmp = std::env::temp_dir()
+                    .join(format!("medix_video_infer_{}_{}.jpg", media_id, frame_idx));
                 if tokio::fs::write(&tmp, buf.into_inner()).await.is_ok() {
                     println!(
                         "[video_ai] frame {}/{} resized {}x{} → {}x{}",
@@ -804,16 +906,27 @@ fn store_video_caption(
 }
 
 /// Generate and store a caption embedding via the dedicated embedding server.
-async fn generate_caption_embedding(app: &AppHandle, media_id: &str, caption: &str, variant_id: Option<&str>) {
+async fn generate_caption_embedding(
+    app: &AppHandle,
+    media_id: &str,
+    caption: &str,
+    variant_id: Option<&str>,
+) {
     let emb_model = crate::settings::get_embedding_model(app);
     if emb_model.is_empty() {
-        eprintln!("[ai] no embedding model configured, skipping embedding for {}", media_id);
+        eprintln!(
+            "[ai] no embedding model configured, skipping embedding for {}",
+            media_id
+        );
         return;
     }
     let emb_port = crate::settings::get_embedding_port(app);
     let emb_server = app.state::<EmbeddingServer>();
     if !emb_server.health_check(emb_port).await {
-        eprintln!("[ai] embedding server not running, skipping embedding for {}", media_id);
+        eprintln!(
+            "[ai] embedding server not running, skipping embedding for {}",
+            media_id
+        );
         return;
     }
     let emb_model_short = std::path::Path::new(&emb_model)
@@ -823,10 +936,18 @@ async fn generate_caption_embedding(app: &AppHandle, media_id: &str, caption: &s
         .to_string();
     match embed_text(caption, &emb_model, emb_port).await {
         Ok(vector) => {
-            if let Err(e) =
-                crate::db::embedding_insert(app, media_id, &emb_model_short, "caption", variant_id, &vector)
-            {
-                eprintln!("[ai] failed to store caption embedding for {}: {}", media_id, e);
+            if let Err(e) = crate::db::embedding_insert(
+                app,
+                media_id,
+                &emb_model_short,
+                "caption",
+                variant_id,
+                &vector,
+            ) {
+                eprintln!(
+                    "[ai] failed to store caption embedding for {}: {}",
+                    media_id, e
+                );
             } else {
                 println!("[ai] embedding stored for {} ({}d)", media_id, vector.len());
             }
@@ -849,34 +970,42 @@ fn decode_jpeg_fast(path: &Path, max_dim: u32) -> Result<(image::DynamicImage, u
     let t = Instant::now();
     let jpeg_data = std::fs::read(path).map_err(|e| format!("read: {}", e))?;
 
-    let mut decoder = libjpeg_turbo_rs::Decoder::new(&jpeg_data)
-        .map_err(|e| format!("jpeg decoder: {}", e))?;
+    let mut decoder =
+        libjpeg_turbo_rs::Decoder::new(&jpeg_data).map_err(|e| format!("jpeg decoder: {}", e))?;
     let (hdr_w, hdr_h) = {
         let header = decoder.header();
         (header.width, header.height)
     };
     let long_side = (hdr_w.max(hdr_h)) as u32;
 
-    let scale: u32 = if long_side / 8 >= max_dim { 8 }
-        else if long_side / 4 >= max_dim { 4 }
-        else if long_side / 2 >= max_dim { 2 }
-        else { 1 };
+    let scale: u32 = if long_side / 8 >= max_dim {
+        8
+    } else if long_side / 4 >= max_dim {
+        4
+    } else if long_side / 2 >= max_dim {
+        2
+    } else {
+        1
+    };
 
     decoder.set_scale(libjpeg_turbo_rs::ScalingFactor::new(1, scale));
-    let img = decoder.decode_image()
+    let img = decoder
+        .decode_image()
         .map_err(|e| format!("jpeg decode: {}", e))?;
 
     println!(
         "[ai] DCT decode 1/{}: {}x{} → {}x{} ({}ms)",
         scale,
-        hdr_w, hdr_h,
-        img.width, img.height,
+        hdr_w,
+        hdr_h,
+        img.width,
+        img.height,
         t.elapsed().as_millis()
     );
 
     let dynamic = image::DynamicImage::ImageRgb8(
         image::RgbImage::from_raw(img.width as u32, img.height as u32, img.data)
-            .ok_or("failed to construct image from decoded data")?
+            .ok_or("failed to construct image from decoded data")?,
     );
     Ok((dynamic, t.elapsed().as_millis()))
 }

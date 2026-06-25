@@ -193,7 +193,6 @@ const CAPTION_PROMPT_ZH: &str = r#"你是一名专业摄影师。分析图像并
 
 请只输出一个 JSON 对象，包含两个字段："caption"（一段密集的中文事实描述）和 "tags"（最多 10 个中文关键词的数组）。不要包含 markdown 代码块或 JSON 之外的任何额外文字。"#;
 
-
 #[derive(Debug, Clone)]
 pub struct SamplingParams {
     pub temperature: f32,
@@ -274,7 +273,10 @@ async fn chat_completion(
             .send()
             .await?;
         let http_ms = t_req.elapsed().as_millis();
-        println!("[ai] HTTP POST /v1/chat/completions {}ms (attempt {})", http_ms, attempt);
+        println!(
+            "[ai] HTTP POST /v1/chat/completions {}ms (attempt {})",
+            http_ms, attempt
+        );
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
@@ -314,7 +316,14 @@ pub async fn generate_caption(
 ) -> Result<AiResult, AiError> {
     let prompt_text = custom_prompt.unwrap_or(CAPTION_PROMPT);
     let (data_url, b64_ms) = image_to_data_url(image_path).await?;
-    println!("[ai] base64 encode {}ms (file: {})", b64_ms, image_path.file_name().and_then(|n| n.to_str()).unwrap_or("?"));
+    println!(
+        "[ai] base64 encode {}ms (file: {})",
+        b64_ms,
+        image_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+    );
 
     let mut user_content: Vec<ContentPart> = Vec::new();
     if let Some(text) = user_text {
@@ -397,7 +406,7 @@ pub async fn generate_caption_multi_image(
          Respond with a single JSON object containing exactly two fields: \
          \"caption\" (a dense sentence factual description) and \"tags\" \
          (an array of at most 10 distinctive lowercase danbooru-style tags). \
-         Do not include markdown code blocks or any extra text outside the JSON."
+         Do not include markdown code blocks or any extra text outside the JSON.",
     );
     content_parts.push(ContentPart {
         content_type: "text".to_string(),
@@ -481,9 +490,7 @@ pub(crate) fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
     let parsed: AiResult = serde_json::from_str(cleaned)?;
     let caption = parsed.caption.trim().to_string();
     if caption.is_empty() {
-        return Err(AiError::Server(
-            "model returned empty caption".to_string(),
-        ));
+        return Err(AiError::Server("model returned empty caption".to_string()));
     }
     let mut tags: Vec<String> = parsed
         .tags
@@ -498,7 +505,10 @@ pub(crate) fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
 
 /// Returns the base system prompt for the given language, with an optional
 /// custom prompt appended as additional instructions.
-pub fn resolve_prompt(language: crate::settings::AiLanguage, custom_prompt: Option<&str>) -> String {
+pub fn resolve_prompt(
+    language: crate::settings::AiLanguage,
+    custom_prompt: Option<&str>,
+) -> String {
     let base = match language {
         crate::settings::AiLanguage::English => CAPTION_PROMPT,
         crate::settings::AiLanguage::Chinese => CAPTION_PROMPT_ZH,
