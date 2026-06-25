@@ -343,7 +343,7 @@ tests/<name>.sh
 - **搜索**: `media_type:image` / `media_type:video` 结构化过滤
 - **AI 标注**: 视频导入后若 `video_ai_enabled=true`，自动 ffmpeg 抽取 1-8 帧（默认 3），发送给 VLM 推理。支持两种模式：① 逐帧独立推理（默认）— 每帧单独调用 VLM，最后合并 caption/tags；② `video_ai_multi_frame` 多图合并推理 — 所有帧在一次请求中发送（帧间用 "1/3" 标签区分），模型可理解帧间时序关系（需 VLM 支持多图输入，如 Qwen2-VL、InternVL2）。`media_ai_annotate` 命令自动区分图片/视频类型
 - **AI 标注语言**: 通过 `ai_language` 设置选择标注语言（`en` / `zh` / `bilingual`）。图片和视频 AI 标注均支持。双语模式下调用两次 VLM（英文 + 中文），生成两条独立 caption（source: `ai_en` / `ai_zh`），标签统一使用英文 danbooru 风格。视频多帧推理的用户消息文本（帧标签、结尾指令）会随语言设置切换中英文
-- **AI 输出格式**: caption/tag 输出通过 llama-server `response_format.json_schema` 强制约束为 JSON（`{"caption": string, "tags": string[]}`），不再依赖 prompt 中的 `TAGS:` 标记解析
+- **AI 输出格式**: caption/tag 输出通过 llama-server `response_format: {"type": "json_object"}` 强制约束为合法 JSON，Rust 端再校验 `{"caption": string, "tags": string[]}` 结构，不再依赖 prompt 中的 `TAGS:` 标记解析
 
 ### 添加 AI 模型
 

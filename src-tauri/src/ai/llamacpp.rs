@@ -26,18 +26,10 @@ pub enum AiError {
 
 // --- Chat Completion (VLM) ---
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct ResponseFormat {
     #[serde(rename = "type")]
     r#type: String,
-    json_schema: JsonSchema,
-}
-
-#[derive(Debug, Serialize)]
-struct JsonSchema {
-    name: String,
-    strict: bool,
-    schema: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -126,40 +118,9 @@ static SHARED_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("failed to build shared HTTP client")
 });
 
-static CAPTION_JSON_SCHEMA: LazyLock<serde_json::Value> = LazyLock::new(|| {
-    serde_json::json!({
-        "type": "object",
-        "properties": {
-            "caption": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 2000
-            },
-            "tags": {
-                "type": "array",
-                "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 100
-                },
-                "maxItems": 10
-            }
-        },
-        "required": ["caption", "tags"],
-        "additionalProperties": false
-    })
+static CAPTION_RESPONSE_FORMAT: LazyLock<ResponseFormat> = LazyLock::new(|| ResponseFormat {
+    r#type: "json_object".to_string(),
 });
-
-fn caption_response_format() -> ResponseFormat {
-    ResponseFormat {
-        r#type: "json_schema".to_string(),
-        json_schema: JsonSchema {
-            name: "caption".to_string(),
-            strict: true,
-            schema: CAPTION_JSON_SCHEMA.clone(),
-        },
-    }
-}
 
 const CAPTION_PROMPT: &str = r#"You are a professional photographer. Analyze the image and describe only information that is directly observable.
 
@@ -260,7 +221,7 @@ async fn chat_completion(
         } else {
             None
         },
-        response_format: Some(caption_response_format()),
+        response_format: Some(CAPTION_RESPONSE_FORMAT.clone()),
     };
 
     let max_attempts = 2;
@@ -484,19 +445,30 @@ fn strip_code_fence(text: &str) -> &str {
 }
 
 /// Parse the model's JSON response into caption and tags.
-/// Cleans tags (trim, lowercase, deduplicate) and rejects empty captions.
+/// Cleans tags (trim, lowercase, deduplicate), enforces length/tag-count
+/// limits, and rejects empty captions.
 pub(crate) fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
+    const MAX_CAPTION_LEN: usize = 2000;
+    const MAX_TAG_LEN: usize = 100;
+    const MAX_TAGS: usize = 10;
+
     let cleaned = strip_code_fence(text);
     let parsed: AiResult = serde_json::from_str(cleaned)?;
     let caption = parsed.caption.trim().to_string();
     if caption.is_empty() {
         return Err(AiError::Server("model returned empty caption".to_string()));
     }
+    let caption = caption.chars().take(MAX_CAPTION_LEN).collect::<String>();
+
     let mut tags: Vec<String> = parsed
         .tags
         .into_iter()
-        .map(|t| t.trim().to_lowercase())
+        .map(|t| {
+            let trimmed = t.trim().to_lowercase();
+            trimmed.chars().take(MAX_TAG_LEN).collect::<String>()
+        })
         .filter(|t| !t.is_empty())
+        .take(MAX_TAGS)
         .collect();
     tags.sort();
     tags.dedup();
@@ -571,7 +543,7 @@ mod tests {
 
     #[test]
     fn parse_json_response_extra_properties_ignored() {
-        // serde ignores unknown fields by default; grammar rejects extra fields at the server.
+        // serde ignores unknown fields by default; json_object only enforces valid JSON.
         let text = r#"{"caption": "x", "tags": [], "extra": 1}"#;
         let result = parse_json_response(text).unwrap();
         assert_eq!(result.caption, "x");
@@ -587,6 +559,36 @@ mod tests {
     fn parse_json_response_missing_tags_fails() {
         let text = r#"{"caption": "x"}"#;
         assert!(parse_json_response(text).is_err());
+    }
+
+    #[test]
+    fn parse_json_response_truncates_long_caption() {
+        let long_caption = "x".repeat(2500);
+        let text = format!(r#"{{"caption": "{}", "tags": []}}"#, long_caption);
+        let result = parse_json_response(&text).unwrap();
+        assert_eq!(result.caption.len(), 2000);
+    }
+
+    #[test]
+    fn parse_json_response_truncates_long_tags() {
+        let long_tag = "x".repeat(150);
+        let text = format!(r#"{{"caption": "x", "tags": ["{}"]}}"#, long_tag);
+        let result = parse_json_response(&text).unwrap();
+        assert_eq!(result.tags, vec!["x".repeat(100)]);
+    }
+
+    #[test]
+    fn parse_json_response_limits_tag_count() {
+        let tags: Vec<String> = (0..15).map(|i| format!("tag{}", i)).collect();
+        let text = format!(
+            r#"{{"caption": "x", "tags": [{}]}}"#,
+            tags.iter()
+                .map(|t| format!("\"{}\"", t))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let result = parse_json_response(&text).unwrap();
+        assert_eq!(result.tags.len(), 10);
     }
 
     #[test]
