@@ -252,8 +252,9 @@ async fn process_generate_caption(
 
     // Bilingual mode: call VLM twice — EN then ZH.
     if language == crate::settings::AiLanguage::Bilingual {
-        let prompt_en = resolve_prompt(crate::settings::AiLanguage::English, None);
-        let prompt_zh = resolve_prompt(crate::settings::AiLanguage::Chinese, None);
+        let custom = custom_prompt.as_deref();
+        let prompt_en = resolve_prompt(crate::settings::AiLanguage::English, custom);
+        let prompt_zh = resolve_prompt(crate::settings::AiLanguage::Chinese, custom);
 
         // English call
         let t_en = Instant::now();
@@ -556,7 +557,7 @@ async fn process_video_caption(
 
         // Bilingual: second call with Chinese prompt (updates outer zh_caption)
         if is_bilingual {
-            let zh_prompt = resolve_prompt(crate::settings::AiLanguage::Chinese, None);
+            let zh_prompt = resolve_prompt(crate::settings::AiLanguage::Chinese, custom_prompt.as_deref());
             match crate::ai::llamacpp::generate_caption_multi_image(
                 &path_refs, &model, port,
                 Some(&zh_prompt), Some("这些帧来自同一段视频，按时间顺序排列。请综合所有帧进行分析，给出一个整体描述（不要逐帧分别描述）。涵盖视频的整体内容、场景、主体、光线、色彩、构图，以及帧与帧之间的变化、运动或进展。最后以一行 TAGS: 列出最显著的标签。"),
