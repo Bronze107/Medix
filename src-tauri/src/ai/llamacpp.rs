@@ -30,6 +30,15 @@ pub enum AiError {
 struct ResponseFormat {
     #[serde(rename = "type")]
     r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    json_schema: Option<JsonSchema>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct JsonSchema {
+    name: String,
+    strict: bool,
+    schema: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,8 +127,31 @@ static SHARED_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("failed to build shared HTTP client")
 });
 
+/// Minimal JSON Schema — deliberately avoids minLength/maxLength/maxItems
+/// to keep the GBNF grammar simple for small VLMs. Rust-side validation
+/// handles the limits after parsing.
+static CAPTION_JSON_SCHEMA: LazyLock<serde_json::Value> = LazyLock::new(|| {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "caption": { "type": "string" },
+            "tags": {
+                "type": "array",
+                "items": { "type": "string" }
+            }
+        },
+        "required": ["caption", "tags"],
+        "additionalProperties": false
+    })
+});
+
 static CAPTION_RESPONSE_FORMAT: LazyLock<ResponseFormat> = LazyLock::new(|| ResponseFormat {
-    r#type: "json_object".to_string(),
+    r#type: "json_schema".to_string(),
+    json_schema: Some(JsonSchema {
+        name: "caption".to_string(),
+        strict: true,
+        schema: CAPTION_JSON_SCHEMA.clone(),
+    }),
 });
 
 const CAPTION_PROMPT: &str = r#"You are a professional photographer. Analyze the image and describe only information that is directly observable.
@@ -583,31 +615,26 @@ pub(crate) fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
 
     // Phase 2: parse into a flexible Value, fix structural issues, then
     // deserialize into AiResult.
-    let mut value: serde_json::Value =
-        serde_json::from_str(&repaired_text).map_err(|e| {
-            eprintln!(
-                "[ai] JSON parse failed after all repairs: {}. raw text (first 500 chars): {}",
-                e,
-                text.chars().take(500).collect::<String>()
-            );
-            AiError::Json(e)
-        })?;
+    let mut value: serde_json::Value = serde_json::from_str(&repaired_text).map_err(|e| {
+        eprintln!(
+            "[ai] JSON parse failed after all repairs: {}. raw text (first 500 chars): {}",
+            e,
+            text.chars().take(500).collect::<String>()
+        );
+        AiError::Json(e)
+    })?;
 
     // Fix common structural malformations.
-    let obj = value.as_object_mut().ok_or_else(|| {
-        AiError::Server("model output is not a JSON object".to_string())
-    })?;
+    let obj = value
+        .as_object_mut()
+        .ok_or_else(|| AiError::Server("model output is not a JSON object".to_string()))?;
 
     // Model sometimes outputs tags as a comma-separated string instead of an array.
     if let Some(serde_json::Value::String(s)) = obj.get("tags") {
         let tags_arr: Vec<serde_json::Value> = s
             .split(',')
             .map(|t| serde_json::Value::String(t.trim().to_string()))
-            .filter(|v| {
-                v.as_str()
-                    .map(|s| !s.is_empty())
-                    .unwrap_or(false)
-            })
+            .filter(|v| v.as_str().map(|s| !s.is_empty()).unwrap_or(false))
             .collect();
         obj.insert("tags".to_string(), serde_json::Value::Array(tags_arr));
     }
@@ -780,7 +807,7 @@ mod tests {
     }
 
     #[test]
-    fn chat_completion_request_serializes_json_object_response_format() {
+    fn chat_completion_request_serializes_json_schema_response_format() {
         let req = ChatCompletionRequest {
             model: "test-model".to_string(),
             messages: vec![],
@@ -796,9 +823,21 @@ mod tests {
         };
         let json = serde_json::to_string(&req).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let rf = parsed.get("response_format").unwrap();
         assert_eq!(
-            parsed.get("response_format").and_then(|v| v.get("type")),
-            Some(&serde_json::Value::String("json_object".to_string()))
+            rf.get("type"),
+            Some(&serde_json::Value::String("json_schema".to_string()))
+        );
+        let js = rf.get("json_schema").unwrap();
+        assert_eq!(
+            js.get("name"),
+            Some(&serde_json::Value::String("caption".to_string()))
+        );
+        assert_eq!(js.get("strict"), Some(&serde_json::Value::Bool(true)));
+        let schema = js.get("schema").unwrap();
+        assert_eq!(
+            schema.get("additionalProperties"),
+            Some(&serde_json::Value::Bool(false))
         );
     }
 
