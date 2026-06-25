@@ -578,35 +578,41 @@ pub(crate) fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
     let cleaned = strip_code_fence(text);
     let json_text = extract_json_object(cleaned).unwrap_or_else(|| cleaned.to_string());
 
-    let parsed: AiResult = serde_json::from_str(&json_text)
-        .or_else(|e| {
-            eprintln!("[ai] strict parse failed ({}), attempting repair...", e);
-            let repaired = repair_json_keys(&json_text).replace('\'', "\"");
-            serde_json::from_str(&repaired).map(|v| {
-                eprintln!("[ai] repaired (keys) parsed successfully");
-                v
-            })
-        })
-        .or_else(|e| {
+    // Phase 1: progressively repair malformed JSON text.
+    let repaired_text = repair_json_text(&json_text);
+
+    // Phase 2: parse into a flexible Value, fix structural issues, then
+    // deserialize into AiResult.
+    let mut value: serde_json::Value =
+        serde_json::from_str(&repaired_text).map_err(|e| {
             eprintln!(
-                "[ai] key repair failed ({}), attempting string trim...",
-                e
-            );
-            let trimmed = trim_json_strings(&json_text);
-            let repaired = repair_json_keys(&trimmed).replace('\'', "\"");
-            serde_json::from_str(&repaired).map(|v| {
-                eprintln!("[ai] repaired (keys + trim) parsed successfully");
-                v
-            })
-        })
-        .map_err(|e| {
-            eprintln!(
-                "[ai] JSON parse failed: {}. raw text (first 500 chars): {}",
+                "[ai] JSON parse failed after all repairs: {}. raw text (first 500 chars): {}",
                 e,
                 text.chars().take(500).collect::<String>()
             );
             AiError::Json(e)
         })?;
+
+    // Fix common structural malformations.
+    let obj = value.as_object_mut().ok_or_else(|| {
+        AiError::Server("model output is not a JSON object".to_string())
+    })?;
+
+    // Model sometimes outputs tags as a comma-separated string instead of an array.
+    if let Some(serde_json::Value::String(s)) = obj.get("tags") {
+        let tags_arr: Vec<serde_json::Value> = s
+            .split(',')
+            .map(|t| serde_json::Value::String(t.trim().to_string()))
+            .filter(|v| {
+                v.as_str()
+                    .map(|s| !s.is_empty())
+                    .unwrap_or(false)
+            })
+            .collect();
+        obj.insert("tags".to_string(), serde_json::Value::Array(tags_arr));
+    }
+
+    let parsed: AiResult = serde_json::from_value(value)?;
 
     let caption = parsed.caption.trim().to_string();
     if caption.is_empty() {
@@ -627,6 +633,22 @@ pub(crate) fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
     tags.sort();
     tags.dedup();
     Ok(AiResult { caption, tags })
+}
+
+/// Try progressively harsher repairs on malformed JSON text.
+/// Returns the most aggressively repaired text.
+fn repair_json_text(raw: &str) -> String {
+    // Always apply key repair (unquote bare keys, remove spurious =, replace
+    // stray single quotes) and string trimming (handles padded keys like
+    // " caption"). Don't short-circuit on early "valid" JSON — keys may still
+    // be wrong (e.g. " caption" is valid JSON but won't match AiResult fields).
+    let trimmed = trim_json_strings(raw);
+    let repaired = repair_json_keys(&trimmed).replace('\'', "\"");
+
+    if repaired != *raw {
+        eprintln!("[ai] applied JSON text repairs");
+    }
+    repaired
 }
 
 /// Returns the base system prompt for the given language, with an optional
@@ -836,5 +858,26 @@ mod tests {
         let result = parse_json_response(text).unwrap();
         assert_eq!(result.caption, "city view");
         assert_eq!(result.tags, vec!["city", "sky"]);
+    }
+
+    #[test]
+    fn parse_json_response_converts_string_tags_to_array() {
+        let text = r#"{"caption": "a cat", "tags": "cat, sofa, indoor"}"#;
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.caption, "a cat");
+        assert_eq!(result.tags, vec!["cat", "indoor", "sofa"]);
+    }
+
+    #[test]
+    fn parse_json_response_converts_string_tags_with_spaces() {
+        let text = r#"{"caption": "x", "tags": " cat ,  dog ,fish  "}"#;
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.tags, vec!["cat", "dog", "fish"]);
+    }
+
+    #[test]
+    fn parse_json_response_rejects_non_object_value() {
+        let text = r#""just a string""#;
+        assert!(parse_json_response(text).is_err());
     }
 }
