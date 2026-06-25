@@ -444,6 +444,97 @@ fn strip_code_fence(text: &str) -> &str {
     rest.trim()
 }
 
+/// Extract the first balanced `{...}` object from `text`, ignoring any
+/// leading or trailing garbage (explanations, markdown, etc.).
+fn extract_json_object(text: &str) -> Option<String> {
+    let start = text.find('{')?;
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape = false;
+    for (i, c) in text[start..].char_indices() {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(text[start..start + i + c.len_utf8()].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Try to repair common model JSON mistakes before giving up:
+/// - `=` used as a key/value separator instead of `:`
+/// - unquoted object keys
+fn repair_json_keys(text: &str) -> String {
+    let mut result = String::with_capacity(text.len() + 16);
+    let mut chars = text.chars().peekable();
+    // Track whether the next non-whitespace token can start a key (after `{` or `,`).
+    let mut expect_key = false;
+
+    while let Some(c) = chars.next() {
+        if c == '{' || c == ',' {
+            result.push(c);
+            expect_key = true;
+            continue;
+        }
+
+        if expect_key {
+            if c.is_whitespace() {
+                result.push(c);
+                continue;
+            }
+            // Skip a spurious `=` that appears where a key should start.
+            if c == '=' {
+                continue;
+            }
+            // Quote a bare identifier key.
+            if c.is_ascii_alphabetic() || c == '_' {
+                let mut key = String::new();
+                key.push(c);
+                while let Some(&n) = chars.peek() {
+                    if n.is_ascii_alphanumeric() || n == '_' {
+                        key.push(n);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                if chars.peek() == Some(&':') || chars.peek() == Some(&'=') {
+                    result.push('"');
+                    result.push_str(&key);
+                    result.push('"');
+                    expect_key = false;
+                    continue;
+                } else {
+                    result.push_str(&key);
+                    expect_key = false;
+                    continue;
+                }
+            }
+            // A quoted key (or `{`/`[` value) ends key-expectation.
+            expect_key = false;
+        }
+
+        result.push(c);
+    }
+    result
+}
+
 /// Parse the model's JSON response into caption and tags.
 /// Cleans tags (trim, lowercase, deduplicate), enforces length/tag-count
 /// limits, and rejects empty captions.
@@ -453,7 +544,29 @@ pub(crate) fn parse_json_response(text: &str) -> Result<AiResult, AiError> {
     const MAX_TAGS: usize = 10;
 
     let cleaned = strip_code_fence(text);
-    let parsed: AiResult = serde_json::from_str(cleaned)?;
+    let json_text = extract_json_object(cleaned).unwrap_or_else(|| cleaned.to_string());
+
+    let parsed: AiResult = serde_json::from_str(&json_text)
+        .or_else(|e| {
+            eprintln!(
+                "[ai] strict JSON parse failed ({}), attempting repair...",
+                e
+            );
+            let repaired = repair_json_keys(&json_text).replace('\'', "\"");
+            serde_json::from_str(&repaired).map(|v| {
+                eprintln!("[ai] repaired JSON parsed successfully");
+                v
+            })
+        })
+        .map_err(|e| {
+            eprintln!(
+                "[ai] JSON parse failed: {}. raw text (first 500 chars): {}",
+                e,
+                text.chars().take(500).collect::<String>()
+            );
+            AiError::Json(e)
+        })?;
+
     let caption = parsed.caption.trim().to_string();
     if caption.is_empty() {
         return Err(AiError::Server("model returned empty caption".to_string()));
@@ -601,5 +714,69 @@ mod tests {
     fn strip_code_fence_no_fence_returns_trimmed() {
         let text = "  {\"caption\": \"x\", \"tags\": []}  ";
         assert_eq!(strip_code_fence(text), r#"{"caption": "x", "tags": []}"#);
+    }
+
+    #[test]
+    fn chat_completion_request_serializes_json_object_response_format() {
+        let req = ChatCompletionRequest {
+            model: "test-model".to_string(),
+            messages: vec![],
+            stream: false,
+            chat_template_kwargs: None,
+            temperature: None,
+            top_p: None,
+            min_p: None,
+            repeat_penalty: None,
+            max_tokens: None,
+            seed: None,
+            response_format: Some(CAPTION_RESPONSE_FORMAT.clone()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            parsed.get("response_format").and_then(|v| v.get("type")),
+            Some(&serde_json::Value::String("json_object".to_string()))
+        );
+    }
+
+    #[test]
+    fn extract_json_object_ignores_surrounding_text() {
+        let text = "Here is the result: {\"caption\": \"x\", \"tags\": []} thanks.";
+        assert_eq!(
+            extract_json_object(text),
+            Some(r#"{"caption": "x", "tags": []}"#.to_string())
+        );
+    }
+
+    #[test]
+    fn repair_json_keys_quotes_unquoted_keys() {
+        assert_eq!(
+            repair_json_keys(r#"{caption: "x", tags: ["a"]}"#),
+            r#"{"caption": "x", "tags": ["a"]}"#
+        );
+    }
+
+    #[test]
+    fn repair_json_keys_removes_spurious_equals() {
+        assert_eq!(
+            repair_json_keys(r#"{="caption": "x", ="tags": ["a"]}"#),
+            r#"{"caption": "x", "tags": ["a"]}"#
+        );
+    }
+
+    #[test]
+    fn parse_json_response_repairs_unquoted_keys() {
+        let text = r#"{caption: "a cat", tags: ["cat", "sofa"]}"#;
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.caption, "a cat");
+        assert_eq!(result.tags, vec!["cat", "sofa"]);
+    }
+
+    #[test]
+    fn parse_json_response_repairs_spurious_equals() {
+        let text = r#"{="caption": "a cat", ="tags": ["cat"]}"#;
+        let result = parse_json_response(text).unwrap();
+        assert_eq!(result.caption, "a cat");
+        assert_eq!(result.tags, vec!["cat"]);
     }
 }
