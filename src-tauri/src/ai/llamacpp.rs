@@ -136,7 +136,7 @@ Focus on:
 8. Photography style — portrait, landscape, macro, street, documentary, snapshot.
 9. Notable visual elements — text, logos, UI elements, signs. Skip if none present.
 
-Respond with a single JSON object containing exactly two fields: "caption" (a dense sentence factual description) and "tags" (an array of at most 10 distinctive lowercase danbooru-style tags). Do not include markdown code blocks or any extra text outside the JSON."#;
+Respond with a single JSON object containing exactly two fields: "caption" (a detailed paragraph of 4-6 sentences covering every observable aspect listed above) and "tags" (an array of at most 10 distinctive lowercase danbooru-style tags). Do not include markdown code blocks or any extra text outside the JSON."#;
 
 const CAPTION_PROMPT_ZH: &str = r#"你是一名专业摄影师。分析图像并仅描述可直接观察到的信息。
 
@@ -152,7 +152,7 @@ const CAPTION_PROMPT_ZH: &str = r#"你是一名专业摄影师。分析图像并
 8. 摄影风格 — 人像、风景、微距、街拍、纪实、快照。
 9. 显著的视觉元素 — 文字、标志、UI 元素、标识。没有则跳过。
 
-请只输出一个 JSON 对象，包含两个字段："caption"（一段密集的中文事实描述）和 "tags"（最多 10 个中文关键词的数组）。不要包含 markdown 代码块或 JSON 之外的任何额外文字。"#;
+请只输出一个 JSON 对象，包含两个字段："caption"（一段详细的中文段落，4-6 句，覆盖上述所有可观察的方面）和 "tags"（最多 10 个中文关键词的数组）。不要包含 markdown 代码块或 JSON 之外的任何额外文字。"#;
 
 #[derive(Debug, Clone)]
 pub struct SamplingParams {
@@ -171,7 +171,7 @@ impl Default for SamplingParams {
             top_p: 0.9,
             min_p: 0.05,
             repeat_penalty: 1.05,
-            max_tokens: 1024,
+            max_tokens: 2048,
             seed: -1, // random
         }
     }
