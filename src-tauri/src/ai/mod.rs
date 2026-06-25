@@ -612,7 +612,7 @@ async fn process_video_caption(
         };
         // Language-aware user instruction (matches system prompt language)
         let user_instr: Option<&str> = if language == crate::settings::AiLanguage::Chinese {
-            Some("这些帧来自同一段视频，按时间顺序排列。请综合所有帧进行分析，给出一个整体描述（不要逐帧分别描述）。涵盖视频的整体内容、场景、主体、光线、色彩、构图，以及帧与帧之间的变化、运动或进展。最后以一行 TAGS: 列出最显著的标签。")
+            Some("这些帧来自同一段视频，按时间顺序排列。请综合所有帧进行分析，给出一个整体描述（不要逐帧分别描述）。涵盖视频的整体内容、场景、主体、光线、色彩、构图，以及帧与帧之间的变化、运动或进展。请只输出一个 JSON 对象，包含 \"caption\"（一段密集的中文事实描述）和 \"tags\"（最多 10 个中文关键词的数组）。不要包含 markdown 代码块或 JSON 之外的任何额外文字。")
         } else {
             None // default English
         };
@@ -644,7 +644,7 @@ async fn process_video_caption(
             );
             match crate::ai::llamacpp::generate_caption_multi_image(
                 &path_refs, &model, port,
-                Some(&zh_prompt), Some("这些帧来自同一段视频，按时间顺序排列。请综合所有帧进行分析，给出一个整体描述（不要逐帧分别描述）。涵盖视频的整体内容、场景、主体、光线、色彩、构图，以及帧与帧之间的变化、运动或进展。最后以一行 TAGS: 列出最显著的标签。"),
+                Some(&zh_prompt), Some("这些帧来自同一段视频，按时间顺序排列。请综合所有帧进行分析，给出一个整体描述（不要逐帧分别描述）。涵盖视频的整体内容、场景、主体、光线、色彩、构图，以及帧与帧之间的变化、运动或进展。请只输出一个 JSON 对象，包含 \"caption\"（一段密集的中文事实描述）和 \"tags\"（最多 10 个中文关键词的数组）。不要包含 markdown 代码块或 JSON 之外的任何额外文字。"),
                 &sampling,
             ).await {
                 Ok(result) => {
