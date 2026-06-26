@@ -73,6 +73,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [dropHover, setDropHover] = useState(false);
   const [galleryScrollKey, setGalleryScrollKey] = useState(0);
+  const [detailPanelKey, setDetailPanelKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
   const [savedFilterName, setSavedFilterName] = useState("");
@@ -264,6 +265,15 @@ function AllMedia({ collectionId }: AllMediaProps) {
     [setSelectedMediaId],
   );
 
+  // Force DetailPanel remount on null→item transition for enter animation
+  const prevSelectedForRemountRef = useRef<BrowseItem | null>(null);
+  useEffect(() => {
+    if (!prevSelectedForRemountRef.current && selectedItem) {
+      setDetailPanelKey((k) => k + 1);
+    }
+    prevSelectedForRemountRef.current = selectedItem;
+  }, [selectedItem]);
+
   // Restore previously selected media after initial load
   const restoredRef = useRef(false);
   useEffect(() => {
@@ -454,6 +464,10 @@ function AllMedia({ collectionId }: AllMediaProps) {
   selectedIdsRef2.current = selectedIds;
   const displayItemsRef = useRef(displayItems);
   displayItemsRef.current = displayItems;
+  const selectedItemRef = useRef(selectedItem);
+  selectedItemRef.current = selectedItem;
+  const detailCollapsedRef = useRef(detailCollapsed);
+  detailCollapsedRef.current = detailCollapsed;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -463,8 +477,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
       if (e.key === "Escape") {
         if (selectedIdsRef2.current.size > 0) {
           setSelectedIds(new Set());
-        } else {
-          selectItem(null);
+        } else if (selectedItemRef.current && !detailCollapsedRef.current) {
+          setDetailCollapsed(true);
+          setTimeout(() => {
+            selectItem(null);
+            setDetailCollapsed(false);
+          }, 300);
         }
       }
       if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
@@ -901,6 +919,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           )}
         </div>
         <DetailPanel
+          key={detailPanelKey}
           media={selectedItem ? { id: selectedItem.media_id, source_path: selectedItem.source_path, width: selectedItem.width, height: selectedItem.height, file_size: selectedItem.file_size, created_at: selectedItem.created_at, modified_at: selectedItem.modified_at, imported_at: selectedItem.imported_at, source_url: selectedItem.source_url, page_url: selectedItem.page_url, source: selectedItem.source, sha256: selectedItem.sha256, deleted_at: selectedItem.deleted_at, display_variant_id: selectedItem.display_variant_id, thumb_256: selectedItem.item_kind === "variant" && selectedItem.variant_id ? (selectedItem.thumb_256?.replace(`/${selectedItem.variant_id}_256.jpg`, `/${selectedItem.media_id}_256.jpg`) ?? null) : selectedItem.thumb_256, lqip: selectedItem.lqip, media_type: selectedItem.media_type, duration: selectedItem.duration, video_codec: selectedItem.video_codec, video_fps: selectedItem.video_fps, phash: null } as Media : null}
           collapsed={detailCollapsed}
           onToggleCollapse={() => {

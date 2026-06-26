@@ -669,6 +669,12 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     }
   };
 
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   if (!media) return null;
 
   return (
@@ -692,7 +698,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     </div>
 
     {/* Expanded panel — slides in when not collapsed */}
-    <div className={`absolute inset-y-0 right-0 z-40 w-80 transition-transform duration-300 ease-in-out ${!collapsed ? "translate-x-0" : "translate-x-full"}`}>
+    <div className={`absolute inset-y-0 right-0 z-40 w-80 ${entered ? "transition-transform duration-300 ease-in-out" : ""} ${!collapsed && entered ? "translate-x-0" : "translate-x-full"}`}>
     <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 shadow-2xl shadow-black/20">
       {/* Target selector */}
       <div className="mb-2 flex items-center gap-2">
