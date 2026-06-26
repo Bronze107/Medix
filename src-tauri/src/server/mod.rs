@@ -1,7 +1,7 @@
 use std::error::Error as StdError;
-use serde::{Deserialize, Serialize};
+use std::io::{Cursor, Write};
+use serde::Deserialize;
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 use tauri::{Emitter, Manager};
@@ -88,6 +88,10 @@ pub fn start_http_server(app: tauri::AppHandle) {
                                     "[http] import failed for {}: {}",
                                     import_req.url, e
                                 );
+                                let _ = app_clone.emit(
+                                    "remote-import-error",
+                                    format!("{}: {}", import_req.url, e),
+                                );
                             }
                         }
                     });
@@ -146,23 +150,25 @@ fn download_and_import(
         return Err(format!("HTTP {}", response.status()));
     }
 
+    // Read Content-Type before consuming the response body
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let bytes = response.bytes().map_err(|e| e.to_string())?;
 
     // Compute SHA256 for dedup
     use sha2::{Sha256, Digest};
     let sha256 = Some(format!("{:x}", Sha256::new().chain_update(&bytes[..]).finalize()));
 
-    // Determine extension from URL or Content-Type
-    let ext = req
-        .url
-        .rsplit('.')
-        .next()
-        .and_then(|e| {
-            let e = e.split('?').next().unwrap_or(e).to_lowercase();
-            matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp")
-                .then_some(e)
-        })
-        .unwrap_or_else(|| "jpg".to_string());
+    // Detect format from magic bytes (primary), fall back to Content-Type, then URL
+
+    let (img, ext) = detect_image_format(&bytes, content_type.as_deref(), &req.url)?;
+    let width = img.width() as i32;
+    let height = img.height() as i32;
+    let file_size = bytes.len() as i64;
 
     // Save to temp file
     let tmp_dir = app_dir.join("tmp_downloads");
@@ -171,9 +177,6 @@ fn download_and_import(
 
     let mut file = fs::File::create(&tmp_path).map_err(|e| e.to_string())?;
     file.write_all(&bytes).map_err(|e| e.to_string())?;
-
-    // Read image info
-    let (width, height, file_size) = read_downloaded_info(&tmp_path)?;
 
     // Build Media and insert
     let id = ulid::Ulid::new().to_string();
@@ -238,8 +241,54 @@ fn download_and_import(
     Ok(id)
 }
 
-fn read_downloaded_info(path: &Path) -> Result<(i32, i32, i64), String> {
-    let img = image::open(path).map_err(|e| e.to_string())?;
-    let file_size = fs::metadata(path).map_err(|e| e.to_string())?.len() as i64;
-    Ok((img.width() as i32, img.height() as i32, file_size))
+fn detect_image_format(
+    bytes: &[u8],
+    content_type: Option<&str>,
+    url: &str,
+) -> Result<(image::DynamicImage, String), String> {
+    // Primary: detect from magic bytes
+    let reader = image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("cannot detect image format: {e}"))?;
+    let fmt = reader.format();
+    let img = reader.decode().map_err(|e| format!("image decode error: {e}"))?;
+
+    let ext = extension_from_image_format(fmt)
+        .or_else(|| content_type.and_then(extension_from_mime))
+        .or_else(|| extension_from_url(url))
+        .unwrap_or_else(|| "jpg".to_string());
+
+    Ok((img, ext.to_string()))
+}
+
+fn extension_from_image_format(fmt: Option<image::ImageFormat>) -> Option<String> {
+    match fmt {
+        Some(image::ImageFormat::Png) => Some("png".into()),
+        Some(image::ImageFormat::Jpeg) => Some("jpg".into()),
+        Some(image::ImageFormat::WebP) => Some("webp".into()),
+        Some(image::ImageFormat::Gif) => Some("gif".into()),
+        Some(image::ImageFormat::Bmp) => Some("bmp".into()),
+        _ => None,
+    }
+}
+
+fn extension_from_mime(mime: &str) -> Option<String> {
+    match mime {
+        "image/png" => Some("png".into()),
+        "image/jpeg" => Some("jpg".into()),
+        "image/webp" => Some("webp".into()),
+        "image/gif" => Some("gif".into()),
+        "image/bmp" => Some("bmp".into()),
+        _ => None,
+    }
+}
+
+fn extension_from_url(url: &str) -> Option<String> {
+    url.rsplit('.')
+        .next()
+        .and_then(|e| {
+            let e = e.split('?').next().unwrap_or(e).to_lowercase();
+            matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp")
+                .then_some(e)
+        })
 }

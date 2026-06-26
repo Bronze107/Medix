@@ -375,6 +375,10 @@ function AllMedia({ collectionId }: AllMediaProps) {
       const pending = await aiPendingCount();
       setAiRemaining(pending);
     });
+    const unlistenRemoteError = listen<string>("remote-import-error", (event) => {
+      setImportMessage(`浏览器导入失败: ${event.payload}`);
+      setTimeout(() => setImportMessage(""), 6000);
+    });
     const unlistenAiDone = listen<{ remaining: number }>("ai-task-done", (event) => {
       setAiRemaining(event.payload.remaining);
       if (event.payload.remaining === 0) {
@@ -390,6 +394,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       unlistenLeave.then((f) => f());
       unlistenDrop.then((f) => f());
       unlistenRemote.then((f) => f());
+      unlistenRemoteError.then((f) => f());
       unlistenAiDone.then((f) => f());
       unlistenImportProgress.then((f) => f());
     };
