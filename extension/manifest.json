@@ -3,7 +3,7 @@
   "name": "Medix",
   "version": "0.1.0",
   "description": "一键添加图片到 Medix 媒体库",
-  "permissions": ["contextMenus", "storage"],
+  "permissions": ["contextMenus", "storage", "notifications"],
   "host_permissions": ["http://localhost:*/*"],
   "background": {
     "service_worker": "background.js"
