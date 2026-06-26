@@ -207,6 +207,74 @@ function MenuThumb({ itemId, filePath }: { itemId: string; filePath?: string }) 
   );
 }
 
+function ThumbnailPreview({
+  media,
+  targetId,
+  variants,
+}: {
+  media: Media;
+  targetId: string | null;
+  variants: Variant[];
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const variantThumbUrl = useThumbnail(targetId ?? "", undefined);
+  let thumbUrl: string | null = null;
+
+  if (targetId) {
+    thumbUrl = variantThumbUrl || null;
+    if (!thumbUrl) {
+      const variant = variants.find((v) => v.id === targetId);
+      if (variant?.file_path) {
+        thumbUrl = convertFileSrc(variant.file_path);
+      }
+    }
+  } else {
+    thumbUrl = media.thumb_256 ? convertFileSrc(media.thumb_256) : null;
+  }
+
+  if (!thumbUrl) {
+    return (
+      <div className="mb-3 flex h-28 items-center justify-center overflow-hidden rounded-lg bg-[var(--color-bg-tertiary)]">
+        <svg className="h-8 w-8 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 0 0 2.25-2.25V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative mb-3 overflow-hidden rounded-lg bg-[var(--color-bg-tertiary)]">
+      {media.lqip && !loaded && (
+        <img
+          src={media.lqip}
+          alt=""
+          className="absolute inset-0 h-full w-full scale-110 object-cover blur-md"
+          draggable={false}
+        />
+      )}
+      <img
+        src={thumbUrl}
+        alt=""
+        className={`w-full object-cover transition-all duration-500 ease-out ${
+          loaded ? "scale-100 opacity-100 blur-0" : "scale-95 opacity-0 blur-sm"
+        }`}
+        style={{ maxHeight: "180px" }}
+        draggable={false}
+        onLoad={() => setLoaded(true)}
+      />
+      {media.media_type === "video" && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50">
+            <svg className="ml-0.5 h-5 w-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVariantId }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<"details" | "captions" | "tags">("details");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -601,28 +669,31 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     }
   };
 
-  if (!media || collapsed) {
-    return (
-      <div className="flex h-full w-10 flex-col items-center border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-3 transition-all duration-300">
+  if (!media) return null;
+
+  return (
+    <>
+    {/* Collapsed bar — slides in when collapsed */}
+    <div className={`absolute inset-y-0 right-0 z-[41] w-10 transition-transform duration-300 ease-in-out ${collapsed ? "translate-x-0" : "translate-x-full"}`}>
+      <div className="flex h-full w-10 flex-col items-center border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-3">
         <button
           onClick={onToggleCollapse}
           className="mb-2 rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-          title={collapsed ? "展开详情" : undefined}
+          title="展开详情"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
           </svg>
         </button>
         <p className="text-[10px] text-[var(--color-text-muted)]" style={{ writingMode: "vertical-rl" }}>
-          {media ? "详情" : "点击图片查看详情"}
+          详情
         </p>
       </div>
-    );
-  }
+    </div>
 
-  return (
-    <>
-    <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 transition-all duration-300">
+    {/* Expanded panel — slides in when not collapsed */}
+    <div className={`absolute inset-y-0 right-0 z-40 w-80 transition-transform duration-300 ease-in-out ${!collapsed ? "translate-x-0" : "translate-x-full"}`}>
+    <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 shadow-2xl shadow-black/20">
       {/* Target selector */}
       <div className="mb-2 flex items-center gap-2">
         <button
@@ -669,6 +740,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
           )
         )}
       </div>
+
+      <ThumbnailPreview media={media} targetId={targetId} variants={variants} />
 
       {/* Tab dots */}
       <div className="mb-3 flex items-center justify-center gap-4 border-b border-[var(--color-border)] pb-2">
@@ -1308,6 +1381,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         }}
         onCancel={() => setShowClearTagsConfirm(false)}
       />
+    </div>
     </div>
     {showAiEdit && media && (
       <ImagineDialog

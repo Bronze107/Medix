@@ -72,6 +72,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [importMessage, setImportMessage] = useState("");
   const [importProgress, setImportProgress] = useState<{ current: number; total: number; filename: string } | null>(null);
   const [dropHover, setDropHover] = useState(false);
+  const [galleryScrollKey, setGalleryScrollKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
   const [savedFilterName, setSavedFilterName] = useState("");
@@ -813,7 +814,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       )}
 
       {/* Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col overflow-hidden p-4">
           {displayItems.length === 0 && !debouncedSearch ? (
             <DropZone dropHover={dropHover} />
@@ -895,13 +896,20 @@ function AllMedia({ collectionId }: AllMediaProps) {
               }}
               selectedIds={Array.from(selectedIds)}
               onToggleSelect={(item, index, shiftKey) => handleToggleSelect(item, index, shiftKey)}
+              scrollToKey={galleryScrollKey}
             />
           )}
         </div>
         <DetailPanel
           media={selectedItem ? { id: selectedItem.media_id, source_path: selectedItem.source_path, width: selectedItem.width, height: selectedItem.height, file_size: selectedItem.file_size, created_at: selectedItem.created_at, modified_at: selectedItem.modified_at, imported_at: selectedItem.imported_at, source_url: selectedItem.source_url, page_url: selectedItem.page_url, source: selectedItem.source, sha256: selectedItem.sha256, deleted_at: selectedItem.deleted_at, display_variant_id: selectedItem.display_variant_id, thumb_256: selectedItem.item_kind === "variant" && selectedItem.variant_id ? (selectedItem.thumb_256?.replace(`/${selectedItem.variant_id}_256.jpg`, `/${selectedItem.media_id}_256.jpg`) ?? null) : selectedItem.thumb_256, lqip: selectedItem.lqip, media_type: selectedItem.media_type, duration: selectedItem.duration, video_codec: selectedItem.video_codec, video_fps: selectedItem.video_fps, phash: null } as Media : null}
           collapsed={detailCollapsed}
-          onToggleCollapse={() => setDetailCollapsed(!detailCollapsed)}
+          onToggleCollapse={() => {
+            const newCollapsed = !detailCollapsed;
+            setDetailCollapsed(newCollapsed);
+            if (!newCollapsed && selectedItem) {
+              requestAnimationFrame(() => setGalleryScrollKey((k) => k + 1));
+            }
+          }}
           onDeleted={() => { selectItem(null); setDetailCollapsed(false); loadMedia(); }}
           initialVariantId={selectedItem?.item_kind === "variant" ? selectedItem.variant_id : null}
         />

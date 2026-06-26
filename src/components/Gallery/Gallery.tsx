@@ -29,6 +29,7 @@ interface GalleryProps {
   onToggleSelect: (media: BrowseItem, index: number, shiftKey: boolean) => void;
   gap?: number;
   scale?: number;
+  scrollToKey?: number;
 }
 
 type MediaRow = { type: "media"; items: BrowseItem[]; height: number; startIndex: number };
@@ -113,6 +114,7 @@ function Gallery({
   onToggleSelect,
   gap = 12,
   scale = 1,
+  scrollToKey,
 }: GalleryProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -152,6 +154,19 @@ function Gallery({
   useLayoutEffect(() => {
     virtualizer.measure();
   }, [rows, virtualizer]);
+
+  const prevScrollToKeyRef = useRef(0);
+  useEffect(() => {
+    if (scrollToKey !== undefined && scrollToKey !== prevScrollToKeyRef.current && selectedId && rows.length > 0) {
+      const rowIndex = rows.findIndex(
+        (row) => row.type === "media" && row.items.some((item) => item.item_id === selectedId),
+      );
+      if (rowIndex >= 0) {
+        virtualizer.scrollToIndex(rowIndex, { align: "start" });
+      }
+      prevScrollToKeyRef.current = scrollToKey;
+    }
+  }, [scrollToKey, selectedId, rows, virtualizer]);
 
   const virtualItems = virtualizer.getVirtualItems();
 
