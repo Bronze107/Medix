@@ -212,31 +212,24 @@ fn download_and_import(
 
     crate::db::insert_media(app, &media).map_err(|e| e.to_string())?;
 
-    // Generate thumbnails
-    let app_clone = app.clone();
-    let mid = id.clone();
-    let dp = dest_path.clone();
-    std::thread::spawn(move || {
-        if let Err(e) =
-            crate::media::thumbnail::generate_thumbnails(&app_clone, &mid, &dp)
-        {
-            eprintln!("[http] thumbnail generation failed: {}", e);
-        }
-    });
+    // Generate thumbnails (sync — must finish before we notify frontend)
+    if let Err(e) = crate::media::thumbnail::generate_thumbnails(app, &id, &dest_path) {
+        eprintln!("[http] thumbnail generation failed: {}", e);
+    }
 
-    // Trigger AI
+    // Clean up temp file
+    let _ = fs::remove_file(&tmp_path);
+
+    // Notify frontend (after thumbnails are ready)
+    let _ = app.emit("remote-import", id.clone());
+
+    // Trigger AI (fire-and-forget, doesn't block UI)
     let queue = app.state::<crate::ai::AiQueue>();
     let _ = queue.send(crate::ai::AiTask::GenerateCaption {
         media_id: id.clone(),
         image_path: dest_path,
         variant_id: None,
     });
-
-    // Clean up temp file
-    let _ = fs::remove_file(&tmp_path);
-
-    // Notify frontend
-    let _ = app.emit("remote-import", id.clone());
 
     Ok(id)
 }
