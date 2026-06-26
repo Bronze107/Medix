@@ -89,9 +89,7 @@ pub async fn embedding_rebuild_all(app: AppHandle) -> Result<String, String> {
 
     let emb_port = crate::settings::get_embedding_port(&app);
     let emb_server = app.state::<crate::ai::EmbeddingServer>();
-    if !emb_server.health_check(emb_port).await {
-        return Err("embedding 服务器未运行".to_string());
-    }
+    emb_server.ensure_running(&app).await.map_err(|e| format!("embedding 服务器启动失败: {}", e))?;
 
     // Get all active media (not deleted, non-variant)
     let all_media = crate::db::list_media(&app, "created_at", true, 0, u32::MAX)

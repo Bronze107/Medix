@@ -91,61 +91,6 @@ fn main() {
 
             server::start_http_server(app.handle().clone());
 
-            // Auto-start llama-server if enabled
-            let handle = app.handle().clone();
-            if settings::get_llama_auto_start(&handle) {
-                let bin = settings::get_llama_bin_path(&handle);
-                let model = settings::get_llama_model(&handle);
-                let mmproj = settings::get_llama_mmproj(&handle);
-                let port = settings::get_llama_port(&handle);
-                let ctx = settings::get_llama_ctx_size(&handle);
-                let threads = settings::get_llama_threads(&handle);
-                let gpu = settings::get_llama_gpu_layers(&handle);
-
-                if !model.is_empty() {
-                    let vlm_handle = handle.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let server = vlm_handle.state::<ai::LlamaServer>();
-                        println!("[auto-start] starting llama-server on port {}...", port);
-                        let cache_k = settings::get_llama_cache_type_k(&vlm_handle);
-                        let cache_v = settings::get_llama_cache_type_v(&vlm_handle);
-                        match server.start(&bin, &model, &mmproj, port, ctx, threads, gpu, &cache_k, &cache_v) {
-                            Ok(()) => {
-                                if let Err(e) = server.wait_until_ready(port).await {
-                                    eprintln!("[auto-start] server ready check failed: {}", e);
-                                } else {
-                                    println!("[auto-start] server ready");
-                                }
-                            }
-                            Err(e) => eprintln!("[auto-start] failed: {}", e),
-                        }
-                    });
-                }
-            }
-
-            // Auto-start embedding server if model configured
-            let emb_model = settings::get_embedding_model(&handle);
-            if !emb_model.is_empty() {
-                let emb_bin = settings::get_llama_bin_path(&handle);
-                let emb_port = settings::get_embedding_port(&handle);
-                let emb_threads = settings::get_embedding_threads(&handle);
-                let emb_handle = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    let server = emb_handle.state::<ai::EmbeddingServer>();
-                    println!("[auto-start] starting embedding server on port {}...", emb_port);
-                    match server.start(&emb_bin, &emb_model, emb_port, emb_threads) {
-                        Ok(()) => {
-                            if let Err(e) = server.wait_until_ready(emb_port).await {
-                                eprintln!("[auto-start] embedding server ready check failed: {}", e);
-                            } else {
-                                println!("[auto-start] embedding server ready");
-                            }
-                        }
-                        Err(e) => eprintln!("[auto-start] embedding server failed: {}", e),
-                    }
-                });
-            }
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

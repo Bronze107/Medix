@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
+use tauri::AppHandle;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct EmbeddingServerStatus {
@@ -45,6 +46,18 @@ impl EmbeddingServer {
             }
         }
 
+        self.start_locked(&mut guard, bin_path, model_path, port, threads)
+    }
+
+    fn start_locked(
+        &self,
+        guard: &mut std::sync::MutexGuard<Option<Child>>,
+        bin_path: &str,
+        model_path: &str,
+        port: u16,
+        threads: u32,
+    ) -> Result<(), String> {
+
         if !std::path::Path::new(bin_path).exists() {
             return Err(format!("llama-server binary not found: {}", bin_path));
         }
@@ -72,8 +85,37 @@ impl EmbeddingServer {
 
         let child = cmd.spawn().map_err(|e| format!("failed to spawn embedding server: {}", e))?;
 
-        *guard = Some(child);
+        **guard = Some(child);
         Ok(())
+    }
+
+    /// Ensure the embedding server is running, starting it if necessary.
+    /// Idempotent and concurrency-safe: the lock serializes concurrent callers.
+    pub async fn ensure_running(&self, app: &AppHandle) -> Result<(), String> {
+        let port;
+        {
+            let mut guard = self
+                .process
+                .lock()
+                .map_err(|e| format!("lock error: {}", e))?;
+
+            if let Some(ref mut child) = *guard {
+                match child.try_wait() {
+                    Ok(None) => return Ok(()),
+                    Ok(Some(_)) => *guard = None,
+                    Err(e) => return Err(format!("error checking child process: {}", e)),
+                }
+            }
+
+            let bin = crate::settings::get_llama_bin_path(app);
+            let model = crate::settings::get_embedding_model(app);
+            port = crate::settings::get_embedding_port(app);
+            let threads = crate::settings::get_embedding_threads(app);
+
+            self.start_locked(&mut guard, &bin, &model, port, threads)?;
+        } // guard dropped here, before any await
+
+        self.wait_until_ready(port).await
     }
 
     pub async fn wait_until_ready(&self, port: u16) -> Result<(), String> {

@@ -13,8 +13,8 @@ async fn refresh_embedding(app: &AppHandle, media_id: &str, variant_id: Option<&
     }
     let emb_port = crate::settings::get_embedding_port(app);
     let emb_server = app.state::<crate::ai::EmbeddingServer>();
-    if !emb_server.health_check(emb_port).await {
-        eprintln!("[caption] embedding server not running, skipping auto-embed for {}", media_id);
+    if let Err(e) = emb_server.ensure_running(app).await {
+        eprintln!("[caption] embedding server failed to start, skipping auto-embed for {}: {}", media_id, e);
         return;
     }
 

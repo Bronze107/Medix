@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
+use tauri::AppHandle;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LlamaServerStatus {
@@ -39,7 +40,6 @@ impl LlamaServer {
             .map_err(|e| format!("lock error: {}", e))?;
 
         if guard.is_some() {
-            // Already running — check if still alive
             if let Some(ref mut child) = *guard {
                 match child.try_wait() {
                     Ok(Some(_)) => {
@@ -50,6 +50,34 @@ impl LlamaServer {
                 }
             }
         }
+
+        self.start_locked(
+            &mut guard,
+            bin_path,
+            model_path,
+            mmproj_path,
+            port,
+            ctx_size,
+            threads,
+            gpu_layers,
+            cache_type_k,
+            cache_type_v,
+        )
+    }
+
+    fn start_locked(
+        &self,
+        guard: &mut std::sync::MutexGuard<Option<Child>>,
+        bin_path: &str,
+        model_path: &str,
+        mmproj_path: &str,
+        port: u16,
+        ctx_size: u32,
+        threads: u32,
+        gpu_layers: i32,
+        cache_type_k: &str,
+        cache_type_v: &str,
+    ) -> Result<(), String> {
 
         if !std::path::Path::new(bin_path).exists() {
             return Err(format!("llama-server binary not found: {}", bin_path));
@@ -86,8 +114,55 @@ impl LlamaServer {
 
         let child = cmd.spawn().map_err(|e| format!("failed to spawn llama-server: {}", e))?;
 
-        *guard = Some(child);
+        **guard = Some(child);
         Ok(())
+    }
+
+    /// Ensure the server is running, starting it if necessary.
+    /// Idempotent and concurrency-safe: the lock serializes concurrent callers.
+    pub async fn ensure_running(&self, app: &AppHandle) -> Result<(), String> {
+        let port;
+        {
+            let mut guard = self
+                .process
+                .lock()
+                .map_err(|e| format!("lock error: {}", e))?;
+
+            // Already running — check if still alive
+            if let Some(ref mut child) = *guard {
+                match child.try_wait() {
+                    Ok(None) => return Ok(()), // still running
+                    Ok(Some(_)) => *guard = None, // exited, restart below
+                    Err(e) => return Err(format!("error checking child process: {}", e)),
+                }
+            }
+
+            // Not running — start it
+            let bin = crate::settings::get_llama_bin_path(app);
+            let model = crate::settings::get_llama_model(app);
+            let mmproj = crate::settings::get_llama_mmproj(app);
+            port = crate::settings::get_llama_port(app);
+            let ctx = crate::settings::get_llama_ctx_size(app);
+            let threads = crate::settings::get_llama_threads(app);
+            let gpu = crate::settings::get_llama_gpu_layers(app);
+            let cache_k = crate::settings::get_llama_cache_type_k(app);
+            let cache_v = crate::settings::get_llama_cache_type_v(app);
+
+            self.start_locked(
+                &mut guard,
+                &bin,
+                &model,
+                &mmproj,
+                port,
+                ctx,
+                threads,
+                gpu,
+                &cache_k,
+                &cache_v,
+            )?;
+        } // guard dropped here, before any await
+
+        self.wait_until_ready(port).await
     }
 
     pub async fn wait_until_ready(&self, port: u16) -> Result<(), String> {

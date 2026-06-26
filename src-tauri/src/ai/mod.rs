@@ -127,24 +127,9 @@ async fn process_generate_caption(
 
     let port = crate::settings::get_llama_port(&app);
 
-    // Check llama-server is running
-    let t_health = Instant::now();
+    // Ensure llama-server is running (lazy start)
     let server = app.state::<LlamaServer>();
-    if !server.health_check(port).await {
-        if ai_mode == "local" {
-            eprintln!(
-                "[ai] llama-server not running and mode is local, skipping {}",
-                media_id
-            );
-        } else {
-            eprintln!(
-                "[ai] llama-server not running (auto mode), skipping {}",
-                media_id
-            );
-        }
-        return Ok(());
-    }
-    let health_ms = t_health.elapsed().as_millis();
+    server.ensure_running(&app).await?;
 
     let model = crate::settings::get_llama_model(&app);
     if model.is_empty() {
@@ -403,9 +388,9 @@ async fn process_generate_caption(
         let emb_ms = t_emb.elapsed().as_millis();
 
         println!(
-            "[ai] {} done in {}ms | health={}ms resize={}ms infer_en={}ms infer_zh={}ms tags={}ms emb={}ms",
+            "[ai] {} done in {}ms | resize={}ms infer_en={}ms infer_zh={}ms tags={}ms emb={}ms",
             media_id, t_total.elapsed().as_millis(),
-            health_ms, resize_ms, en_ms, zh_infer_ms, tags_ms, emb_ms
+            resize_ms, en_ms, zh_infer_ms, tags_ms, emb_ms
         );
 
         return Ok(());
@@ -468,10 +453,9 @@ async fn process_generate_caption(
     let emb_ms = t_emb.elapsed().as_millis();
 
     println!(
-        "[ai] {} done in {}ms | health={}ms resize={}ms infer={}ms store={}ms tags={}ms emb={}ms",
+        "[ai] {} done in {}ms | resize={}ms infer={}ms store={}ms tags={}ms emb={}ms",
         media_id,
         t_total.elapsed().as_millis(),
-        health_ms,
         resize_ms,
         infer_ms,
         store_ms,
@@ -525,13 +509,10 @@ async fn process_video_caption(
         return Ok(());
     }
 
-    // 2. Check llama-server health
+    // 2. Ensure llama-server is running (lazy start)
     let port = crate::settings::get_llama_port(&app);
     let server = app.state::<LlamaServer>();
-    if !server.health_check(port).await {
-        println!("[video_ai] llama-server not running, skipping {}", media_id);
-        return Ok(());
-    }
+    server.ensure_running(&app).await?;
 
     // 3. Check model configured
     let model = crate::settings::get_llama_model(&app);
@@ -922,10 +903,10 @@ async fn generate_caption_embedding(
     }
     let emb_port = crate::settings::get_embedding_port(app);
     let emb_server = app.state::<EmbeddingServer>();
-    if !emb_server.health_check(emb_port).await {
+    if let Err(e) = emb_server.ensure_running(app).await {
         eprintln!(
-            "[ai] embedding server not running, skipping embedding for {}",
-            media_id
+            "[ai] embedding server failed to start, skipping embedding for {}: {}",
+            media_id, e
         );
         return;
     }

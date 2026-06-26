@@ -94,22 +94,26 @@ pub async fn browse_search(
         } else {
             let emb_port = crate::settings::get_embedding_port(&app);
             let server = app.state::<crate::ai::EmbeddingServer>();
-            if server.health_check(emb_port).await {
-                match crate::ai::llamacpp::embed_text(
-                    parsed.semantic_text.as_ref().unwrap(),
-                    &emb_model,
-                    emb_port,
-                )
-                .await
-                {
-                    Ok(vec) => Some(vec),
-                    Err(e) => {
-                        eprintln!("[search] embedding failed: {}", e);
-                        None
+            match server.ensure_running(&app).await {
+                Ok(()) => {
+                    match crate::ai::llamacpp::embed_text(
+                        parsed.semantic_text.as_ref().unwrap(),
+                        &emb_model,
+                        emb_port,
+                    )
+                    .await
+                    {
+                        Ok(vec) => Some(vec),
+                        Err(e) => {
+                            eprintln!("[search] embedding failed: {}", e);
+                            None
+                        }
                     }
                 }
-            } else {
-                None
+                Err(e) => {
+                    eprintln!("[search] embedding server failed to start: {}", e);
+                    None
+                }
             }
         }
     } else {

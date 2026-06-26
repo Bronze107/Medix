@@ -4,7 +4,6 @@ import type { LlamaServerStatus } from "@/types/ai";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import {
   llamaServerStatus,
-  llamaServerStart,
   llamaServerStop,
   settingsGet,
   settingsGetAll,
@@ -20,7 +19,6 @@ type CloudProvider = "claude" | "openai" | "qwen";
 function Settings() {
   const [serverStatus, setServerStatus] = useState<LlamaServerStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
   const [aiMode, setAiMode] = useState<AiMode>("auto");
@@ -37,7 +35,6 @@ function Settings() {
   const [llamaCacheTypeV, setLlamaCacheTypeV] = useState("");
   const [llamaCtxSize, setLlamaCtxSize] = useState(4096);
   const [llamaMmproj, setLlamaMmproj] = useState("");
-  const [llamaAutoStart, setLlamaAutoStart] = useState(false);
   const [llamaMaxImageDim, setLlamaMaxImageDim] = useState(768);
   const [aiCustomPrompt, setAiCustomPrompt] = useState("");
   const [aiLanguage, setAiLanguage] = useState("en");
@@ -98,7 +95,6 @@ function Settings() {
       if (settings.llama_cache_type_v) setLlamaCacheTypeV(settings.llama_cache_type_v);
       if (settings.llama_ctx_size) setLlamaCtxSize(parseInt(settings.llama_ctx_size) || 4096);
       if (settings.llama_mmproj) setLlamaMmproj(settings.llama_mmproj);
-      if (settings.llama_auto_start) setLlamaAutoStart(settings.llama_auto_start === "true");
       if (settings.llama_max_image_dim) setLlamaMaxImageDim(parseInt(settings.llama_max_image_dim) || 0);
       if (settings.ai_custom_prompt) setAiCustomPrompt(settings.ai_custom_prompt);
       if (settings.ai_language) setAiLanguage(settings.ai_language);
@@ -179,7 +175,6 @@ function Settings() {
       await settingsSet("llama_cache_type_v", llamaCacheTypeV);
       await settingsSet("llama_ctx_size", String(llamaCtxSize));
       await settingsSet("llama_mmproj", llamaMmproj);
-      await settingsSet("llama_auto_start", llamaAutoStart ? "true" : "false");
       await settingsSet("llama_max_image_dim", String(llamaMaxImageDim));
       await settingsSet("ai_custom_prompt", aiCustomPrompt);
       await settingsSet("llama_temperature", String(llamaTemperature));
@@ -206,20 +201,6 @@ function Settings() {
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
       console.error("Failed to save settings:", e);
-    }
-  };
-
-  const handleStart = async () => {
-    setStarting(true);
-    try {
-      await handleSave();
-      await llamaServerStart();
-      await pollStatus();
-    } catch (e) {
-      console.error("Failed to start server:", e);
-      alert(`启动失败: ${e}`);
-    } finally {
-      setStarting(false);
     }
   };
 
@@ -356,15 +337,8 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
             )}
           </div>
 
-          {/* Start/Stop buttons */}
-          <div className="mb-4 flex gap-2">
-            <button
-              onClick={handleStart}
-              disabled={serverStatus?.running || starting}
-              className="rounded bg-[var(--color-success)] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[var(--color-success)]/80 disabled:opacity-50"
-            >
-              {starting ? "启动中..." : "启动服务"}
-            </button>
+          {/* Stop button */}
+          <div className="mb-4">
             <button
               onClick={handleStop}
               disabled={!serverStatus?.running || stopping}
@@ -373,19 +347,6 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
               {stopping ? "停止中..." : "停止服务"}
             </button>
           </div>
-
-          {/* Auto-start checkbox */}
-          <label className="mb-4 flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={llamaAutoStart}
-              onChange={(e) => setLlamaAutoStart(e.target.checked)}
-              className="h-3.5 w-3.5"
-            />
-            <span className="text-xs text-[var(--color-text-secondary)]">
-              应用启动时自动启动 llama-server
-            </span>
-          </label>
 
           {/* Advanced settings toggle */}
           <button

@@ -337,10 +337,6 @@ export function llamaServerStatus(): Promise<LlamaServerStatus> {
   return invoke("llama_server_status");
 }
 
-export function llamaServerStart(): Promise<void> {
-  return invoke("llama_server_start");
-}
-
 export function llamaServerStop(): Promise<void> {
   return invoke("llama_server_stop");
 }
