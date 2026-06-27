@@ -193,7 +193,11 @@ function TableRow({
   onDelete?: () => void;
   style: React.CSSProperties;
 }) {
-  const thumbUrl = item.thumb_256 ? convertFileSrc(item.thumb_256) : null;
+  const thumbUrl = item.thumb_256
+    ? convertFileSrc(item.thumb_256)
+    : item.source_path && !item.source_path.startsWith("http")
+      ? convertFileSrc(item.source_path)
+      : null;
 
   return (
     <div

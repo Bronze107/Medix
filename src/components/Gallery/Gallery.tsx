@@ -274,7 +274,11 @@ function ThumbnailCard({
   onContextMenu?: (e: React.MouseEvent) => void;
   onToggleSelect: (shiftKey: boolean) => void;
 }) {
-  const thumbUrl = item.thumb_256 ? convertFileSrc(item.thumb_256) : null;
+  const thumbUrl = item.thumb_256
+    ? convertFileSrc(item.thumb_256)
+    : item.source_path && !item.source_path.startsWith("http")
+      ? convertFileSrc(item.source_path)
+      : null;
   const [loaded, setLoaded] = useState(false);
 
   return (

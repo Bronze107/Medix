@@ -895,14 +895,6 @@ pub fn list_browse_items_path(
     let conn = Connection::open(db_path)?;
 
     let order = if descending { "DESC" } else { "ASC" };
-    let sort_column = match sort_by {
-        "created_at" => "created_at",
-        "modified_at" => "modified_at",
-        "file_size" => "file_size",
-        "width" => "width",
-        "height" => "height",
-        _ => "imported_at",
-    };
 
     let (vis_condition, _representative) = match visibility {
         VariantVisibility::All => ("'all'", false),
@@ -922,7 +914,8 @@ pub fn list_browse_items_path(
                 m.source_url, m.page_url, m.source,
                 m.sha256, m.deleted_at, m.display_variant_id,
                 m.lqip, m.media_type, m.duration, m.video_codec, m.video_fps,
-                NULL AS label, NULL AS preset_name
+                NULL AS label, NULL AS preset_name,
+                m.imported_at AS media_imported_at
             FROM media m
             WHERE m.deleted_at IS NULL
               AND ({} = 'all'
@@ -947,15 +940,16 @@ pub fn list_browse_items_path(
                 COALESCE(v.duration, m.duration) AS duration,
                 COALESCE(v.video_codec, m.video_codec) AS video_codec,
                 COALESCE(v.video_fps, m.video_fps) AS video_fps,
-                v.label, v.preset_name
+                v.label, v.preset_name,
+                m.imported_at AS media_imported_at
             FROM variants v
             JOIN media m ON m.id = v.media_id
             WHERE m.deleted_at IS NULL
               AND ({} = 'all' OR m.display_variant_id = v.id)
         ) browse
-        ORDER BY {} {}
+        ORDER BY media_imported_at {}, CASE WHEN item_kind = 'original' THEN 0 ELSE 1 END, imported_at {}
         LIMIT ? OFFSET ?",
-        vis_condition, vis_condition, sort_column, order
+        vis_condition, vis_condition, order, order
     );
 
     let mut stmt = conn.prepare(&sql)?;
@@ -1057,14 +1051,6 @@ pub fn browse_query_filtered_path(
     let conn = Connection::open(db_path)?;
 
     let order = if descending { "DESC" } else { "ASC" };
-    let sort_column = match sort_by {
-        "created_at" => "created_at",
-        "modified_at" => "modified_at",
-        "file_size" => "file_size",
-        "width" => "width",
-        "height" => "height",
-        _ => "imported_at",
-    };
 
     let in_clause = media_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
 
@@ -1086,7 +1072,8 @@ pub fn browse_query_filtered_path(
                 m.source_url, m.page_url, m.source,
                 m.sha256, m.deleted_at, m.display_variant_id,
                 m.lqip, m.media_type, m.duration, m.video_codec, m.video_fps,
-                NULL AS label, NULL AS preset_name
+                NULL AS label, NULL AS preset_name,
+                m.imported_at AS media_imported_at
             FROM media m
             WHERE m.deleted_at IS NULL
               AND m.id IN ({})
@@ -1112,18 +1099,19 @@ pub fn browse_query_filtered_path(
                 COALESCE(v.duration, m.duration) AS duration,
                 COALESCE(v.video_codec, m.video_codec) AS video_codec,
                 COALESCE(v.video_fps, m.video_fps) AS video_fps,
-                v.label, v.preset_name
+                v.label, v.preset_name,
+                m.imported_at AS media_imported_at
             FROM variants v
             JOIN media m ON m.id = v.media_id
             WHERE m.deleted_at IS NULL
               AND m.id IN ({})
               AND ({} = 'all' OR m.display_variant_id = v.id)
         ) browse
-        ORDER BY {} {}
+        ORDER BY media_imported_at {}, CASE WHEN item_kind = 'original' THEN 0 ELSE 1 END, imported_at {}
         LIMIT ? OFFSET ?",
         in_clause, vis_condition,
         in_clause, vis_condition,
-        sort_column, order
+        order, order
     );
 
     let mut stmt = conn.prepare(&sql)?;
@@ -1280,17 +1268,17 @@ pub(crate) fn resolve_browse_thumb_paths(app: &AppHandle, items: &mut [BrowseIte
         return;
     };
     let thumbs_dir = app_dir.join("thumbnails");
-    for item in items {
+    for item in items.iter_mut() {
         let thumb_id = match item.item_kind.as_str() {
             "variant" => item.variant_id.as_deref().unwrap_or(&item.media_id),
             _ => &item.media_id,
         };
-        item.thumb_256 = Some(
-            thumbs_dir
-                .join(format!("{}_256.jpg", thumb_id))
-                .to_string_lossy()
-                .replace('\\', "/"),
-        );
+        let thumb_path = thumbs_dir.join(format!("{}_256.jpg", thumb_id));
+        // Only set thumb_256 if the file actually exists on disk;
+        // otherwise frontend will fall back to source_path or useThumbnail.
+        if thumb_path.exists() {
+            item.thumb_256 = Some(thumb_path.to_string_lossy().replace('\\', "/"));
+        }
     }
 }
 
