@@ -289,6 +289,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const [suggestions, setSuggestions] = useState<Tag[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const captionEditRef = useRef<HTMLTextAreaElement>(null);
 
   // Version state
   const [variants, setVariants] = useState<Variant[]>([]);
@@ -319,6 +320,15 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const [showTargetMenu, setShowTargetMenu] = useState(false);
   const targetMenuRef = useRef<HTMLDivElement>(null);
   const [copiedCaptionId, setCopiedCaptionId] = useState<string | null>(null);
+
+  // Auto-resize caption edit textarea when entering/exiting edit mode
+  useEffect(() => {
+    if (editingCaptionId && captionEditRef.current) {
+      const el = captionEditRef.current;
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 240) + "px";
+    }
+  }, [editingCaptionId]);
 
   const loadAllTags = useCallback(async () => {
     try {
@@ -1119,25 +1129,38 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                       {editingCaptionId === c.id ? (
                         <div className="space-y-2">
                           <textarea
+                            ref={captionEditRef}
                             value={editingText}
                             onChange={(e) => setEditingText(e.target.value)}
-                            rows={3}
-                            className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
+                            onInput={(e) => {
+                              const el = e.currentTarget;
+                              el.style.height = "auto";
+                              el.style.height = Math.min(el.scrollHeight, 240) + "px";
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") { handleCancelEdit(); return; }
+                              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { handleSaveEdit(); }
+                            }}
+                            rows={4}
+                            className="w-full resize-none rounded border border-[var(--color-border-light)] bg-[var(--color-bg-elevated)] px-3 py-2 text-sm leading-relaxed text-[var(--color-text-primary)] outline-none ring-1 ring-[var(--color-accent)]/30 focus:ring-[var(--color-accent)] transition-shadow overflow-y-auto"
                             autoFocus
                           />
-                          <div className="flex gap-2">
-                            <button
-                              onClick={handleSaveEdit}
-                              className="rounded bg-[var(--color-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--color-accent-hover)]"
-                            >
-                              保存
-                            </button>
-                            <button
-                              onClick={handleCancelEdit}
-                              className="rounded border border-[var(--color-border-light)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-                            >
-                              取消
-                            </button>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-[var(--color-text-muted)]">{editingText.length} 字</span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={handleCancelEdit}
+                                className="rounded px-2.5 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)] transition-colors"
+                              >
+                                取消
+                              </button>
+                              <button
+                                onClick={handleSaveEdit}
+                                className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] active:scale-[0.97] transition-all"
+                              >
+                                保存
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ) : (
