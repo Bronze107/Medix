@@ -657,8 +657,23 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     }
   };
 
+  const [adoptingCaptionText, setAdoptingCaptionText] = useState<string | null>(null);
+
   const handleAdoptAiCaption = async (text: string) => {
-    if (!media) return;
+    if (!media || adoptingCaptionText) return;
+    setAdoptingCaptionText(text);
+    // Optimistic: insert a temp entry immediately so UI responds on first click
+    const tempId = "temp-" + Math.random().toString(36).slice(2);
+    const optimistic: Caption = {
+      id: tempId,
+      media_id: media.id,
+      variant_id: targetId ?? null,
+      text,
+      source: null,
+      created_at: null,
+      updated_at: null,
+    };
+    setCaptions((prev) => [optimistic, ...prev]);
     try {
       let caption: Caption;
       if (targetId) {
@@ -666,10 +681,13 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       } else {
         caption = await captionCreate(media.id, text);
       }
-      // Insert into local state immediately
-      setCaptions((prev) => [caption, ...prev]);
+      // Replace temp with real caption
+      setCaptions((prev) => prev.map((c) => (c.id === tempId ? caption : c)));
     } catch (e) {
       console.error("Failed to adopt AI caption:", e);
+      setCaptions((prev) => prev.filter((c) => c.id !== tempId));
+    } finally {
+      setAdoptingCaptionText(null);
     }
   };
 
@@ -1152,9 +1170,10 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                             {isAi ? (
                               <button
                                 onClick={() => handleAdoptAiCaption(c.text)}
-                                className="text-[10px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)]"
+                                disabled={adoptingCaptionText === c.text}
+                                className="text-[10px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] disabled:opacity-50"
                               >
-                                采纳为手动描述
+                                {adoptingCaptionText === c.text ? "采纳中..." : "采纳为手动描述"}
                               </button>
                             ) : (
                               <button

@@ -20,14 +20,31 @@ const VARIANT_PRESETS = [
   { name: "dataset", label: "训练数据集 (JPEG 512px)" },
 ];
 
+const EXPORT_PREFS_KEY = "medix.exportPrefs";
+interface ExportPrefs {
+  captionMode: "all" | "manual" | "ai";
+  exportJSON: boolean;
+  variantPresets: string[];
+  useZip: boolean;
+  lastDir: string;
+}
+function loadPrefs(): ExportPrefs {
+  try {
+    const raw = localStorage.getItem(EXPORT_PREFS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { captionMode: "all", exportJSON: true, variantPresets: [], useZip: false, lastDir: "" };
+}
+
 function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose }: ExportDialogProps) {
+  const saved = loadPrefs();
   const [scope, setScope] = useState<"selected" | "current" | "all">("selected");
-  const [captionMode, setCaptionMode] = useState<"all" | "manual" | "ai">("all");
+  const [captionMode, setCaptionMode] = useState<"all" | "manual" | "ai">(saved.captionMode);
   const [exportOriginal, setExportOriginal] = useState(hasOriginals !== false);
-  const [variantPresets, setVariantPresets] = useState<string[]>([]);
-  const [exportJSON, setExportJSON] = useState(true);
-  const [useZip, setUseZip] = useState(false);
-  const [outputDir, setOutputDir] = useState("");
+  const [variantPresets, setVariantPresets] = useState<string[]>(saved.variantPresets);
+  const [exportJSON, setExportJSON] = useState(saved.exportJSON);
+  const [useZip, setUseZip] = useState(saved.useZip);
+  const [outputDir, setOutputDir] = useState(saved.lastDir);
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -50,6 +67,10 @@ function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose 
 
   const handleExport = async () => {
     if (!outputDir.trim()) return;
+    // Persist preferences
+    localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify({
+      captionMode, exportJSON, variantPresets, useZip, lastDir: outputDir,
+    }));
     setExporting(true);
     setError(null);
     setResult(null);
