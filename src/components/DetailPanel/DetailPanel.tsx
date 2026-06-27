@@ -602,13 +602,14 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     const text = newCaptionText.trim();
     if (!text) return;
     try {
+      let caption: Caption;
       if (targetId) {
-        await captionCreateForVariant(media.id, targetId, text);
+        caption = await captionCreateForVariant(media.id, targetId, text);
       } else {
-        await captionCreate(media.id, text);
+        caption = await captionCreate(media.id, text);
       }
-      await loadCaptions(media.id);
-      loadEmbeddings(media.id, targetId);
+      // Insert into local state immediately — no need to reload
+      setCaptions((prev) => [caption, ...prev]);
       setNewCaptionText("");
     } catch (e) {
       console.error("Failed to add caption:", e);
@@ -626,10 +627,10 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     if (!text) return;
     try {
       await captionUpdate(editingCaptionId, text);
-      if (media) {
-        await loadCaptions(media.id);
-        loadEmbeddings(media.id, targetId);
-      }
+      // Update local state immediately — no need to reload
+      setCaptions((prev) =>
+        prev.map((c) => (c.id === editingCaptionId ? { ...c, text } : c))
+      );
       setEditingCaptionId(null);
       setEditingText("");
     } catch (e) {
@@ -644,27 +645,28 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
 
   const handleDeleteCaption = async (id: string) => {
     try {
+      // Optimistic: remove from local state immediately
+      setCaptions((prev) => prev.filter((c) => c.id !== id));
       await captionDelete(id);
-      if (media) {
-        await loadCaptions(media.id);
-        loadEmbeddings(media.id, targetId);
-      }
       showToast("已删除描述");
     } catch (e) {
       console.error("Failed to delete caption:", e);
+      // Revert on failure
+      if (media) loadCaptions(media.id);
     }
   };
 
   const handleAdoptAiCaption = async (text: string) => {
     if (!media) return;
     try {
+      let caption: Caption;
       if (targetId) {
-        await captionCreateForVariant(media.id, targetId, text);
+        caption = await captionCreateForVariant(media.id, targetId, text);
       } else {
-        await captionCreate(media.id, text);
+        caption = await captionCreate(media.id, text);
       }
-      await loadCaptions(media.id);
-      loadEmbeddings(media.id, targetId);
+      // Insert into local state immediately
+      setCaptions((prev) => [caption, ...prev]);
     } catch (e) {
       console.error("Failed to adopt AI caption:", e);
     }
