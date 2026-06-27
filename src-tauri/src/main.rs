@@ -34,7 +34,7 @@ use commands::{
     media_thumbnail, media_thumbnail_batch, model_list, saved_filters_delete, saved_filters_list, saved_filters_save,
     settings_get, settings_get_all, settings_set, test_proxy, tag_create, tag_delete, tag_list, tag_rename,
     variant_annotate, variant_delete, variant_generate, variant_import, variant_list, variant_presets,
-    media_set_display_variant,
+    media_reset_all_display_variants, media_set_display_variant,
 };
 
 fn main() {
@@ -142,6 +142,7 @@ fn main() {
             variant_import,
             variant_list,
             variant_presets,
+            media_reset_all_display_variants,
             media_set_display_variant,
             caption_list,
             caption_create,

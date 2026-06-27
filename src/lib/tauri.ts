@@ -301,6 +301,10 @@ export function mediaSetDisplayVariant(
   return invoke("media_set_display_variant", { mediaId, variantId });
 }
 
+export function mediaResetAllDisplayVariants(): Promise<number> {
+  return invoke("media_reset_all_display_variants");
+}
+
 // --- Captions ---
 
 export function captionList(mediaId: string): Promise<Caption[]> {

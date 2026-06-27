@@ -11,6 +11,7 @@ import {
   testProxy,
   embeddingRebuildAll,
   embeddingClearAll,
+  mediaResetAllDisplayVariants,
 } from "@/lib/tauri";
 
 type AiMode = "local" | "cloud" | "auto";
@@ -54,6 +55,9 @@ function Settings() {
   const [embClearing, setEmbClearing] = useState(false);
   const [embClearResult, setEmbClearResult] = useState<string | null>(null);
   const [showClearEmbConfirm, setShowClearEmbConfirm] = useState(false);
+  const [showResetDisplayVariantConfirm, setShowResetDisplayVariantConfirm] = useState(false);
+  const [resettingDisplayVariant, setResettingDisplayVariant] = useState(false);
+  const [resetDisplayVariantResult, setResetDisplayVariantResult] = useState<string | null>(null);
 
   // Video settings
   const [largeFileThreshold, setLargeFileThreshold] = useState(1024);
@@ -961,6 +965,30 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
           </div>
         </section>
 
+        {/* Display Variant Reset */}
+        <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                显示版本
+              </h2>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                一键将所有媒体的显示版本恢复为原图。版本文件不会被删除。
+              </p>
+            </div>
+            <button
+              onClick={() => setShowResetDisplayVariantConfirm(true)}
+              disabled={resettingDisplayVariant}
+              className="shrink-0 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] disabled:opacity-50 active:scale-[0.97]"
+            >
+              {resettingDisplayVariant ? "恢复中..." : "恢复全部原图"}
+            </button>
+          </div>
+          {resetDisplayVariantResult && (
+            <p className="mt-2 text-xs text-[var(--color-text-muted)]">{resetDisplayVariantResult}</p>
+          )}
+        </section>
+
         {/* Video Section */}
         <div className="mt-8">
           <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">视频</h3>
@@ -1094,6 +1122,31 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
           }
         }}
         onCancel={() => setShowClearEmbConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showResetDisplayVariantConfirm}
+        title="恢复全部显示为原图"
+        message="此操作将把所有已设定显示版本的媒体恢复为显示原图。媒体文件和版本不会被删除。确定继续？"
+        confirmLabel="恢复"
+        cancelLabel="取消"
+        variant="danger"
+        onConfirm={async () => {
+          setShowResetDisplayVariantConfirm(false);
+          setResettingDisplayVariant(true);
+          setResetDisplayVariantResult(null);
+          try {
+            const count = await mediaResetAllDisplayVariants();
+            setResetDisplayVariantResult(`已恢复 ${count} 个媒体的显示版本为原图`);
+            // Notify gallery/table views to refresh
+            window.dispatchEvent(new CustomEvent("display-variant-changed", { detail: { mediaId: null, variantId: null } }));
+          } catch (e) {
+            setResetDisplayVariantResult(`错误: ${e}`);
+          } finally {
+            setResettingDisplayVariant(false);
+          }
+        }}
+        onCancel={() => setShowResetDisplayVariantConfirm(false)}
       />
     </div>
   );

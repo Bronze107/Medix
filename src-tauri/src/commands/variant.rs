@@ -216,3 +216,8 @@ pub fn media_set_display_variant(
     db::media_set_display_variant(&app, &media_id, variant_id.as_deref())
         .map_err(|e| e.to_string())
 }
+
+#[command]
+pub fn media_reset_all_display_variants(app: AppHandle) -> Result<u64, String> {
+    db::media_reset_all_display_variants(&app).map_err(|e| e.to_string())
+}

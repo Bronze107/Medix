@@ -2609,6 +2609,17 @@ pub fn media_set_display_variant(
     Ok(())
 }
 
+pub fn media_reset_all_display_variants(
+    app: &AppHandle,
+) -> Result<u64, Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+    let count = conn.execute(
+        "UPDATE media SET display_variant_id = NULL WHERE display_variant_id IS NOT NULL",
+        [],
+    )?;
+    Ok(count as u64)
+}
+
 pub fn media_permanent_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let app_dir = app.path().app_data_dir().expect("app data dir");
 
