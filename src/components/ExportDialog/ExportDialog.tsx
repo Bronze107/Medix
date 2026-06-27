@@ -22,7 +22,7 @@ const VARIANT_PRESETS = [
 
 const EXPORT_PREFS_KEY = "medix.exportPrefs";
 interface ExportPrefs {
-  captionMode: "all" | "manual" | "ai";
+  captionMode: "all" | "manual" | "ai" | "latest";
   exportJSON: boolean;
   variantPresets: string[];
   useZip: boolean;
@@ -39,7 +39,7 @@ function loadPrefs(): ExportPrefs {
 function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose }: ExportDialogProps) {
   const saved = loadPrefs();
   const [scope, setScope] = useState<"selected" | "current" | "all">("selected");
-  const [captionMode, setCaptionMode] = useState<"all" | "manual" | "ai">(saved.captionMode);
+  const [captionMode, setCaptionMode] = useState<ExportPrefs["captionMode"]>(saved.captionMode);
   const [exportOriginal, setExportOriginal] = useState(hasOriginals !== false);
   const [variantPresets, setVariantPresets] = useState<string[]>(saved.variantPresets);
   const [exportJSON, setExportJSON] = useState(saved.exportJSON);
@@ -190,6 +190,7 @@ function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose 
                 className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
               >
                 <option value="all">全部</option>
+                <option value="latest">最新一条</option>
                 <option value="manual">仅手动</option>
                 <option value="ai">仅 AI</option>
               </select>
@@ -296,7 +297,7 @@ function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose 
 
             {/* Summary */}
             <p className="mb-4 text-[10px] text-[var(--color-text-muted)]">
-              将导出 {scopeIds} 张图片{captionMode !== "all" ? ` (${captionMode === "manual" ? "仅手动" : "仅AI"} caption)` : ""}
+              将导出 {scopeIds} 张图片{captionMode !== "all" ? ` (${captionMode === "manual" ? "仅手动" : captionMode === "ai" ? "仅AI" : "仅最新 caption"})` : ""}
               {variantPresets.length > 0 ? ` + ${variantPresets.length} 种变体` : ""}
               {useZip ? " → ZIP" : " → 目录"}
             </p>

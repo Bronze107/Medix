@@ -16,6 +16,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useThumbnail } from "@/hooks/useThumbnail";
 import ImagineDialog from "@/components/ImagineDialog/ImagineDialog";
+import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { Variant, VariantPreset } from "@/types/variant";
@@ -314,6 +315,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const [targetId, setTargetId] = useState<string | null>(null); // null=original, string=variant_id
   const [showVersionForm, setShowVersionForm] = useState(false);
   const [showAiEdit, setShowAiEdit] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const [showTargetMenu, setShowTargetMenu] = useState(false);
   const targetMenuRef = useRef<HTMLDivElement>(null);
   const [copiedCaptionId, setCopiedCaptionId] = useState<string | null>(null);
@@ -1298,6 +1300,15 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       <div className="mt-auto border-t border-[var(--color-border)] pt-3">
         <div className="flex items-center justify-center gap-2">
           <button
+            onClick={() => setShowExportDialog(true)}
+            className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)] transition-colors"
+            title="导出"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+          </button>
+          <button
             onClick={() => setShowAiEdit(true)}
             className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)] transition-colors"
             title="AI 编辑"
@@ -1443,6 +1454,15 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
           ? variants.find((v) => v.id === targetId)?.file_path ?? null
           : media.thumb_256 ?? null}
         onClose={() => setShowAiEdit(false)}
+      />
+    )}
+    {showExportDialog && media && (
+      <ExportDialog
+        mediaIds={[media.id]}
+        variantIds={targetId ? [targetId] : undefined}
+        hasOriginals={!targetId}
+        totalCount={1}
+        onClose={() => setShowExportDialog(false)}
       />
     )}
   </>

@@ -1,6 +1,6 @@
 export interface ExportOptions {
   media_ids: string[];
-  caption_mode: "all" | "manual" | "ai";
+  caption_mode: "all" | "manual" | "ai" | "latest";
   export_original: boolean;
   export_json: boolean;
   variant_presets: string[];

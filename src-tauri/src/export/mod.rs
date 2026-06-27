@@ -111,6 +111,11 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
                 .iter()
                 .filter(|c| is_ai_source(c.source.as_deref()))
                 .collect(),
+            "latest" => all_captions
+                .iter()
+                .max_by_key(|c| &c.created_at)
+                .into_iter()
+                .collect(),
             _ => all_captions.iter().collect(),
         };
 
