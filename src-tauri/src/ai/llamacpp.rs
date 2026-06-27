@@ -170,9 +170,7 @@ Focus on:
 
 Respond with a single JSON object containing exactly two fields: "caption" (a detailed paragraph of 4-6 sentences covering every observable aspect listed above) and "tags" (an array of at most 10 distinctive lowercase danbooru-style tags). Do not include markdown code blocks or any extra text outside the JSON."#;
 
-const CAPTION_PROMPT_ZH: &str = r#"你是一名专业摄影师。分析图像并仅描述可直接观察到的信息。
-
-关注以下方面：
+const CAPTION_PROMPT_ZH: &str = r#"从以下方面严谨地和客观地说说这个图片是什么：
 
 1. 主体 — 人物：大致年龄段、体型、发型、性别呈现、服装、姿势、表情。物体/动物：类型、状态、位置。
 2. 场景与环境 — 室内/室外、场景类型、背景元素。
@@ -184,7 +182,7 @@ const CAPTION_PROMPT_ZH: &str = r#"你是一名专业摄影师。分析图像并
 8. 摄影风格 — 人像、风景、微距、街拍、纪实、快照。
 9. 显著的视觉元素 — 文字、标志、UI 元素、标识。没有则跳过。
 
-请只输出一个 JSON 对象，包含两个字段："caption"（一段详细的中文段落，4-6 句，覆盖上述所有可观察的方面）和 "tags"（最多 10 个中文关键词的数组）。不要包含 markdown 代码块或 JSON 之外的任何额外文字。"#;
+请只输出一个 JSON 对象，包含两个字段："caption"（一段丰富的生动的详细的中文短文描述，覆盖上述所有可观察的方面）和 "tags"（最多 10 个中文关键词的数组）。不要包含 markdown 代码块或 JSON 之外的任何额外文字。"#;
 
 #[derive(Debug, Clone)]
 pub struct SamplingParams {
