@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 use tauri::{command, AppHandle, Emitter, Manager};
 
@@ -64,14 +65,35 @@ pub fn variant_import(
         return Err("Source file not found".to_string());
     }
 
-    let ext = src
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-        .unwrap_or_default();
+    // Detect image format from magic bytes (consistent with normal import),
+    // fall back to extension check for video files.
+    let mut first_bytes = vec![0u8; 12];
+    let mut f = fs::File::open(src).map_err(|e| format!("Failed to open source: {}", e))?;
+    let n = f.read(&mut first_bytes).unwrap_or(0);
+    drop(f);
+    eprintln!("[variant_import] path={}, read={} bytes, magic={:02x?}",
+        source_path, n, &first_bytes[..n.min(12)]);
 
-    let is_image = matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp");
-    let is_video = crate::media::video_metadata::VIDEO_EXTENSIONS.contains(&ext.as_str());
+    let ext;
+    let is_image;
+    let is_video;
+    if let Some(detected) = crate::media::import::detect_format_from_bytes(&first_bytes[..n]) {
+        ext = detected.to_string();
+        is_image = true;
+        is_video = false;
+        eprintln!("[variant_import] detected image format: {}", ext);
+    } else {
+        // Not a recognized image format — try video by extension
+        ext = src
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .unwrap_or_default();
+        is_image = false;
+        is_video = crate::media::video_metadata::VIDEO_EXTENSIONS.contains(&ext.as_str());
+        eprintln!("[variant_import] not an image, ext={}, is_video={}", ext, is_video);
+    }
+
     if !is_image && !is_video {
         return Err(format!("Unsupported file type: {}", ext));
     }
@@ -104,7 +126,15 @@ pub fn variant_import(
             meta.video_fps,
         )
     } else {
-        let img = image::open(src).map_err(|e| e.to_string())?;
+        // Use load_from_memory to avoid file-extension-based format guessing.
+        // image::open() uses the .png/.jpg extension as a format hint, which
+        // breaks when the extension doesn't match the actual content.
+        let data = fs::read(src).map_err(|e| format!("Failed to read source: {}", e))?;
+        let img = image::load_from_memory(&data).map_err(|e| {
+            let msg = format!("Failed to decode image (detected format: {}): {}", ext, e);
+            eprintln!("[variant_import] {}", msg);
+            msg
+        })?;
         (
             Some(img.width() as i32),
             Some(img.height() as i32),

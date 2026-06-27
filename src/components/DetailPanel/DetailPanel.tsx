@@ -579,6 +579,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       setShowVersionForm(false);
     } catch (e) {
       console.error("Failed to import version:", e);
+      showToast(`导入失败: ${e}`);
     } finally {
       setImportingVersion(false);
     }
