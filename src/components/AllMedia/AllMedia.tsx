@@ -709,7 +709,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
 
         {/* Variant visibility toggle — icon button matching grid/table toggle style */}
         <button
-          onClick={() => setVariantVisibility(v => v === "all" ? "representative" : "all")}
+          onClick={() => setVariantVisibility(v => {
+            const next = v === "all" ? "representative" : "all";
+            localStorage.setItem("medix.variantVisibility", next);
+            return next;
+          })}
           className={`flex-shrink-0 rounded-lg p-1.5 transition-colors ${
             variantVisibility === "all"
               ? "text-[var(--color-accent)] bg-[var(--color-accent-soft)]"
@@ -953,7 +957,10 @@ function AllMedia({ collectionId }: AllMediaProps) {
             onClick={async () => {
               const all = await loadCollections();
               setCollectionsForPicker(all);
-              setAddToCollectionMediaIds(Array.from(selectedIds));
+              // Convert item_ids to media_ids for collection (variants share parent media_id)
+              setAddToCollectionMediaIds([...new Set(
+                Array.from(selectedIds).map((id) => items.find((it) => it.item_id === id)?.media_id ?? id)
+              )]);
               setCollectionPickerSearch("");
               setShowAddToCollection(true);
             }}
@@ -1424,7 +1431,10 @@ function AllMedia({ collectionId }: AllMediaProps) {
           </button>
           <button
             onClick={async () => {
-              const ids = selectedIds.has(ctxMenu.item.item_id) ? Array.from(selectedIds) : [ctxMenu.item.item_id];
+              // Convert item_ids to media_ids for collection (variants share parent media_id)
+              const ids = selectedIds.has(ctxMenu.item.item_id)
+                ? [...new Set(Array.from(selectedIds).map((id) => items.find((it) => it.item_id === id)?.media_id ?? id))]
+                : [ctxMenu.item.media_id];
               const all = await loadCollections();
               setCollectionsForPicker(all);
               setAddToCollectionMediaIds(ids);
