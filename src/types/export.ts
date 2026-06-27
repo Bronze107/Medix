@@ -2,7 +2,10 @@ export interface ExportOptions {
   media_ids: string[];
   caption_mode: "all" | "manual" | "ai";
   export_original: boolean;
+  export_json: boolean;
   variant_presets: string[];
+  /** If set, only export these specific variant IDs (instead of all variants). */
+  variant_ids?: string[];
   output_dir: string;
   use_zip: boolean;
 }

@@ -1348,13 +1348,29 @@ function AllMedia({ collectionId }: AllMediaProps) {
       )}
 
       {/* Export dialog */}
-      {showExportDialog && (
+      {showExportDialog && (() => {
+        const itemMap = new Map(items.map((it) => [it.item_id, it]));
+        const mediaSet = new Set<string>();
+        const variantList: string[] = [];
+        let hasOriginals = false;
+        for (const id of selectedIds) {
+          const item = itemMap.get(id);
+          if (item?.item_kind === "variant" && item.variant_id) {
+            variantList.push(item.variant_id);
+          }
+          if (item?.item_kind === "original") hasOriginals = true;
+          if (item) mediaSet.add(item.media_id);
+        }
+        return (
         <ExportDialog
-          mediaIds={Array.from(selectedIds)}
+          mediaIds={Array.from(mediaSet)}
+          variantIds={variantList.length > 0 ? variantList : undefined}
+          hasOriginals={hasOriginals}
           totalCount={displayItems.length}
           onClose={() => setShowExportDialog(false)}
         />
-      )}
+        );
+      })()}
 
       {/* Context menu */}
       {ctxMenu && (

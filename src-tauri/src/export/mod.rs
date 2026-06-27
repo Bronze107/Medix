@@ -20,7 +20,10 @@ pub struct ExportOptions {
     pub media_ids: Vec<String>,
     pub caption_mode: String, // "all" / "manual" / "ai"
     pub export_original: bool,
+    pub export_json: bool,
     pub variant_presets: Vec<String>,
+    /// If set, only export these specific variant IDs (instead of all variants for each media).
+    pub variant_ids: Option<Vec<String>>,
     pub output_dir: String,
     pub use_zip: bool,
 }
@@ -122,112 +125,113 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
             .and_then(|n| n.to_str())
             .unwrap_or(media_id);
 
-        // Copy original
-        if options.export_original {
-            let ext = source_file
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("jpg");
-            let dest = output_dir.join(format!("{}.{}", base_name, ext));
-            fs::copy(&source_file, &dest).map_err(|e| e.to_string())?;
-        }
-
-        // Copy/generate variants
-        let media_type = media.media_type.as_deref().unwrap_or("image");
-        if media_type == "video" {
-            // For video, only export existing variants (no on-the-fly generation)
-            if let Ok(variants) = crate::db::variant_list(app, media_id) {
-                for v in variants {
-                    let v_path = std::path::Path::new(&v.file_path);
-                    if v_path.exists() {
-                        let v_ext = v_path.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
-                        let v_dest = output_dir.join(format!("{}_{}.{}", base_name, &v.preset_name, v_ext));
-                        fs::copy(v_path, &v_dest).map_err(|e| format!("copy variant: {}", e))?;
-                    }
+        // Pre-split captions by variant_id for per-item metadata
+        let original_captions: Vec<_> = captions
+            .iter()
+            .filter(|c| c.variant_id.is_none())
+            .copied()
+            .collect();
+        let variant_captions: HashMap<&str, Vec<&crate::captions::Caption>> = {
+            let mut map: HashMap<&str, Vec<_>> = HashMap::new();
+            for c in &captions {
+                if let Some(ref vid) = c.variant_id {
+                    map.entry(vid.as_str()).or_default().push(*c);
                 }
             }
-        } else {
-            for preset_name in &options.variant_presets {
-                let dest_ext = match preset_name.as_str() {
-                    "print" => "png",
-                    _ => "jpg",
-                };
-                let dest = output_dir.join(format!("{}_{}.{}", base_name, preset_name, dest_ext));
+            map
+        };
 
-                // Check if variant already exists in DB
-                let existing =
-                    crate::db::variant_get_by_media_and_preset(app, media_id, preset_name)
-                        .map_err(|e| e.to_string())?;
+        // Helper: write .txt + .json for one exported item
+        let write_meta = |stem: &str, item_caps: &[&crate::captions::Caption],
+                          item_tags: &[String], item_w: Option<i32>, item_h: Option<i32>,
+                          item_fn: &str|
+         -> Result<(), String> {
+            if !item_caps.is_empty() {
+                let tp = output_dir.join(format!("{}.txt", stem));
+                let tc = item_caps.iter().map(|c| c.text.as_str())
+                    .collect::<Vec<_>>().join("\n---\n");
+                fs::write(&tp, tc).map_err(|e| e.to_string())?;
+            }
+            if options.export_json {
+                let cj: serde_json::Value = if item_caps.len() == 1 {
+                    serde_json::Value::String(item_caps[0].text.clone())
+                } else if item_caps.len() > 1 {
+                    serde_json::Value::Array(item_caps.iter()
+                        .map(|c| serde_json::Value::String(c.text.clone())).collect())
+                } else { serde_json::Value::Null };
+                let jd = JsonExport { filename: item_fn.to_string(), caption: cj,
+                    tags: item_tags.to_vec(), width: item_w, height: item_h };
+                let jp = output_dir.join(format!("{}.json", stem));
+                fs::write(&jp, serde_json::to_string_pretty(&jd).map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        };
 
-                if let Some(v) = existing {
-                    let src = Path::new(&v.file_path);
-                    if src.exists() {
-                        fs::copy(src, &dest).map_err(|e| e.to_string())?;
-                        continue;
-                    }
+        // Copy original + write metadata
+        if options.export_original {
+            let ext = source_file.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
+            let dest = output_dir.join(format!("{}.{}", base_name, ext));
+            fs::copy(&source_file, &dest).map_err(|e| e.to_string())?;
+            let src_fn = source_file.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            write_meta(base_name, &original_captions, &tag_names, media.width, media.height, src_fn)?;
+        }
+
+        // Export existing variants (filtered by variant_ids if provided)
+        if let Ok(variants) = crate::db::variant_list(app, media_id) {
+            let selected_ids: Option<std::collections::HashSet<&str>> = options
+                .variant_ids.as_ref().map(|ids| ids.iter().map(|s| s.as_str()).collect());
+            for v in &variants {
+                if let Some(ref ids) = selected_ids {
+                    if !ids.contains(v.id.as_str()) { continue; }
                 }
+                let v_path = std::path::Path::new(&v.file_path);
+                if !v_path.exists() { continue; }
+                let v_ext = v_path.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
+                let suffix = if v.preset_name.is_empty() {
+                    v.label.clone().unwrap_or_else(|| "variant".to_string())
+                } else { v.preset_name.clone() };
+                let v_stem = format!("{}_{}", base_name, suffix);
+                let v_dest = output_dir.join(format!("{}.{}", v_stem, v_ext));
+                fs::copy(v_path, &v_dest).map_err(|e| format!("copy variant: {}", e))?;
+                // Variant-specific tags + captions
+                let vt = crate::db::media_tags_get_with_variant(app, media_id, Some(&v.id))
+                    .unwrap_or_default();
+                let vt_names: Vec<String> = vt.iter().map(|t| t.name.clone()).collect();
+                let vc = variant_captions.get(v.id.as_str()).map(|v| v.as_slice()).unwrap_or(&[]);
+                let v_fn = v_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                write_meta(&v_stem, vc, &vt_names, v.width, v.height, v_fn)?;
+            }
+        }
 
-                // Generate on the fly
-                let preset = crate::variants::built_in_presets()
-                    .into_iter()
+        // Generate any selected preset variants that don't exist yet (image only)
+        let media_type = media.media_type.as_deref().unwrap_or("image");
+        if media_type != "video" {
+            for preset_name in &options.variant_presets {
+                let existing = crate::db::variant_get_by_media_and_preset(app, media_id, preset_name)
+                    .map_err(|e| e.to_string())?;
+                if existing.is_some() { continue; }
+                let dest_ext = match preset_name.as_str() { "print" => "png", _ => "jpg" };
+                let v_stem = format!("{}_{}", base_name, preset_name);
+                let dest = output_dir.join(format!("{}.{}", v_stem, dest_ext));
+                let preset = crate::variants::built_in_presets().into_iter()
                     .find(|p| &p.name == preset_name);
                 if let Some(p) = preset {
-                    match crate::variants::generate_variant(
-                        app, media_id, &source_file, &p.label, &p.format,
-                        p.max_width, p.max_height, p.quality,
+                    match crate::variants::generate_variant(app, media_id, &source_file,
+                        &p.label, &p.format, p.max_width, p.max_height, p.quality
                     ) {
                         Ok(v) => {
                             let src = Path::new(&v.file_path);
-                            if src.exists() {
-                                fs::copy(src, &dest).map_err(|e| e.to_string())?;
-                            }
+                            if src.exists() { fs::copy(src, &dest).map_err(|e| e.to_string())?; }
+                            let v_fn = Path::new(&v.file_path).file_name()
+                                .and_then(|n| n.to_str()).unwrap_or("");
+                            write_meta(&v_stem, &[], &[], v.width, v.height, v_fn)?;
                         }
-                        Err(e) => {
-                            eprintln!(
-                                "[export] failed to generate variant {} for {}: {}",
-                                preset_name, media_id, e
-                            );
-                        }
+                        Err(e) => { eprintln!("[export] failed to generate {}: {}", preset_name, e); }
                     }
                 }
             }
         }
-
-        // Write .txt
-        if !captions.is_empty() {
-            let txt_path = output_dir.join(format!("{}.txt", base_name));
-            let txt_content = captions
-                .iter()
-                .map(|c| c.text.as_str())
-                .collect::<Vec<_>>()
-                .join("\n---\n");
-            fs::write(&txt_path, txt_content).map_err(|e| e.to_string())?;
-        }
-
-        // Write .json
-        let caption_json: serde_json::Value = if captions.len() == 1 {
-            serde_json::Value::String(captions[0].text.clone())
-        } else {
-            serde_json::Value::Array(
-                captions.iter().map(|c| serde_json::Value::String(c.text.clone())).collect(),
-            )
-        };
-
-        let json_data = JsonExport {
-            filename: source_file
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string(),
-            caption: caption_json,
-            tags: tag_names,
-            width: media.width,
-            height: media.height,
-        };
-
-        let json_path = output_dir.join(format!("{}.json", base_name));
-        let json_str = serde_json::to_string_pretty(&json_data).map_err(|e| e.to_string())?;
-        fs::write(&json_path, json_str).map_err(|e| e.to_string())?;
     }
 
     let output_path = if let Some(zip_path) = final_zip_path {

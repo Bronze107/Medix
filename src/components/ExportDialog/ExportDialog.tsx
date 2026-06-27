@@ -6,6 +6,10 @@ import type { ExportProgress } from "@/types/export";
 
 interface ExportDialogProps {
   mediaIds: string[];
+  /** If set, only export these specific variant IDs. */
+  variantIds?: string[];
+  /** Whether the selection includes any originals. */
+  hasOriginals?: boolean;
   totalCount: number;
   onClose: () => void;
 }
@@ -16,11 +20,12 @@ const VARIANT_PRESETS = [
   { name: "dataset", label: "训练数据集 (JPEG 512px)" },
 ];
 
-function ExportDialog({ mediaIds, totalCount, onClose }: ExportDialogProps) {
+function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose }: ExportDialogProps) {
   const [scope, setScope] = useState<"selected" | "current" | "all">("selected");
   const [captionMode, setCaptionMode] = useState<"all" | "manual" | "ai">("all");
-  const [exportOriginal, setExportOriginal] = useState(true);
+  const [exportOriginal, setExportOriginal] = useState(hasOriginals !== false);
   const [variantPresets, setVariantPresets] = useState<string[]>([]);
+  const [exportJSON, setExportJSON] = useState(true);
   const [useZip, setUseZip] = useState(false);
   const [outputDir, setOutputDir] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -56,7 +61,9 @@ function ExportDialog({ mediaIds, totalCount, onClose }: ExportDialogProps) {
         media_ids: ids,
         caption_mode: captionMode,
         export_original: exportOriginal,
+        export_json: exportJSON,
         variant_presets: variantPresets,
+        variant_ids: variantIds,
         output_dir: outputDir,
         use_zip: useZip,
       });
@@ -194,6 +201,14 @@ function ExportDialog({ mediaIds, totalCount, onClose }: ExportDialogProps) {
                     {p.label}
                   </label>
                 ))}
+                <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+                  <input
+                    type="checkbox"
+                    checked={exportJSON}
+                    onChange={(e) => setExportJSON(e.target.checked)}
+                  />
+                  JSON 元数据
+                </label>
               </div>
             </div>
 
