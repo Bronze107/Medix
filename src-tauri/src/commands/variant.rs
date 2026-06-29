@@ -62,6 +62,14 @@ pub fn variant_import(
     source_path: String,
 ) -> Result<Variant, String> {
     let t_total = Instant::now();
+    let log_phase = |phase: &str, t: &Instant| {
+        println!(
+            "[variant_import] {} phase={} duration_ms={}",
+            media_id,
+            phase,
+            t.elapsed().as_millis()
+        );
+    };
     let src = Path::new(&source_path);
     if !src.exists() {
         return Err("Source file not found".to_string());
@@ -69,6 +77,7 @@ pub fn variant_import(
 
     // Detect image format from magic bytes (consistent with normal import),
     // fall back to extension check for video files.
+    let t_detect = Instant::now();
     let mut first_bytes = vec![0u8; 12];
     let mut f = fs::File::open(src).map_err(|e| format!("Failed to open source: {}", e))?;
     let n = f.read(&mut first_bytes).unwrap_or(0);
@@ -95,6 +104,7 @@ pub fn variant_import(
         is_video = crate::media::video_metadata::VIDEO_EXTENSIONS.contains(&ext.as_str());
         eprintln!("[variant_import] not an image, ext={}, is_video={}", ext, is_video);
     }
+    log_phase("detect", &t_detect);
 
     if !is_image && !is_video {
         return Err(format!("Unsupported file type: {}", ext));
@@ -109,13 +119,16 @@ pub fn variant_import(
     let id = ulid::Ulid::new().to_string();
     let file_name = format!("{}_{}.{}", media_id, id, ext);
     let dest = versions_dir.join(&file_name);
+    let t_copy = Instant::now();
     fs::copy(src, &dest).map_err(|e| e.to_string())?;
+    log_phase("copy", &t_copy);
 
     let label = src
         .file_stem()
         .and_then(|s| s.to_str())
         .map(|s| s.to_string());
 
+    let t_metadata = Instant::now();
     let (width, height, media_type, duration, video_codec, video_fps) = if is_video {
         let meta = crate::media::video_metadata::extract_metadata(src)
             .map_err(|e| format!("ffprobe failed: {}", e))?;
@@ -146,6 +159,7 @@ pub fn variant_import(
             None,
         )
     };
+    log_phase("metadata", &t_metadata);
 
     let variant = Variant {
         id: id.clone(),
@@ -165,8 +179,11 @@ pub fn variant_import(
         video_fps,
     };
 
+    let t_db = Instant::now();
     db::variant_insert(&app, &variant).map_err(|e| e.to_string())?;
+    log_phase("db_insert", &t_db);
     // Generate thumbnail for the variant
+    let t_thumb = Instant::now();
     if is_video {
         if let Err(e) = crate::media::video_thumbnail::generate_video_thumbnail(
             &app, &variant.id, Path::new(&variant.file_path), variant.duration,
@@ -178,6 +195,9 @@ pub fn variant_import(
     ) {
         eprintln!("[variant] thumbnail failed for imported {}: {}", variant.id, e);
     }
+    log_phase("thumbnail", &t_thumb);
+
+    log_phase("total", &t_total);
     Ok(variant)
 }
 
