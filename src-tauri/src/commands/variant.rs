@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::Read;
 use std::path::Path;
+use std::time::Instant;
 use tauri::{command, AppHandle, Emitter, Manager};
 
 use crate::db;
@@ -60,6 +61,7 @@ pub fn variant_import(
     media_id: String,
     source_path: String,
 ) -> Result<Variant, String> {
+    let t_total = Instant::now();
     let src = Path::new(&source_path);
     if !src.exists() {
         return Err("Source file not found".to_string());
