@@ -512,6 +512,15 @@ function AllMedia({ collectionId }: AllMediaProps) {
     return () => window.removeEventListener("display-variant-changed", handler);
   }, [loadMedia, selectedItem?.media_id]);
 
+  // Listen for variant imports/deletions from DetailPanel
+  useEffect(() => {
+    const handler = () => {
+      loadMedia();
+    };
+    window.addEventListener("variants-changed", handler);
+    return () => window.removeEventListener("variants-changed", handler);
+  }, [loadMedia]);
+
   // After display-variant-change triggers reload, re-select item for the same media
   useEffect(() => {
     if (pendingReselectRef.current && items.length > 0) {

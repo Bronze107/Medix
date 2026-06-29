@@ -587,6 +587,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         );
       }
       await loadVariants(media.id);
+      window.dispatchEvent(
+        new CustomEvent("variants-changed", { detail: { mediaId: media.id } }),
+      );
       setImportVersionPaths([]);
       setShowVersionForm(false);
     } catch (e) {
@@ -604,6 +607,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       setShowDeleteVariantConfirm(false);
       setTargetId(null);
       await loadVariants(media.id);
+      window.dispatchEvent(
+        new CustomEvent("variants-changed", { detail: { mediaId: media.id } }),
+      );
       showToast("已删除版本");
     } catch (e) {
       console.error("Failed to delete variant:", e);
