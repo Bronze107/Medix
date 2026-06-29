@@ -374,7 +374,7 @@ function ThumbnailCard({
               ? "bg-[var(--color-accent)]/80 text-white"
               : "bg-white/20 text-white/90"
           }`}>
-            {item.is_display_variant ? "展示版本" : (item.label || item.preset_name || "版本")}
+            {item.is_display_variant ? "展示变体" : (item.label || item.preset_name || "变体")}
           </div>
         )}
         {/* Duration badge for video */}

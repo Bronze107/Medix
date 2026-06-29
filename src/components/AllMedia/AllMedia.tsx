@@ -728,7 +728,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               ? "text-[var(--color-accent)] bg-[var(--color-accent-soft)]"
               : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
           }`}
-          title={variantVisibility === "all" ? "全部版本" : "代表视图"}
+          title={variantVisibility === "all" ? "全部变体" : "代表视图"}
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 8.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v8.25A2.25 2.25 0 0 0 6 16.5h2.25m8.25-8.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-7.5A2.25 2.25 0 0 1 8.25 18v-1.5m8.25-8.25h-6a2.25 2.25 0 0 0-2.25 2.25v6" />
@@ -1666,7 +1666,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       <ConfirmDialog
         open={deleteConfirm === "single"}
         title="删除"
-        message={pendingDeleteInfo?.item.item_kind === "variant" ? "确定要删除这个版本吗？此操作不可撤销。" : "确定要删除这张图片吗？可以在回收站中恢复。"}
+        message={pendingDeleteInfo?.item.item_kind === "variant" ? "确定要删除这个变体吗？此操作不可撤销。" : "确定要删除这张图片吗？可以在回收站中恢复。"}
         variant="danger"
         confirmLabel="删除"
         onConfirm={async () => {

@@ -234,7 +234,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
       const fmt = v.format.toUpperCase();
       const dim = `${v.width ?? "?"}×${v.height ?? "?"}`;
       const detail = `${fmt}${v.quality && v.format === "jpeg" ? `·Q${v.quality}` : ""} · ${dim} · ${formatSize(v.file_size)}`;
-      return { label: v.label || v.preset_name || "未命名版本", detail, source: v.source, mediaType: v.media_type };
+      return { label: v.label || v.preset_name || "未命名变体", detail, source: v.source, mediaType: v.media_type };
     },
     [item, variants],
   );
@@ -682,7 +682,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
         >
           <div className="flex h-full flex-col">
             <div className="border-b border-white/10 px-3 py-2.5">
-              <p className="text-[11px] font-medium text-white/60">版本</p>
+              <p className="text-[11px] font-medium text-white/60">变体</p>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-1.5 space-y-1">
               {/* Original */}

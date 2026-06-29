@@ -147,7 +147,7 @@ function TargetMenu({
         <span className={`text-xs ${!targetId ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>原图</span>
       </button>
       {variants.map((v) => {
-        const label = v.label || v.preset_name || "未命名版本";
+        const label = v.label || v.preset_name || "未命名变体";
         const active = targetId === v.id;
         const fmt = v.format.toUpperCase();
         const dim = `${v.width ?? "?"}×${v.height ?? "?"}`;
@@ -600,7 +600,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       window.dispatchEvent(
         new CustomEvent("variants-changed", { detail: { mediaId: media.id } }),
       );
-      showToast("已删除版本");
+      showToast("已删除变体");
     } catch (e) {
       console.error("Failed to delete variant:", e);
     }
@@ -763,7 +763,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
           >
             <span className="truncate">
               {targetId
-                ? variants.find((v) => v.id === targetId)?.label || variants.find((v) => v.id === targetId)?.preset_name || "未命名版本"
+                ? variants.find((v) => v.id === targetId)?.label || variants.find((v) => v.id === targetId)?.preset_name || "未命名变体"
                 : "原图"}
             </span>
             <svg className="h-3 w-3 shrink-0 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -785,7 +785,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         <button
           onClick={() => setShowVersionForm(true)}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] active:scale-[0.97]"
-          title="添加版本"
+          title="添加变体"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -793,9 +793,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         </button>
         {media.display_variant_id && (
           targetId === media.display_variant_id ? (
-            <span className="text-xs text-[var(--color-accent)]" title="当前显示版本">👁</span>
+            <span className="text-xs text-[var(--color-accent)]" title="当前显示变体">👁</span>
           ) : targetId ? null : (
-            <span className="text-xs text-[var(--color-accent)]" title="当前显示为其他版本">👁</span>
+            <span className="text-xs text-[var(--color-accent)]" title="当前显示为其他变体">👁</span>
           )
         )}
       </div>
@@ -847,7 +847,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
 
             {isVar && t && (
             <div>
-              <p className="text-xs text-[var(--color-text-muted)]">版本 ID</p>
+              <p className="text-xs text-[var(--color-text-muted)]">变体 ID</p>
               <p className="mt-0.5 break-all font-mono text-[11px] text-[var(--color-text-secondary)]">
                 {t.id}
               </p>
@@ -1024,7 +1024,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
           <div className="flex-1 overflow-auto">
             {(() => {
               if (targetId && !variants.some((v) => v.id === targetId)) {
-                return <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">版本未找到</p>;
+                return <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">变体未找到</p>;
               }
               return (
                 <>
@@ -1273,7 +1273,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       {showVersionForm && (
         <div className="flex flex-col overflow-hidden border-t border-[var(--color-border)] pt-3">
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-[var(--color-text-primary)]">添加版本</p>
+            <p className="text-xs font-semibold text-[var(--color-text-primary)]">添加变体</p>
             <button onClick={() => setShowVersionForm(false)} className="rounded p-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]">
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -1317,7 +1317,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
           </div>
 
           <div className="space-y-1.5">
-            <input type="text" value={versionLabel} onChange={(e) => setVersionLabel(e.target.value)} placeholder="版本名称（可选）"
+            <input type="text" value={versionLabel} onChange={(e) => setVersionLabel(e.target.value)} placeholder="变体名称（可选）"
               className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]" />
             <div className="flex gap-1.5">
               <select value={versionFormat} onChange={(e) => setVersionFormat(e.target.value)}
@@ -1333,7 +1333,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
             </div>
             <button onClick={handleGenerateVersion} disabled={versionGenerating}
               className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
-            >{versionGenerating ? "生成中..." : "生成版本"}</button>
+            >{versionGenerating ? "生成中..." : "生成变体"}</button>
           </div>
         </div>
       )}
@@ -1410,7 +1410,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                   window.dispatchEvent(new CustomEvent("display-variant-changed", { detail: { mediaId: media.id, variantId: targetId } }));
                 }}
                 className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-                title="设为主显示版本"
+                title="设为主显示变体"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
@@ -1423,7 +1423,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
             <button
               onClick={() => setShowDeleteVariantConfirm(true)}
               className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
-              title="删除版本"
+              title="删除变体"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
@@ -1466,8 +1466,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
 
       <ConfirmDialog
         open={showDeleteVariantConfirm}
-        title="删除版本"
-        message="确定要删除这个版本吗？版本文件和记录将被永久删除，不可恢复。"
+        title="删除变体"
+        message="确定要删除这个变体吗？变体文件和记录将被永久删除，不可恢复。"
         variant="danger"
         confirmLabel="删除"
         onConfirm={handleDeleteVariant}

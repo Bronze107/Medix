@@ -268,7 +268,7 @@ function TableRow({
       <div className="w-14 text-center text-[11px]">
         {item.item_kind === "variant" ? (
           <span className={item.is_display_variant ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)]"}>
-            {item.is_display_variant ? "展示" : "版本"}
+            {item.is_display_variant ? "展示" : "变体"}
           </span>
         ) : (
           <span className="text-[var(--color-text-muted)]/40">原图</span>

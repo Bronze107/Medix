@@ -970,10 +970,10 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-                显示版本
+                显示变体
               </h2>
               <p className="text-xs text-[var(--color-text-muted)]">
-                一键将所有媒体的显示版本恢复为原图。版本文件不会被删除。
+                一键将所有媒体的显示变体恢复为原图。变体文件不会被删除。
               </p>
             </div>
             <button
@@ -1127,7 +1127,7 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
       <ConfirmDialog
         open={showResetDisplayVariantConfirm}
         title="恢复全部显示为原图"
-        message="此操作将把所有已设定显示版本的媒体恢复为显示原图。媒体文件和版本不会被删除。确定继续？"
+        message="此操作将把所有已设定显示变体的媒体恢复为显示原图。媒体文件和变体不会被删除。确定继续？"
         confirmLabel="恢复"
         cancelLabel="取消"
         variant="danger"
@@ -1137,7 +1137,7 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
           setResetDisplayVariantResult(null);
           try {
             const count = await mediaResetAllDisplayVariants();
-            setResetDisplayVariantResult(`已恢复 ${count} 个媒体的显示版本为原图`);
+            setResetDisplayVariantResult(`已恢复 ${count} 个媒体的显示变体为原图`);
             // Notify gallery/table views to refresh
             window.dispatchEvent(new CustomEvent("display-variant-changed", { detail: { mediaId: null, variantId: null } }));
           } catch (e) {
