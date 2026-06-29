@@ -1,7 +1,33 @@
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
 use tauri::{command, AppHandle, Manager};
 
 use crate::captions::Caption;
 use crate::db;
+
+// --- Per-scope generation counter ---
+// When multiple caption operations target the same (media_id, variant_id) scope
+// in quick succession, only the last-spawned embedding task actually runs;
+// earlier tasks detect they've been superseded and skip their HTTP call.
+type ScopeKey = (String, Option<String>); // (media_id, variant_id)
+
+static EMBED_GENERATIONS: LazyLock<Mutex<HashMap<ScopeKey, u64>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn next_generation(media_id: &str, variant_id: Option<&str>) -> (ScopeKey, u64) {
+    let key = (media_id.to_string(), variant_id.map(|s| s.to_string()));
+    let mut map = EMBED_GENERATIONS.lock().unwrap();
+    let gen = map.entry(key.clone()).or_insert(0);
+    *gen += 1;
+    (key, *gen)
+}
+
+fn is_latest_generation(key: &ScopeKey, gen: u64) -> bool {
+    EMBED_GENERATIONS.lock().unwrap().get(key).copied() == Some(gen)
+}
+
+// --- Core helpers ---
 
 /// After a caption is created/updated/deleted, try to refresh the embedding
 /// from the latest caption for semantic search. variant_id scopes to original (None) or variant.
@@ -9,11 +35,15 @@ use crate::db;
 ///
 /// If `known_text` is provided, it is used directly instead of querying caption_list
 /// (for create/update where the caller already has the text).
+///
+/// If `scope_gen` is provided, the task checks whether it has been superseded by a
+/// newer task for the same scope before doing the HTTP call (and again before the DB insert).
 async fn refresh_embedding(
     app: &AppHandle,
     media_id: &str,
     variant_id: Option<&str>,
     known_text: Option<&str>,
+    scope_gen: Option<&(ScopeKey, u64)>,
 ) {
     let emb_model = crate::settings::get_embedding_model(app);
     if emb_model.is_empty() {
@@ -24,6 +54,14 @@ async fn refresh_embedding(
     if let Err(e) = emb_server.ensure_running(app).await {
         eprintln!("[caption] embedding server failed to start, skipping auto-embed for {}: {}", media_id, e);
         return;
+    }
+
+    // If a newer task was spawned for this scope, skip the HTTP call.
+    if let Some((key, gen)) = scope_gen {
+        if !is_latest_generation(key, *gen) {
+            eprintln!("[caption] superseded, skipping embed for {}", media_id);
+            return;
+        }
     }
 
     let text = match known_text {
@@ -58,6 +96,14 @@ async fn refresh_embedding(
 
     match crate::ai::llamacpp::embed_text(&text, &emb_model, emb_port).await {
         Ok(vector) => {
+            // Re-check after the HTTP call — a newer task may have been spawned
+            // while we were waiting.
+            if let Some((key, gen)) = scope_gen {
+                if !is_latest_generation(key, *gen) {
+                    eprintln!("[caption] superseded after embed, discarding for {}", media_id);
+                    return;
+                }
+            }
             if let Err(e) = db::embedding_insert(app, media_id, &model_short, "caption", variant_id, &vector) {
                 eprintln!("[caption] failed to store caption embedding for {}: {}", media_id, e);
             } else {
@@ -79,6 +125,36 @@ fn is_latest_caption(list: &[Caption], caption_id: &str, variant_id: Option<&str
     filtered.first().map(|c| c.id == caption_id).unwrap_or(false)
 }
 
+// --- Spawn helper ---
+
+/// Spawn a refresh_embedding call in the background, deduplicated by scope.
+/// If another task for the same (media_id, variant_id) is already in flight,
+/// the new generation counter will cause the older task to skip its HTTP call.
+fn spawn_embed(
+    app: &AppHandle,
+    media_id: &str,
+    variant_id: Option<&str>,
+    known_text: Option<&str>,
+) {
+    let gen = next_generation(media_id, variant_id);
+    let app_h = app.clone();
+    let mid = media_id.to_string();
+    let vid = variant_id.map(|s| s.to_string());
+    let txt = known_text.map(|s| s.to_string());
+    tokio::spawn(async move {
+        let key_ref = &gen.0;
+        refresh_embedding(
+            &app_h,
+            &mid,
+            vid.as_deref(),
+            txt.as_deref(),
+            Some(&(key_ref.clone(), gen.1)),
+        ).await;
+    });
+}
+
+// --- Tauri commands ---
+
 #[command]
 pub fn caption_list(app: AppHandle, media_id: String) -> Result<Vec<Caption>, String> {
     db::caption_list(&app, &media_id).map_err(|e| e.to_string())
@@ -87,7 +163,7 @@ pub fn caption_list(app: AppHandle, media_id: String) -> Result<Vec<Caption>, St
 #[command]
 pub async fn caption_create(app: AppHandle, media_id: String, text: String) -> Result<Caption, String> {
     let caption = db::caption_create(&app, &media_id, &text).map_err(|e| e.to_string())?;
-    refresh_embedding(&app, &media_id, None, Some(&text)).await;
+    spawn_embed(&app, &media_id, None, Some(&text));
     Ok(caption)
 }
 
@@ -100,7 +176,7 @@ pub async fn caption_create_for_variant(
 ) -> Result<Caption, String> {
     let caption = db::caption_create_for_variant(&app, &media_id, &variant_id, &text, None)
         .map_err(|e| e.to_string())?;
-    refresh_embedding(&app, &media_id, Some(&variant_id), Some(&text)).await;
+    spawn_embed(&app, &media_id, Some(&variant_id), Some(&text));
     Ok(caption)
 }
 
@@ -116,7 +192,7 @@ pub async fn caption_update(app: AppHandle, id: String, text: String) -> Result<
         .map(|list| is_latest_caption(&list, &id, variant_id.as_deref()))
         .unwrap_or(false);
     if is_latest {
-        refresh_embedding(&app, &media_id, variant_id.as_deref(), Some(&text)).await;
+        spawn_embed(&app, &media_id, variant_id.as_deref(), Some(&text));
     }
     Ok(())
 }
@@ -127,15 +203,13 @@ pub async fn caption_delete(app: AppHandle, id: String) -> Result<(), String> {
     if media_id.is_empty() {
         return Ok(());
     }
-    // Check whether the caption being deleted is the latest *before* deletion.
     let is_latest = db::caption_list(&app, &media_id)
         .ok()
         .map(|list| is_latest_caption(&list, &id, variant_id.as_deref()))
         .unwrap_or(false);
     db::caption_delete(&app, &id).map_err(|e| e.to_string())?;
     if is_latest {
-        // After deletion, refresh_embedding will pick the next latest (or clean up if none).
-        refresh_embedding(&app, &media_id, variant_id.as_deref(), None).await;
+        spawn_embed(&app, &media_id, variant_id.as_deref(), None);
     }
     Ok(())
 }
@@ -177,12 +251,17 @@ pub async fn caption_create_batch(
             }
         }
     }
-    // FTS sync all items
     for mid in &media_ids {
         let _ = db::fts_sync(&app, mid);
     }
-    // Batch embedding: one HTTP call for the shared text, insert for all media_ids.
-    embed_batch(&app, &media_ids, &text).await;
+    // Batch embedding runs in background; no per-item dedup needed since
+    // batch is rarely triggered interactively.
+    let app_h = app.clone();
+    let mids = media_ids.clone();
+    let txt = text.clone();
+    tokio::spawn(async move {
+        embed_batch(&app_h, &mids, &txt).await;
+    });
     Ok(())
 }
 
