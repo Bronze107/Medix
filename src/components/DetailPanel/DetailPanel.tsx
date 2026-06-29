@@ -296,6 +296,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   // Import version
   const [importVersionPaths, setImportVersionPaths] = useState<string[]>([]);
   const [importingVersion, setImportingVersion] = useState(false);
+  const [versionMode, setVersionMode] = useState<"import" | "generate">("generate");
 
   // Captions state
   const [captions, setCaptions] = useState<Caption[]>([]);
@@ -452,6 +453,17 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showTargetMenu]);
+
+  // Drag-and-drop import for variant panel
+  useEffect(() => {
+    if (!showVersionForm || versionMode !== "import") return;
+    const unlisten = listen<{ paths: string[]; position: { x: number; y: number } }>("tauri://drag-drop", (event) => {
+      const paths = event.payload.paths;
+      if (paths.length === 0) return;
+      setImportVersionPaths(paths);
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [showVersionForm, versionMode]);
 
   useEffect(() => {
     const input = newTagInput.trim().toLowerCase();
@@ -1281,60 +1293,161 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
             </button>
           </div>
 
-          {/* Import external file as version */}
-          <div className="mb-2 flex gap-1.5">
-            <input
-              type="text"
-              value={importVersionPaths.length === 0 ? "" : importVersionPaths.length === 1 ? importVersionPaths[0] : `已选择 ${importVersionPaths.length} 个文件`}
-              onChange={(e) => setImportVersionPaths(e.target.value ? [e.target.value] : [])}
-              placeholder="外部文件路径..."
-              onKeyDown={(e) => { if (e.key === "Enter") handleImportVersion(); }}
-              readOnly={importVersionPaths.length > 1}
-              className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-            />
+          {/* Mode tabs */}
+          <div className="mb-3 flex rounded-lg border border-[var(--color-border-light)] p-0.5">
             <button
-              onClick={async () => {
-                const selected = await open({ multiple: true, filters: [{ name: "图片/视频", extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "mp4", "webm", "mkv", "avi", "mov"] }] });
-                if (selected) setImportVersionPaths(Array.isArray(selected) ? selected : [selected]);
-              }}
-              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-              title="选择文件（可多选）"
-            >...</button>
+              onClick={() => setVersionMode("generate")}
+              className={`flex-1 rounded-md px-2 py-1 text-xs transition-colors ${
+                versionMode === "generate"
+                  ? "bg-[var(--color-bg-tertiary)] font-medium text-[var(--color-text-primary)]"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+              }`}
+            >
+              生成变体
+            </button>
             <button
-              onClick={handleImportVersion}
-              disabled={importVersionPaths.length === 0 || importingVersion}
-              className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50 whitespace-nowrap"
-            >{importingVersion ? "导入中..." : "导入"}</button>
+              onClick={() => setVersionMode("import")}
+              className={`flex-1 rounded-md px-2 py-1 text-xs transition-colors ${
+                versionMode === "import"
+                  ? "bg-[var(--color-bg-tertiary)] font-medium text-[var(--color-text-primary)]"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+              }`}
+            >
+              导入文件
+            </button>
           </div>
 
-          {/* Preset templates */}
-          <div className="mb-2 flex flex-wrap gap-1">
-            {presets.map((p) => (
-              <button key={p.name} onClick={() => fillPreset(p)}
-                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-              >{p.label}</button>
-            ))}
-          </div>
-
-          <div className="space-y-1.5">
-            <input type="text" value={versionLabel} onChange={(e) => setVersionLabel(e.target.value)} placeholder="变体名称（可选）"
-              className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]" />
-            <div className="flex gap-1.5">
-              <select value={versionFormat} onChange={(e) => setVersionFormat(e.target.value)}
-                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none">
-                <option value="jpeg">JPEG</option><option value="png">PNG</option>
-              </select>
-              <input type="number" value={versionMaxWidth ?? ""} onChange={(e) => setVersionMaxWidth(e.target.value ? parseInt(e.target.value) : null)} placeholder="最大宽度"
-                className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]" />
-              <input type="number" value={versionMaxHeight ?? ""} onChange={(e) => setVersionMaxHeight(e.target.value ? parseInt(e.target.value) : null)} placeholder="最大高度"
-                className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]" />
-              <input type="number" value={versionQuality} onChange={(e) => setVersionQuality(parseInt(e.target.value) || 75)} min={1} max={100} placeholder="Q"
-                className="w-12 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none" title="质量 1-100" />
+          {versionMode === "import" ? (
+            <div className="flex flex-col gap-2">
+              {importVersionPaths.length === 0 ? (
+                <button
+                  onClick={async () => {
+                    const selected = await open({
+                      multiple: true,
+                      filters: [{
+                        name: "图片/视频",
+                        extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "mp4", "webm", "mkv", "avi", "mov"],
+                      }],
+                    });
+                    if (selected) setImportVersionPaths(Array.isArray(selected) ? selected : [selected]);
+                  }}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)]/50 px-4 py-6 text-xs text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-bg-hover)]"
+                >
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0-3 3m3-3 3 3M6.75 19.5h10.5A2.25 2.25 0 0 0 19.5 17.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Z" />
+                  </svg>
+                  <span>点击选择文件</span>
+                  <span className="text-[10px] opacity-70">支持图片/视频，可多选</span>
+                </button>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <div className="max-h-32 overflow-auto rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-2">
+                    {importVersionPaths.map((p, i) => (
+                      <div key={i} className="truncate text-xs text-[var(--color-text-secondary)]">
+                        {p.split(/[\\/]/).pop()}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={async () => {
+                        const selected = await open({
+                          multiple: true,
+                          filters: [{
+                            name: "图片/视频",
+                            extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "mp4", "webm", "mkv", "avi", "mov"],
+                          }],
+                        });
+                        if (selected) setImportVersionPaths(Array.isArray(selected) ? selected : [selected]);
+                      }}
+                      className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+                    >
+                      重新选择
+                    </button>
+                    <button
+                      onClick={() => setImportVersionPaths([])}
+                      className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+                    >
+                      清空
+                    </button>
+                    <button
+                      onClick={handleImportVersion}
+                      disabled={importingVersion}
+                      className="flex-1 rounded bg-[var(--color-accent)] px-2 py-1 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
+                    >
+                      {importingVersion ? "导入中..." : `导入 ${importVersionPaths.length} 个文件`}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-            <button onClick={handleGenerateVersion} disabled={versionGenerating}
-              className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
-            >{versionGenerating ? "生成中..." : "生成变体"}</button>
-          </div>
+          ) : (
+            <div className="space-y-2">
+              {presets.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {presets.map((p) => (
+                    <button
+                      key={p.name}
+                      onClick={() => fillPreset(p)}
+                      className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <input
+                  type="text"
+                  value={versionLabel}
+                  onChange={(e) => setVersionLabel(e.target.value)}
+                  placeholder="变体名称（可选）"
+                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                />
+                <div className="flex gap-1.5">
+                  <select
+                    value={versionFormat}
+                    onChange={(e) => setVersionFormat(e.target.value)}
+                    className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none"
+                  >
+                    <option value="jpeg">JPEG</option>
+                    <option value="png">PNG</option>
+                  </select>
+                  <input
+                    type="number"
+                    value={versionMaxWidth ?? ""}
+                    onChange={(e) => setVersionMaxWidth(e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="最大宽度"
+                    className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                  />
+                  <input
+                    type="number"
+                    value={versionMaxHeight ?? ""}
+                    onChange={(e) => setVersionMaxHeight(e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="最大高度"
+                    className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                  />
+                  <input
+                    type="number"
+                    value={versionQuality}
+                    onChange={(e) => setVersionQuality(parseInt(e.target.value) || 75)}
+                    min={1}
+                    max={100}
+                    placeholder="Q"
+                    className="w-12 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none"
+                    title="质量 1-100"
+                  />
+                </div>
+                <button
+                  onClick={handleGenerateVersion}
+                  disabled={versionGenerating}
+                  className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
+                >
+                  {versionGenerating ? "生成中..." : "生成变体"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
