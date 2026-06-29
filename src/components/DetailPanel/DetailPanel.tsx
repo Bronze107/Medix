@@ -124,13 +124,11 @@ function TargetMenu({
   variants,
   targetId,
   onSelect,
-  onAdd,
 }: {
   media: Media;
   variants: Variant[];
   targetId: string | null;
   onSelect: (id: string | null) => void;
-  onAdd: () => void;
 }) {
   return (
     <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-lg">
@@ -176,14 +174,6 @@ function TargetMenu({
           </button>
         );
       })}
-      <div className="border-t border-[var(--color-border)]">
-        <button
-          onClick={onAdd}
-          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-        >
-          + 添加版本...
-        </button>
-      </div>
     </div>
   );
 }
@@ -789,10 +779,18 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                 setTargetId(id);
                 setShowTargetMenu(false);
               }}
-              onAdd={() => { setShowTargetMenu(false); setShowVersionForm(true); }}
             />
           </div>
         </div>
+        <button
+          onClick={() => setShowVersionForm(true)}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] active:scale-[0.97]"
+          title="添加版本"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+        </button>
         {media.display_variant_id && (
           targetId === media.display_variant_id ? (
             <span className="text-xs text-[var(--color-accent)]" title="当前显示版本">👁</span>
