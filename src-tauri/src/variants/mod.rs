@@ -36,6 +36,7 @@ pub struct VariantPreset {
     pub max_width: Option<u32>,
     pub max_height: Option<u32>,
     pub quality: u8,
+    pub resize_filter: String,
 }
 
 pub fn built_in_presets() -> Vec<VariantPreset> {
@@ -96,6 +97,18 @@ fn decode_jpeg_fast(
     Ok(dynamic)
 }
 
+/// Parse a resize filter name into the image crate filter type.
+/// Defaults to Triangle for unknown values.
+pub fn parse_resize_filter(name: &str) -> image::imageops::FilterType {
+    match name.to_lowercase().as_str() {
+        "nearest" => image::imageops::FilterType::Nearest,
+        "catmullrom" => image::imageops::FilterType::CatmullRom,
+        "gaussian" => image::imageops::FilterType::Gaussian,
+        "lanczos3" => image::imageops::FilterType::Lanczos3,
+        _ => image::imageops::FilterType::Triangle,
+    }
+}
+
 pub fn generate_variant(
     app: &AppHandle,
     media_id: &str,
@@ -105,6 +118,7 @@ pub fn generate_variant(
     max_width: Option<u32>,
     max_height: Option<u32>,
     quality: u8,
+    resize_filter: Option<&str>,
 ) -> Result<Variant, Box<dyn std::error::Error>> {
     let t_total = Instant::now();
     let log_phase = |phase: &str, t: &Instant| {
@@ -144,10 +158,11 @@ pub fn generate_variant(
     log_phase("decode", &t_decode);
 
     let t_resize = Instant::now();
+    let filter = parse_resize_filter(resize_filter.unwrap_or("triangle"));
     let resized = match (max_width, max_height) {
-        (Some(max_w), Some(max_h)) => img.resize(max_w, max_h, image::imageops::FilterType::Triangle),
-        (Some(max_w), None) => img.resize(max_w, orig_h, image::imageops::FilterType::Triangle),
-        (None, Some(max_h)) => img.resize(orig_w, max_h, image::imageops::FilterType::Triangle),
+        (Some(max_w), Some(max_h)) => img.resize(max_w, max_h, filter),
+        (Some(max_w), None) => img.resize(max_w, orig_h, filter),
+        (None, Some(max_h)) => img.resize(orig_w, max_h, filter),
         (None, None) => img.clone(),
     };
     log_phase("resize", &t_resize);

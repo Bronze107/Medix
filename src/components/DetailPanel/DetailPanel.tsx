@@ -293,6 +293,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const [versionMaxWidth, setVersionMaxWidth] = useState<number | null>(1080);
   const [versionMaxHeight, setVersionMaxHeight] = useState<number | null>(null);
   const [versionQuality, setVersionQuality] = useState(75);
+  const [versionResizeFilter, setVersionResizeFilter] = useState("triangle");
   const [versionGenerating, setVersionGenerating] = useState(false);
 
   // Import version
@@ -546,6 +547,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     setVersionMaxWidth(preset.max_width ?? null);
     setVersionMaxHeight(preset.max_height ?? null);
     setVersionQuality(preset.quality);
+    setVersionResizeFilter(preset.resize_filter || "triangle");
   };
 
   const handleSavePreset = async () => {
@@ -560,6 +562,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         versionMaxWidth,
         versionMaxHeight,
         versionQuality,
+        versionResizeFilter,
       );
       const list = await variantPresets();
       setPresets(list);
@@ -596,6 +599,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         versionMaxWidth,
         versionMaxHeight,
         versionQuality,
+        versionResizeFilter,
       );
       await loadVariants(media.id);
       setVersionLabel("");
@@ -1528,6 +1532,21 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                     />
                   </div>
                 )}
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] text-[var(--color-text-muted)]">缩放算法</label>
+                  <select
+                    value={versionResizeFilter}
+                    onChange={(e) => setVersionResizeFilter(e.target.value)}
+                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none"
+                  >
+                    <option value="nearest">最近邻（最快）</option>
+                    <option value="triangle">三角（快速均衡）</option>
+                    <option value="catmullrom">Catmull-Rom（质量较好）</option>
+                    <option value="gaussian">高斯</option>
+                    <option value="lanczos3">Lanczos3（最佳质量，最慢）</option>
+                  </select>
+                </div>
 
                 <button
                   onClick={handleGenerateVersion}

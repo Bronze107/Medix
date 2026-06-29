@@ -23,4 +23,5 @@ export interface VariantPreset {
   max_width: number | null;
   max_height: number | null;
   quality: number;
+  resize_filter: string;
 }

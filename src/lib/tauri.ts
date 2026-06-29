@@ -271,8 +271,9 @@ export function variantGenerate(
   maxWidth: number | null,
   maxHeight: number | null,
   quality: number,
+  resizeFilter?: string | null,
 ): Promise<Variant> {
-  return invoke("variant_generate", { mediaId, label, format, maxWidth, maxHeight, quality });
+  return invoke("variant_generate", { mediaId, label, format, maxWidth, maxHeight, quality, resizeFilter: resizeFilter ?? null });
 }
 
 export function variantImport(
@@ -297,8 +298,9 @@ export function variantPresetCreate(
   maxWidth: number | null,
   maxHeight: number | null,
   quality: number,
+  resizeFilter: string,
 ): Promise<void> {
-  return invoke("variant_preset_create", { name, label, format, maxWidth, maxHeight, quality });
+  return invoke("variant_preset_create", { name, label, format, maxWidth, maxHeight, quality, resizeFilter });
 }
 
 export function variantPresetDelete(name: string): Promise<void> {

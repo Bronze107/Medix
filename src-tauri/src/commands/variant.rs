@@ -35,12 +35,14 @@ pub async fn variant_generate(
     max_width: Option<u32>,
     max_height: Option<u32>,
     quality: u8,
+    resize_filter: Option<String>,
 ) -> Result<Variant, String> {
     tokio::task::spawn_blocking(move || {
         let source_path = resolve_source_path(&app, &media_id)?;
         let variant = generate_variant(
             &app, &media_id, &source_path,
             &label, &format, max_width, max_height, quality,
+            resize_filter.as_deref(),
         )
         .map_err(|e| e.to_string())?;
         // Generate thumbnail for the variant
@@ -228,6 +230,7 @@ pub fn variant_preset_create(
     max_width: Option<u32>,
     max_height: Option<u32>,
     quality: u8,
+    resize_filter: String,
 ) -> Result<(), String> {
     let preset = VariantPreset {
         name,
@@ -236,6 +239,7 @@ pub fn variant_preset_create(
         max_width,
         max_height,
         quality,
+        resize_filter,
     };
     db::variant_preset_create(&app, &preset).map_err(|e| e.to_string())
 }

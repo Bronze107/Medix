@@ -223,7 +223,8 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
                     let v_stem = format!("{}_{}", base_name, preset_name);
                     let dest = output_dir.join(format!("{}.{}", v_stem, dest_ext));
                     match crate::variants::generate_variant(app, media_id, &source_file,
-                        &p.label, &p.format, p.max_width, p.max_height, p.quality
+                        &p.label, &p.format, p.max_width, p.max_height, p.quality,
+                        Some(p.resize_filter.as_str())
                     ) {
                         Ok(v) => {
                             let src = Path::new(&v.file_path);

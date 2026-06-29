@@ -532,6 +532,23 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
         }
     }
 
+    // --- 0023_variant_presets_resize_filter ---
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0023_variant_presets_resize_filter'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0023_variant_presets_resize_filter');
+                 ALTER TABLE variant_presets ADD COLUMN resize_filter TEXT DEFAULT 'triangle';",
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -2190,13 +2207,14 @@ pub fn variant_preset_list(
 ) -> Result<Vec<VariantPreset>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT name, label, format, max_width, max_height, quality
+        "SELECT name, label, format, max_width, max_height, quality, resize_filter
          FROM variant_presets ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map([], |row| {
         let max_width: Option<i64> = row.get(3)?;
         let max_height: Option<i64> = row.get(4)?;
         let quality: i64 = row.get(5)?;
+        let resize_filter: String = row.get(6)?;
         Ok(VariantPreset {
             name: row.get(0)?,
             label: row.get(1)?,
@@ -2204,6 +2222,7 @@ pub fn variant_preset_list(
             max_width: max_width.map(|v| v as u32),
             max_height: max_height.map(|v| v as u32),
             quality: quality as u8,
+            resize_filter,
         })
     })?;
     let mut results = Vec::new();
@@ -2219,8 +2238,8 @@ pub fn variant_preset_create(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     conn.execute(
-        "INSERT OR REPLACE INTO variant_presets (name, label, format, max_width, max_height, quality)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT OR REPLACE INTO variant_presets (name, label, format, max_width, max_height, quality, resize_filter)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             preset.name,
             preset.label,
@@ -2228,6 +2247,7 @@ pub fn variant_preset_create(
             preset.max_width.map(|v| v as i64),
             preset.max_height.map(|v| v as i64),
             preset.quality as i64,
+            preset.resize_filter.as_str(),
         ],
     )?;
     Ok(())
