@@ -290,6 +290,21 @@ export function variantPresets(): Promise<VariantPreset[]> {
   return invoke("variant_presets");
 }
 
+export function variantPresetCreate(
+  name: string,
+  label: string,
+  format: string,
+  maxWidth: number | null,
+  maxHeight: number | null,
+  quality: number,
+): Promise<void> {
+  return invoke("variant_preset_create", { name, label, format, maxWidth, maxHeight, quality });
+}
+
+export function variantPresetDelete(name: string): Promise<void> {
+  return invoke("variant_preset_delete", { name });
+}
+
 export function variantAnnotate(mediaId: string, variantId: string): Promise<void> {
   return invoke("variant_annotate", { mediaId, variantId });
 }

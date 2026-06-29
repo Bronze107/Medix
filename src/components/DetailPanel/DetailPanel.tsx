@@ -34,6 +34,8 @@ import {
   variantDelete,
   variantAnnotate,
   variantPresets,
+  variantPresetCreate,
+  variantPresetDelete,
   mediaSetDisplayVariant,
   captionList,
   captionCreate,
@@ -306,6 +308,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const [editingText, setEditingText] = useState("");
   const [targetId, setTargetId] = useState<string | null>(null); // null=original, string=variant_id
   const [showVersionForm, setShowVersionForm] = useState(false);
+  const [newPresetName, setNewPresetName] = useState("");
+  const [presetToDelete, setPresetToDelete] = useState<VariantPreset | null>(null);
   const [showAiEdit, setShowAiEdit] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showTargetMenu, setShowTargetMenu] = useState(false);
@@ -542,6 +546,43 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     setVersionMaxWidth(preset.max_width ?? null);
     setVersionMaxHeight(preset.max_height ?? null);
     setVersionQuality(preset.quality);
+  };
+
+  const handleSavePreset = async () => {
+    const label = newPresetName.trim();
+    if (!label) return;
+    const name = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    try {
+      await variantPresetCreate(
+        name,
+        label,
+        versionFormat,
+        versionMaxWidth,
+        versionMaxHeight,
+        versionQuality,
+      );
+      const list = await variantPresets();
+      setPresets(list);
+      setNewPresetName("");
+      showToast("已保存预设");
+    } catch (e) {
+      console.error("Failed to save preset:", e);
+      showToast(`保存预设失败: ${e}`);
+    }
+  };
+
+  const handleDeletePreset = async (preset: VariantPreset) => {
+    try {
+      await variantPresetDelete(preset.name);
+      const list = await variantPresets();
+      setPresets(list);
+      showToast(`已删除预设 "${preset.label}"`);
+    } catch (e) {
+      console.error("Failed to delete preset:", e);
+      showToast(`删除预设失败: ${e}`);
+    } finally {
+      setPresetToDelete(null);
+    }
   };
 
   const handleGenerateVersion = async () => {
@@ -1382,20 +1423,50 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
               )}
             </div>
           ) : (
-            <div className="space-y-2">
-              {presets.length > 0 && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="block text-[11px] text-[var(--color-text-muted)]">预设模板</label>
                 <div className="flex flex-wrap gap-1">
                   {presets.map((p) => (
-                    <button
-                      key={p.name}
-                      onClick={() => fillPreset(p)}
-                      className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-                    >
-                      {p.label}
-                    </button>
+                    <div key={p.name} className="group inline-flex items-center overflow-hidden rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)]">
+                      <button
+                        onClick={() => fillPreset(p)}
+                        className="px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+                      >
+                        {p.label}
+                      </button>
+                      <button
+                        onClick={() => setPresetToDelete(p)}
+                        className="border-l border-[var(--color-border-light)] px-1 py-0.5 text-[10px] text-[var(--color-text-muted)] opacity-0 transition-all hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] group-hover:opacity-100"
+                        title="删除预设"
+                      >
+                        ×
+                      </button>
+                    </div>
                   ))}
+                  {presets.length === 0 && (
+                    <span className="text-[10px] text-[var(--color-text-muted)]">暂无预设，可在下方保存当前设置</span>
+                  )}
                 </div>
-              )}
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={newPresetName}
+                    onChange={(e) => setNewPresetName(e.target.value)}
+                    placeholder="预设名称"
+                    onKeyDown={(e) => { if (e.key === "Enter") handleSavePreset(); }}
+                    className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                  />
+                  <button
+                    onClick={handleSavePreset}
+                    disabled={!newPresetName.trim()}
+                    className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] disabled:opacity-50"
+                  >
+                    保存
+                  </button>
+                </div>
+              </div>
+
               <div className="space-y-3">
                 <div className="space-y-1">
                   <label className="block text-[11px] text-[var(--color-text-muted)]">变体名称</label>
@@ -1618,6 +1689,18 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
           setShowClearTagsConfirm(false);
         }}
         onCancel={() => setShowClearTagsConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={presetToDelete !== null}
+        title="删除预设"
+        message={presetToDelete ? `确定要删除预设 "${presetToDelete.label}" 吗？` : ""}
+        variant="danger"
+        confirmLabel="删除"
+        onConfirm={async () => {
+          if (presetToDelete) await handleDeletePreset(presetToDelete);
+        }}
+        onCancel={() => setPresetToDelete(null)}
       />
     </div>
     </div>

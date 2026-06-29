@@ -6,7 +6,7 @@ use tauri::{command, AppHandle, Emitter, Manager};
 
 use crate::db;
 use crate::media;
-use crate::variants::{list_presets, generate_variant, Variant, VariantPreset};
+use crate::variants::{generate_variant, list_presets, Variant, VariantPreset};
 
 fn resolve_source_path(app: &AppHandle, media_id: &str) -> Result<std::path::PathBuf, String> {
     let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -215,8 +215,34 @@ pub fn variant_delete(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 #[command]
-pub fn variant_presets() -> Vec<VariantPreset> {
-    list_presets()
+pub fn variant_presets(app: AppHandle) -> Result<Vec<VariantPreset>, String> {
+    list_presets(&app).map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn variant_preset_create(
+    app: AppHandle,
+    name: String,
+    label: String,
+    format: String,
+    max_width: Option<u32>,
+    max_height: Option<u32>,
+    quality: u8,
+) -> Result<(), String> {
+    let preset = VariantPreset {
+        name,
+        label,
+        format,
+        max_width,
+        max_height,
+        quality,
+    };
+    db::variant_preset_create(&app, &preset).map_err(|e| e.to_string())
+}
+
+#[command]
+pub fn variant_preset_delete(app: AppHandle, name: String) -> Result<(), String> {
+    db::variant_preset_delete(&app, &name).map_err(|e| e.to_string())
 }
 
 #[command]

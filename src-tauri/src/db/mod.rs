@@ -10,7 +10,7 @@ use ulid::Ulid;
 use crate::captions::Caption;
 use crate::media::{BrowseItem, Media, VariantVisibility};
 use crate::tag::Tag;
-use crate::variants::Variant;
+use crate::variants::{Variant, VariantPreset};
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
@@ -503,6 +503,31 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                  CREATE INDEX idx_embeddings_media ON embeddings(media_id);
                  CREATE INDEX idx_embeddings_model ON embeddings(model);
                  CREATE INDEX idx_embeddings_variant ON embeddings(variant_id);",
+            )?;
+        }
+    }
+
+    // --- 0022_variant_presets ---
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0022_variant_presets'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0022_variant_presets');
+                 CREATE TABLE IF NOT EXISTS variant_presets (
+                     name TEXT PRIMARY KEY,
+                     label TEXT NOT NULL,
+                     format TEXT NOT NULL,
+                     max_width INTEGER,
+                     max_height INTEGER,
+                     quality INTEGER NOT NULL,
+                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                 );",
             )?;
         }
     }
@@ -2156,6 +2181,62 @@ pub fn variant_get_by_media_and_preset(
         return Ok(Some(row?));
     }
     Ok(None)
+}
+
+// --- Variant preset operations ---
+
+pub fn variant_preset_list(
+    app: &AppHandle,
+) -> Result<Vec<VariantPreset>, Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+    let mut stmt = conn.prepare(
+        "SELECT name, label, format, max_width, max_height, quality
+         FROM variant_presets ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let max_width: Option<i64> = row.get(3)?;
+        let max_height: Option<i64> = row.get(4)?;
+        let quality: i64 = row.get(5)?;
+        Ok(VariantPreset {
+            name: row.get(0)?,
+            label: row.get(1)?,
+            format: row.get(2)?,
+            max_width: max_width.map(|v| v as u32),
+            max_height: max_height.map(|v| v as u32),
+            quality: quality as u8,
+        })
+    })?;
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
+pub fn variant_preset_create(
+    app: &AppHandle,
+    preset: &VariantPreset,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO variant_presets (name, label, format, max_width, max_height, quality)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            preset.name,
+            preset.label,
+            preset.format,
+            preset.max_width.map(|v| v as i64),
+            preset.max_height.map(|v| v as i64),
+            preset.quality as i64,
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn variant_preset_delete(app: &AppHandle, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+    conn.execute("DELETE FROM variant_presets WHERE name = ?1", params![name])?;
+    Ok(())
 }
 
 // --- Caption operations ---

@@ -37,36 +37,14 @@ pub struct VariantPreset {
 }
 
 pub fn built_in_presets() -> Vec<VariantPreset> {
-    vec![
-        VariantPreset {
-            name: "web_share".to_string(),
-            label: "Web分享".to_string(),
-            format: "jpeg".to_string(),
-            max_width: Some(1080),
-            max_height: None,
-            quality: 75,
-        },
-        VariantPreset {
-            name: "print".to_string(),
-            label: "打印".to_string(),
-            format: "png".to_string(),
-            max_width: Some(2048),
-            max_height: None,
-            quality: 95,
-        },
-        VariantPreset {
-            name: "dataset".to_string(),
-            label: "训练数据集".to_string(),
-            format: "jpeg".to_string(),
-            max_width: Some(512),
-            max_height: None,
-            quality: 85,
-        },
-    ]
+    vec![]
 }
 
-pub fn list_presets() -> Vec<VariantPreset> {
-    built_in_presets()
+pub fn list_presets(app: &AppHandle) -> Result<Vec<VariantPreset>, Box<dyn std::error::Error>> {
+    let mut presets = built_in_presets();
+    let custom = db::variant_preset_list(app)?;
+    presets.extend(custom);
+    Ok(presets)
 }
 
 pub fn generate_variant(

@@ -212,16 +212,16 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
         // Generate any selected preset variants that don't exist yet (image only)
         let media_type = media.media_type.as_deref().unwrap_or("image");
         if media_type != "video" {
+            let all_presets = crate::variants::list_presets(app).unwrap_or_default();
             for preset_name in &options.variant_presets {
                 let existing = crate::db::variant_get_by_media_and_preset(app, media_id, preset_name)
                     .map_err(|e| e.to_string())?;
                 if existing.is_some() { continue; }
-                let dest_ext = match preset_name.as_str() { "print" => "png", _ => "jpg" };
-                let v_stem = format!("{}_{}", base_name, preset_name);
-                let dest = output_dir.join(format!("{}.{}", v_stem, dest_ext));
-                let preset = crate::variants::built_in_presets().into_iter()
-                    .find(|p| &p.name == preset_name);
+                let preset = all_presets.iter().find(|p| &p.name == preset_name);
                 if let Some(p) = preset {
+                    let dest_ext = if p.format == "png" { "png" } else { "jpg" };
+                    let v_stem = format!("{}_{}", base_name, preset_name);
+                    let dest = output_dir.join(format!("{}.{}", v_stem, dest_ext));
                     match crate::variants::generate_variant(app, media_id, &source_file,
                         &p.label, &p.format, p.max_width, p.max_height, p.quality
                     ) {
