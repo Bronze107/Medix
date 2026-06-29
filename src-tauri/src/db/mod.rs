@@ -2252,13 +2252,12 @@ pub fn caption_update(
     app: &AppHandle,
     id: &str,
     text: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(String, Option<String>), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    // Look up media_id before updating
-    let mid: String = conn.query_row(
-        "SELECT media_id FROM captions WHERE id = ?1",
+    let (mid, vid): (String, Option<String>) = conn.query_row(
+        "SELECT media_id, variant_id FROM captions WHERE id = ?1",
         params![id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     conn.execute(
         "UPDATE captions SET text = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
@@ -2266,20 +2265,33 @@ pub fn caption_update(
     )?;
     drop(conn);
     let _ = fts_sync(app, &mid);
-    Ok(())
+    Ok((mid, vid))
 }
 
-pub fn caption_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn caption_delete(app: &AppHandle, id: &str) -> Result<(String, Option<String>), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    let mid: String = conn.query_row(
-        "SELECT media_id FROM captions WHERE id = ?1",
+    let (mid, vid): (String, Option<String>) = conn.query_row(
+        "SELECT media_id, variant_id FROM captions WHERE id = ?1",
         params![id],
-        |r| r.get(0),
+        |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     conn.execute("DELETE FROM captions WHERE id = ?1", params![id])?;
     drop(conn);
     let _ = fts_sync(app, &mid);
-    Ok(())
+    Ok((mid, vid))
+}
+
+/// Look up (media_id, variant_id) for a caption without modifying it.
+pub fn caption_get_media_info(
+    app: &AppHandle,
+    id: &str,
+) -> Result<(String, Option<String>), Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+    Ok(conn.query_row(
+        "SELECT media_id, variant_id FROM captions WHERE id = ?1",
+        params![id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?)
 }
 
 // --- Embedding operations ---

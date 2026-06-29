@@ -614,6 +614,19 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     if (!media) return;
     const text = newCaptionText.trim();
     if (!text) return;
+    // Optimistic: insert a temp entry immediately, replace when embedding finishes.
+    const tempId = "temp-" + Math.random().toString(36).slice(2);
+    const optimistic: Caption = {
+      id: tempId,
+      media_id: media.id,
+      variant_id: targetId ?? null,
+      text,
+      source: null,
+      created_at: null,
+      updated_at: null,
+    };
+    setCaptions((prev) => [optimistic, ...prev]);
+    setNewCaptionText("");
     try {
       let caption: Caption;
       if (targetId) {
@@ -621,11 +634,10 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       } else {
         caption = await captionCreate(media.id, text);
       }
-      // Insert into local state immediately — no need to reload
-      setCaptions((prev) => [caption, ...prev]);
-      setNewCaptionText("");
+      setCaptions((prev) => prev.map((c) => (c.id === tempId ? caption : c)));
     } catch (e) {
       console.error("Failed to add caption:", e);
+      setCaptions((prev) => prev.filter((c) => c.id !== tempId));
     }
   };
 
@@ -638,16 +650,18 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     if (!editingCaptionId) return;
     const text = editingText.trim();
     if (!text) return;
+    const captionId = editingCaptionId;
+    // Optimistic: update state immediately so UI is instant; revert on failure.
+    setCaptions((prev) =>
+      prev.map((c) => (c.id === captionId ? { ...c, text } : c))
+    );
+    setEditingCaptionId(null);
+    setEditingText("");
     try {
-      await captionUpdate(editingCaptionId, text);
-      // Update local state immediately — no need to reload
-      setCaptions((prev) =>
-        prev.map((c) => (c.id === editingCaptionId ? { ...c, text } : c))
-      );
-      setEditingCaptionId(null);
-      setEditingText("");
+      await captionUpdate(captionId, text);
     } catch (e) {
       console.error("Failed to update caption:", e);
+      if (media) loadCaptions(media.id);
     }
   };
 
@@ -657,14 +671,15 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   };
 
   const handleDeleteCaption = async (id: string) => {
+    // Optimistic: remove from local state immediately
+    setCaptions((prev) => prev.filter((c) => c.id !== id));
+    // Temp IDs haven't reached the server yet — nothing to delete.
+    if (id.startsWith("temp-")) return;
     try {
-      // Optimistic: remove from local state immediately
-      setCaptions((prev) => prev.filter((c) => c.id !== id));
       await captionDelete(id);
       showToast("已删除描述");
     } catch (e) {
       console.error("Failed to delete caption:", e);
-      // Revert on failure
       if (media) loadCaptions(media.id);
     }
   };
