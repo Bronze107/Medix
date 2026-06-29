@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
+use std::time::Instant;
 use image::ImageEncoder;
 use tauri::{AppHandle, Manager};
 use ulid::Ulid;
@@ -57,19 +58,33 @@ pub fn generate_variant(
     max_height: Option<u32>,
     quality: u8,
 ) -> Result<Variant, Box<dyn std::error::Error>> {
+    let t_total = Instant::now();
+    let log_phase = |phase: &str, t: &Instant| {
+        println!(
+            "[variant_generate] {} phase={} duration_ms={}",
+            media_id,
+            phase,
+            t.elapsed().as_millis()
+        );
+    };
+
     let app_dir = app.path().app_data_dir()?;
     let variants_dir = app_dir.join("variants");
     fs::create_dir_all(&variants_dir)?;
 
+    let t_decode = Instant::now();
     let img = image::open(source_path)?;
     let (orig_w, orig_h) = (img.width(), img.height());
+    log_phase("decode", &t_decode);
 
+    let t_resize = Instant::now();
     let resized = match (max_width, max_height) {
         (Some(max_w), Some(max_h)) => img.resize(max_w, max_h, image::imageops::FilterType::Lanczos3),
         (Some(max_w), None) => img.resize(max_w, orig_h, image::imageops::FilterType::Lanczos3),
         (None, Some(max_h)) => img.resize(orig_w, max_h, image::imageops::FilterType::Lanczos3),
         (None, None) => img.clone(),
     };
+    log_phase("resize", &t_resize);
 
     let id = Ulid::new().to_string();
     let file_name = format!("{}_{}.{}", media_id, id, format);
@@ -78,6 +93,7 @@ pub fn generate_variant(
     let (width, height) = (resized.width(), resized.height());
     let mut output = Vec::new();
 
+    let t_encode = Instant::now();
     match format {
         "jpeg" | "jpg" => {
             let rgb = resized.to_rgb8();
@@ -91,8 +107,12 @@ pub fn generate_variant(
         }
         _ => return Err(format!("Unsupported format: {}", format).into()),
     }
+    log_phase("encode", &t_encode);
 
+    let t_write = Instant::now();
     fs::write(&file_path, &output)?;
+    log_phase("write", &t_write);
+
     let file_size = output.len() as i64;
 
     let variant = Variant {
@@ -113,6 +133,10 @@ pub fn generate_variant(
         video_fps: None,
     };
 
+    let t_db = Instant::now();
     db::variant_insert(app, &variant)?;
+    log_phase("db_insert", &t_db);
+
+    log_phase("total", &t_total);
     Ok(variant)
 }
