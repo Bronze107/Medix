@@ -30,13 +30,38 @@ pub fn generate_thumbnails_from_image(
             continue;
         }
 
-        let thumb = img.resize(*size, *size, image::imageops::FilterType::Lanczos3);
+        let thumb = img.resize(*size, *size, image::imageops::FilterType::Triangle);
         let rgb_thumb = thumb.to_rgb8();
         let mut output = Vec::new();
         let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
         encoder.encode_image(&rgb_thumb)?;
         fs::write(&thumb_path, output)?;
     }
+
+    Ok(())
+}
+
+/// Generate a 256px thumbnail for a variant file from an already-decoded image.
+pub fn generate_variant_thumbnail_from_image(
+    app: &AppHandle,
+    variant_id: &str,
+    img: &image::DynamicImage,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let app_dir = app.path().app_data_dir()?;
+    let thumbs_dir = app_dir.join("thumbnails");
+    fs::create_dir_all(&thumbs_dir)?;
+
+    let thumb_path = thumbs_dir.join(format!("{}_256.jpg", variant_id));
+    if thumb_path.exists() {
+        return Ok(());
+    }
+
+    let thumb = img.resize(256, 256, image::imageops::FilterType::Triangle);
+    let rgb_thumb = thumb.to_rgb8();
+    let mut output = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
+    encoder.encode_image(&rgb_thumb)?;
+    fs::write(&thumb_path, output)?;
 
     Ok(())
 }
@@ -48,24 +73,8 @@ pub fn generate_variant_thumbnail(
     variant_id: &str,
     source_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let app_dir = app.path().app_data_dir()?;
-    let thumbs_dir = app_dir.join("thumbnails");
-    fs::create_dir_all(&thumbs_dir)?;
-
-    let thumb_path = thumbs_dir.join(format!("{}_256.jpg", variant_id));
-    if thumb_path.exists() {
-        return Ok(());
-    }
-
     let img = image::open(source_path)?;
-    let thumb = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
-    let rgb_thumb = thumb.to_rgb8();
-    let mut output = Vec::new();
-    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
-    encoder.encode_image(&rgb_thumb)?;
-    fs::write(&thumb_path, output)?;
-
-    Ok(())
+    generate_variant_thumbnail_from_image(app, variant_id, &img)
 }
 
 /// Generate a 20px JPEG placeholder and return as base64 data URL (~300 bytes).

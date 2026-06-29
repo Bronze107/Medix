@@ -129,6 +129,7 @@ pub fn variant_import(
         .map(|s| s.to_string());
 
     let t_metadata = Instant::now();
+    let mut decoded_image: Option<image::DynamicImage> = None;
     let (width, height, media_type, duration, video_codec, video_fps) = if is_video {
         let meta = crate::media::video_metadata::extract_metadata(src)
             .map_err(|e| format!("ffprobe failed: {}", e))?;
@@ -150,9 +151,10 @@ pub fn variant_import(
             eprintln!("[variant_import] {}", msg);
             msg
         })?;
+        decoded_image = Some(img);
         (
-            Some(img.width() as i32),
-            Some(img.height() as i32),
+            Some(decoded_image.as_ref().unwrap().width() as i32),
+            Some(decoded_image.as_ref().unwrap().height() as i32),
             Some("image".to_string()),
             None,
             None,
@@ -190,10 +192,12 @@ pub fn variant_import(
         ) {
             eprintln!("[variant] video thumbnail failed for imported {}: {}", variant.id, e);
         }
-    } else if let Err(e) = media::thumbnail::generate_variant_thumbnail(
-        &app, &variant.id, Path::new(&variant.file_path),
-    ) {
-        eprintln!("[variant] thumbnail failed for imported {}: {}", variant.id, e);
+    } else if let Some(ref img) = decoded_image {
+        if let Err(e) = media::thumbnail::generate_variant_thumbnail_from_image(
+            &app, &variant.id, img,
+        ) {
+            eprintln!("[variant] thumbnail failed for imported {}: {}", variant.id, e);
+        }
     }
     log_phase("thumbnail", &t_thumb);
 
