@@ -1396,48 +1396,68 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                   ))}
                 </div>
               )}
-              <div className="space-y-1.5">
-                <input
-                  type="text"
-                  value={versionLabel}
-                  onChange={(e) => setVersionLabel(e.target.value)}
-                  placeholder="变体名称（可选）"
-                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                />
-                <div className="flex gap-1.5">
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="block text-[11px] text-[var(--color-text-muted)]">变体名称</label>
+                  <input
+                    type="text"
+                    value={versionLabel}
+                    onChange={(e) => setVersionLabel(e.target.value)}
+                    placeholder="可选，如 1080p 缩略图"
+                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] text-[var(--color-text-muted)]">输出格式</label>
                   <select
                     value={versionFormat}
                     onChange={(e) => setVersionFormat(e.target.value)}
-                    className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none"
+                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none"
                   >
                     <option value="jpeg">JPEG</option>
-                    <option value="png">PNG</option>
+                    <option value="png">PNG（无损）</option>
                   </select>
-                  <input
-                    type="number"
-                    value={versionMaxWidth ?? ""}
-                    onChange={(e) => setVersionMaxWidth(e.target.value ? parseInt(e.target.value) : null)}
-                    placeholder="最大宽度"
-                    className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                  />
-                  <input
-                    type="number"
-                    value={versionMaxHeight ?? ""}
-                    onChange={(e) => setVersionMaxHeight(e.target.value ? parseInt(e.target.value) : null)}
-                    placeholder="最大高度"
-                    className="w-16 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                  />
-                  <input
-                    type="number"
-                    value={versionQuality}
-                    onChange={(e) => setVersionQuality(parseInt(e.target.value) || 75)}
-                    min={1}
-                    max={100}
-                    placeholder="Q"
-                    className="w-12 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none"
-                    title="质量 1-100"
-                  />
                 </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] text-[var(--color-text-muted)]">最大尺寸（像素，留空表示不限制）</label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      value={versionMaxWidth ?? ""}
+                      onChange={(e) => setVersionMaxWidth(e.target.value ? parseInt(e.target.value) : null)}
+                      placeholder="宽度"
+                      className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                    />
+                    <span className="text-xs text-[var(--color-text-muted)]">×</span>
+                    <input
+                      type="number"
+                      value={versionMaxHeight ?? ""}
+                      onChange={(e) => setVersionMaxHeight(e.target.value ? parseInt(e.target.value) : null)}
+                      placeholder="高度"
+                      className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                    />
+                  </div>
+                </div>
+
+                {versionFormat === "jpeg" && (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] text-[var(--color-text-muted)]">JPEG 质量</label>
+                      <span className="text-[11px] tabular-nums text-[var(--color-text-primary)]">{versionQuality}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={100}
+                      value={versionQuality}
+                      onChange={(e) => setVersionQuality(parseInt(e.target.value) || 75)}
+                      className="h-1.5 w-full cursor-pointer appearance-none rounded bg-[var(--color-bg-hover)] accent-[var(--color-accent)]"
+                    />
+                  </div>
+                )}
+
                 <button
                   onClick={handleGenerateVersion}
                   disabled={versionGenerating}
