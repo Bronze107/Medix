@@ -1328,7 +1328,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       )}
 
       {showVersionForm && (
-        <div className="flex flex-col overflow-hidden border-t border-[var(--color-border)] pt-3">
+        <div className="flex flex-col overflow-auto border-t border-[var(--color-border)] pt-3">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-semibold text-[var(--color-text-primary)]">添加变体</p>
             <button onClick={() => setShowVersionForm(false)} className="rounded p-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]">
