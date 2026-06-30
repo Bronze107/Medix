@@ -1,4 +1,5 @@
 pub mod queue;
+pub mod workflow;
 pub mod xai;
 
 use async_trait::async_trait;
