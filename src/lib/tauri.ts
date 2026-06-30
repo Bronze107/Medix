@@ -8,6 +8,7 @@ import type { LlamaServerStatus, GgufModelList, AutoDetect, EmbeddingInfo } from
 import type { SavedFilter } from "@/types/search";
 import type { ExportOptions } from "@/types/export";
 import type { BrowseItem, VariantVisibility } from "@/types/browse";
+import type { ComfyWorkflow, ComfyWorkflowDetail } from "@/types/comfyui";
 
 export function greet(name: string): Promise<string> {
   return invoke("greet", { name });
@@ -500,8 +501,9 @@ export function imageQueueSubmitGenerate(
   aspectRatio?: string,
   resolution?: string,
   n?: number,
+  workflowId?: string | null,
 ): Promise<string> {
-  return invoke("image_queue_submit_generate", { prompt, aspectRatio, resolution, n });
+  return invoke("image_queue_submit_generate", { prompt, aspectRatio, resolution, n, workflowId: workflowId ?? null });
 }
 
 export function imageQueueSubmitEdit(
@@ -511,8 +513,9 @@ export function imageQueueSubmitEdit(
   aspectRatio?: string,
   resolution?: string,
   n?: number,
+  workflowId?: string | null,
 ): Promise<string> {
-  return invoke("image_queue_submit_edit", { mediaId, variantId, prompt, aspectRatio, resolution, n });
+  return invoke("image_queue_submit_edit", { mediaId, variantId, prompt, aspectRatio, resolution, n, workflowId: workflowId ?? null });
 }
 
 export function imageQueueList(): Promise<ImageTaskInfo[]> {
@@ -536,4 +539,38 @@ export function imageQueueDiscard(taskId: string): Promise<void> {
 
 export function imageQueueDismiss(taskId: string): Promise<void> {
   return invoke("image_queue_dismiss", { taskId });
+}
+
+// --- ComfyUI ---
+
+export function comfyuiWorkflowList(workflowType?: string): Promise<ComfyWorkflow[]> {
+  return invoke("comfyui_workflow_list", { workflowType: workflowType ?? null });
+}
+
+export function comfyuiWorkflowGet(id: string): Promise<ComfyWorkflowDetail> {
+  return invoke("comfyui_workflow_get", { id });
+}
+
+export function comfyuiWorkflowCreate(
+  name: string,
+  workflowType: string,
+  workflowJson: string,
+): Promise<ComfyWorkflow> {
+  return invoke("comfyui_workflow_create", { name, workflowType, workflowJson });
+}
+
+export function comfyuiWorkflowUpdate(
+  id: string,
+  name: string,
+  workflowJson: string,
+): Promise<ComfyWorkflow> {
+  return invoke("comfyui_workflow_update", { id, name, workflowJson });
+}
+
+export function comfyuiWorkflowDelete(id: string): Promise<void> {
+  return invoke("comfyui_workflow_delete", { id });
+}
+
+export function comfyuiTestConnection(): Promise<string> {
+  return invoke("comfyui_test_connection");
 }
