@@ -12,6 +12,8 @@ use crate::media::{BrowseItem, Media, VariantVisibility};
 use crate::tag::Tag;
 use crate::variants::{Variant, VariantPreset};
 
+pub mod comfyui;
+
 pub type DbPool = Pool<SqliteConnectionManager>;
 
 /// Initialize the connection pool and return it for Tauri managed state.
@@ -547,6 +549,21 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                  ALTER TABLE variant_presets ADD COLUMN resize_filter TEXT DEFAULT 'triangle';",
             )?;
         }
+    }
+
+    // 0024_comfyui_workflows
+    {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0024_comfyui_workflows');
+             CREATE TABLE IF NOT EXISTS comfyui_workflows (
+                 id TEXT PRIMARY KEY,
+                 name TEXT NOT NULL,
+                 workflow_type TEXT NOT NULL DEFAULT 'generate',
+                 workflow_json TEXT NOT NULL,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+             );",
+        )?;
     }
 
     Ok(())

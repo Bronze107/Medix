@@ -279,6 +279,8 @@ pub const KEY_IMAGE_API_KEY: &str = "image_api_key";
 pub const KEY_IMAGE_API_BASE_URL: &str = "image_api_base_url";
 pub const KEY_IMAGE_API_MODEL: &str = "image_api_model";
 pub const KEY_IMAGE_API_PROXY: &str = "image_api_proxy"; // legacy, migrated to global_proxy
+pub const KEY_COMFYUI_BASE_URL: &str = "comfyui_base_url";
+pub const KEY_COMFYUI_TIMEOUT_SECS: &str = "comfyui_timeout_secs";
 
 // --- Global proxy ---
 
@@ -336,6 +338,18 @@ pub fn get_image_api_model(app: &AppHandle) -> String {
 
 pub fn get_image_api_proxy(app: &AppHandle) -> Option<String> {
     get_global_proxy(app)
+}
+
+pub fn get_comfyui_base_url(app: &AppHandle) -> String {
+    get(app, KEY_COMFYUI_BASE_URL)
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:8188".to_string())
+}
+
+pub fn get_comfyui_timeout_secs(app: &AppHandle) -> u64 {
+    get(app, KEY_COMFYUI_TIMEOUT_SECS)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300)
 }
 
 // --- Video ---
