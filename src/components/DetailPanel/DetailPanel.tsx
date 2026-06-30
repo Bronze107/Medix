@@ -1503,7 +1503,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                       value={versionMaxWidth ?? ""}
                       onChange={(e) => setVersionMaxWidth(e.target.value ? parseInt(e.target.value) : null)}
                       placeholder="宽度"
-                      className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                      className="w-20 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
                     />
                     <span className="text-xs text-[var(--color-text-muted)]">×</span>
                     <input
@@ -1511,7 +1511,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                       value={versionMaxHeight ?? ""}
                       onChange={(e) => setVersionMaxHeight(e.target.value ? parseInt(e.target.value) : null)}
                       placeholder="高度"
-                      className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+                      className="w-20 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
                     />
                   </div>
                 </div>
