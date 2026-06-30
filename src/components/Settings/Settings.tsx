@@ -12,7 +12,13 @@ import {
   embeddingRebuildAll,
   embeddingClearAll,
   mediaResetAllDisplayVariants,
+  comfyuiWorkflowList,
+  comfyuiWorkflowCreate,
+  comfyuiWorkflowUpdate,
+  comfyuiWorkflowDelete,
+  comfyuiTestConnection,
 } from "@/lib/tauri";
+import type { ComfyWorkflow } from "@/types/comfyui";
 
 type AiMode = "local" | "cloud" | "auto";
 type CloudProvider = "claude" | "openai" | "qwen";
@@ -76,6 +82,11 @@ function Settings() {
   const [imageApiBaseUrl, setImageApiBaseUrl] = useState("");
   const [imageApiModel, setImageApiModel] = useState("");
   const [imageApiProxy, setImageApiProxy] = useState(""); // legacy, synced with globalProxy
+  const [comfyuiBaseUrl, setComfyuiBaseUrl] = useState("http://127.0.0.1:8188");
+  const [comfyuiTimeout, setComfyuiTimeout] = useState(300);
+  const [comfyuiWorkflows, setComfyuiWorkflows] = useState<ComfyWorkflow[]>([]);
+  const [comfyuiTesting, setComfyuiTesting] = useState(false);
+  const [comfyuiTestResult, setComfyuiTestResult] = useState<string | null>(null);
   const [globalProxy, setGlobalProxy] = useState("");
   const [proxyTesting, setProxyTesting] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<string | null>(null);
@@ -120,6 +131,8 @@ function Settings() {
       if (settings.image_api_key) setImageApiKey(settings.image_api_key);
       if (settings.image_api_base_url) setImageApiBaseUrl(settings.image_api_base_url);
       if (settings.image_api_model) setImageApiModel(settings.image_api_model);
+      if (settings.comfyui_base_url) setComfyuiBaseUrl(settings.comfyui_base_url);
+      if (settings.comfyui_timeout_secs) setComfyuiTimeout(Number(settings.comfyui_timeout_secs));
       if (settings.image_api_proxy) setImageApiProxy(settings.image_api_proxy);
       if (settings.global_proxy) {
         setGlobalProxy(settings.global_proxy);
@@ -164,6 +177,21 @@ function Settings() {
       await settingsSet("video_large_file_warning_mb", String(largeFileThreshold));
     } catch { /* ignore */ }
   };
+
+  const loadWorkflows = useCallback(async () => {
+    try {
+      setComfyuiWorkflows(await comfyuiWorkflowList());
+    } catch (e) {
+      console.error("Failed to load workflows:", e);
+    }
+  }, []);
+
+  // Load ComfyUI workflows when provider is set to comfyui
+  useEffect(() => {
+    if (imageApiProvider === "comfyui") {
+      loadWorkflows();
+    }
+  }, [imageApiProvider, loadWorkflows]);
 
   const handleSave = async () => {
     try {
@@ -930,6 +958,7 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
               >
                 <option value="">未配置</option>
                 <option value="xai">xAI (Grok Imagine)</option>
+                <option value="comfyui">ComfyUI</option>
               </select>
             </div>
             <div>
@@ -964,6 +993,115 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
             </div>
           </div>
         </section>
+
+        {/* ComfyUI Settings */}
+        {imageApiProvider === "comfyui" && (
+          <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 mt-3">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
+              ComfyUI 配置
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs text-[var(--color-text-muted)]">服务地址</label>
+                <input
+                  type="text"
+                  value={comfyuiBaseUrl}
+                  onChange={(e) => setComfyuiBaseUrl(e.target.value)}
+                  onBlur={() => settingsSet("comfyui_base_url", comfyuiBaseUrl)}
+                  placeholder="http://127.0.0.1:8188"
+                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
+                />
+              </div>
+              <div className="flex gap-3 items-end">
+                <div>
+                  <label className="mb-1 block text-xs text-[var(--color-text-muted)]">超时(秒)</label>
+                  <input
+                    type="number"
+                    value={comfyuiTimeout}
+                    onChange={(e) => setComfyuiTimeout(Number(e.target.value))}
+                    onBlur={() => settingsSet("comfyui_timeout_secs", String(comfyuiTimeout))}
+                    min={30}
+                    max={3600}
+                    className="w-24 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
+                  />
+                </div>
+                <button
+                  onClick={async () => {
+                    setComfyuiTesting(true);
+                    setComfyuiTestResult(null);
+                    try {
+                      const result = await comfyuiTestConnection();
+                      setComfyuiTestResult(result);
+                    } catch (e: any) {
+                      setComfyuiTestResult(String(e));
+                    } finally {
+                      setComfyuiTesting(false);
+                    }
+                  }}
+                  disabled={comfyuiTesting}
+                  className="rounded border border-[var(--color-border-light)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] disabled:opacity-50 active:scale-[0.97] transition-colors"
+                >
+                  {comfyuiTesting ? "测试中..." : "测试连接"}
+                </button>
+                {comfyuiTestResult && (
+                  <span className={`text-xs ${comfyuiTestResult.includes("success") || comfyuiTestResult.includes("成功") ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
+                    {comfyuiTestResult}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Workflow list */}
+            <div className="mt-4">
+              <h4 className="mb-2 text-xs font-semibold text-[var(--color-text-secondary)]">工作流</h4>
+              {(["generate", "edit"] as const).map((wfType) => (
+                <div key={wfType} className="mb-3">
+                  <p className="mb-1 text-[11px] text-[var(--color-text-muted)]">
+                    {wfType === "generate" ? "文生图" : "图生图"}
+                  </p>
+                  {comfyuiWorkflows.filter(w => w.workflow_type === wfType).map((wf) => (
+                    <div key={wf.id} className="flex items-center justify-between py-1">
+                      <span className="text-xs text-[var(--color-text-primary)]">{wf.name}</span>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            const name = window.prompt("工作流名称", wf.name);
+                            if (name) {
+                              comfyuiWorkflowUpdate(wf.id, name, wf.workflow_json).then(loadWorkflows);
+                            }
+                          }}
+                          className="rounded px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+                        >
+                          编辑
+                        </button>
+                        <button
+                          onClick={() => comfyuiWorkflowDelete(wf.id).then(loadWorkflows)}
+                          className="rounded px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)] transition-colors"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => {
+                      const name = window.prompt("工作流名称");
+                      const json = window.prompt("粘贴 ComfyUI workflow JSON (API format)");
+                      if (name && json) {
+                        comfyuiWorkflowCreate(name, wfType, json)
+                          .then(loadWorkflows)
+                          .catch((e) => alert("保存失败: " + String(e)));
+                      }
+                    }}
+                    className="mt-1 text-[11px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors"
+                  >
+                    + 添加{wfType === "generate" ? "文生图" : "图生图"}工作流
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Display Variant Reset */}
         <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4">
