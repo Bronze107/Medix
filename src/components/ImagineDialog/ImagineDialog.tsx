@@ -35,6 +35,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
         aspectRatio,
         resolution,
         n,
+        null, // workflowId — edit workflows can be configured via settings
       );
       record(prompt, aspectRatio, resolution);
       showToast("已加入队列");

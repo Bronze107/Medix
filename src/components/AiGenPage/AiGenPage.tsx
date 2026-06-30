@@ -7,9 +7,13 @@ import {
   imageQueueImport,
   imageQueueDiscard,
   imageQueueDismiss,
+  comfyuiWorkflowList,
+  comfyuiWorkflowGet,
+  settingsGet,
 } from "@/lib/tauri";
 import { usePromptHistory } from "@/hooks/usePromptHistory";
 import type { ImageTaskInfo } from "@/lib/tauri";
+import type { ComfyWorkflow, WorkflowParam } from "@/types/comfyui";
 
 const ASPECT_RATIOS = ["auto", "1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "1:2", "2:1"];
 const RESOLUTIONS = ["1k", "2k"];
@@ -158,6 +162,11 @@ function AiGenPage() {
   const [tasks, setTasks] = useState<ImageTaskInfo[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [provider, setProvider] = useState<string>("");
+  const [workflows, setWorkflows] = useState<ComfyWorkflow[]>([]);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
+  const [workflowParams, setWorkflowParams] = useState<WorkflowParam[]>([]);
+  const [workflowValues, setWorkflowValues] = useState<Record<string, string>>({});
   const { items: history, record, clear } = usePromptHistory("generate");
 
   const loadTasks = useCallback(async () => {
@@ -167,6 +176,37 @@ function AiGenPage() {
       console.error("Failed to load image queue:", e);
     }
   }, []);
+
+  // Detect provider on mount
+  useEffect(() => {
+    settingsGet("image_api_provider").then((v) => {
+      const p = v || "";
+      setProvider(p);
+      if (p === "comfyui") {
+        comfyuiWorkflowList("generate").then(setWorkflows).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Load workflow params when selection changes
+  useEffect(() => {
+    if (!selectedWorkflowId) return;
+    comfyuiWorkflowGet(selectedWorkflowId).then((detail) => {
+      setWorkflowParams(detail.params);
+      const init: Record<string, string> = {};
+      for (const p of detail.params) {
+        init[p.param_name] = p.default_value;
+      }
+      setWorkflowValues(init);
+    }).catch(console.error);
+  }, [selectedWorkflowId]);
+
+  // Auto-select first workflow
+  useEffect(() => {
+    if (workflows.length > 0 && !selectedWorkflowId) {
+      setSelectedWorkflowId(workflows[0].id);
+    }
+  }, [workflows, selectedWorkflowId]);
 
   useEffect(() => {
     loadTasks();
@@ -179,12 +219,20 @@ function AiGenPage() {
   }, [loadTasks]);
 
   const handleSubmit = async () => {
-    if (!prompt.trim()) return;
+    const isComfy = provider === "comfyui";
+    const finalPrompt = isComfy ? (workflowValues.prompt || prompt.trim()) : prompt.trim();
+    if (!finalPrompt) return;
     setSubmitting(true);
     try {
-      await imageQueueSubmitGenerate(prompt.trim(), aspectRatio, resolution, n);
-      record(prompt, aspectRatio, resolution);
-      setPrompt("");
+      await imageQueueSubmitGenerate(
+        finalPrompt,
+        aspectRatio,
+        resolution,
+        n,
+        isComfy && selectedWorkflowId ? selectedWorkflowId : null,
+      );
+      record(finalPrompt, aspectRatio, resolution);
+      if (!isComfy) setPrompt("");
       await loadTasks();
     } catch (e) {
       console.error("Failed to submit:", e);
@@ -267,6 +315,76 @@ function AiGenPage() {
                 </div>
               )}
             </div>
+
+            {/* ComfyUI workflow selector + dynamic params */}
+            {provider === "comfyui" && (
+              <>
+                {workflows.length > 0 && (
+                  <div>
+                    <label className="mb-1 block text-xs text-[var(--color-text-muted)]">工作流</label>
+                    <select
+                      value={selectedWorkflowId}
+                      onChange={(e) => setSelectedWorkflowId(e.target.value)}
+                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
+                    >
+                      {workflows.map((w) => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {workflowParams.map((p) => (
+                  <div key={p.node_id + p.param_name}>
+                    <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+                      #{p.param_name}
+                    </label>
+                    {p.field_type === "multiline" ? (
+                      <textarea
+                        value={workflowValues[p.param_name] ?? ""}
+                        onChange={(e) => setWorkflowValues(v => ({...v, [p.param_name]: e.target.value}))}
+                        rows={4}
+                        className="w-full resize-none rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+                      />
+                    ) : p.field_type === "seed" ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          value={workflowValues[p.param_name] ?? ""}
+                          onChange={(e) => setWorkflowValues(v => ({...v, [p.param_name]: e.target.value}))}
+                          className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
+                        />
+                        <button
+                          onClick={() => setWorkflowValues(v => ({...v, [p.param_name]: "-1"}))}
+                          className="shrink-0 rounded border border-[var(--color-border-light)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] active:scale-[0.97]"
+                        >
+                          🎲
+                        </button>
+                      </div>
+                    ) : p.field_type === "slider" ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={1}
+                          max={p.param_name === "steps" ? 100 : p.param_name === "cfg" ? 30 : 100}
+                          step={p.param_name === "cfg" ? 0.5 : 1}
+                          value={parseFloat(workflowValues[p.param_name] || "1")}
+                          onChange={(e) => setWorkflowValues(v => ({...v, [p.param_name]: e.target.value}))}
+                          className="flex-1"
+                        />
+                        <span className="w-10 text-right text-xs text-[var(--color-text-secondary)]">{workflowValues[p.param_name]}</span>
+                      </div>
+                    ) : (
+                      <input
+                        type={p.field_type === "number" ? "number" : "text"}
+                        value={workflowValues[p.param_name] ?? ""}
+                        onChange={(e) => setWorkflowValues(v => ({...v, [p.param_name]: e.target.value}))}
+                        className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
+                      />
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
 
             <div className="flex gap-3">
               <div className="flex-1">
