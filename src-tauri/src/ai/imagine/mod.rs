@@ -87,10 +87,20 @@ pub fn create_provider(
         }
         "comfyui" => {
             let wf_id = workflow_id.ok_or("ComfyUI requires a workflow_id")?;
+            eprintln!("[comfyui] factory: loading workflow id={}", wf_id);
             let workflow = crate::db::comfyui::comfyui_workflow_get(app, wf_id)
                 .map_err(|e| format!("Workflow not found: {}", e))?;
+            eprintln!(
+                "[comfyui] factory: workflow loaded name={} json_len={}",
+                workflow.name,
+                workflow.workflow_json.len()
+            );
             let base_url = settings::get_comfyui_base_url(app);
             let timeout = settings::get_comfyui_timeout_secs(app);
+            eprintln!(
+                "[comfyui] factory: base_url={} timeout={}s",
+                base_url, timeout
+            );
             Ok(Box::new(comfyui::ComfyuiProvider::new(
                 base_url, timeout, workflow,
             )))
