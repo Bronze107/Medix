@@ -218,10 +218,13 @@ function AiGenPage() {
     };
   }, [loadTasks]);
 
+  const isComfy = provider === "comfyui";
+  const comfyReady = !isComfy || (isComfy && selectedWorkflowId);
+
   const handleSubmit = async () => {
-    const isComfy = provider === "comfyui";
     const finalPrompt = isComfy ? (workflowValues.prompt || prompt.trim()) : prompt.trim();
     if (!finalPrompt) return;
+    if (isComfy && !selectedWorkflowId) return;
     setSubmitting(true);
     try {
       await imageQueueSubmitGenerate(
@@ -229,7 +232,7 @@ function AiGenPage() {
         aspectRatio,
         resolution,
         n,
-        isComfy && selectedWorkflowId ? selectedWorkflowId : null,
+        isComfy ? selectedWorkflowId : null,
       );
       record(finalPrompt, aspectRatio, resolution);
       if (!isComfy) setPrompt("");
@@ -319,19 +322,25 @@ function AiGenPage() {
             {/* ComfyUI workflow selector + dynamic params */}
             {provider === "comfyui" && (
               <>
-                {workflows.length > 0 && (
-                  <div>
-                    <label className="mb-1 block text-xs text-[var(--color-text-muted)]">工作流</label>
-                    <select
-                      value={selectedWorkflowId}
-                      onChange={(e) => setSelectedWorkflowId(e.target.value)}
-                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
-                    >
-                      {workflows.map((w) => (
-                        <option key={w.id} value={w.id}>{w.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                {workflows.length > 0 ? (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs text-[var(--color-text-muted)]">工作流</label>
+                      <select
+                        value={selectedWorkflowId}
+                        onChange={(e) => setSelectedWorkflowId(e.target.value)}
+                        className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
+                      >
+                        {workflows.map((w) => (
+                          <option key={w.id} value={w.id}>{w.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-[var(--color-text-muted)] py-3">
+                    暂无文生图工作流。请先到 <strong>设置 → ComfyUI 配置</strong> 中保存一个 workflow JSON（类型选"文生图"）。
+                  </p>
                 )}
                 {workflowParams.map((p) => (
                   <div key={p.node_id + p.param_name}>
@@ -426,10 +435,16 @@ function AiGenPage() {
 
             <button
               onClick={handleSubmit}
-              disabled={submitting || !prompt.trim()}
+              disabled={submitting || !prompt.trim() || !comfyReady}
               className="rounded bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50 active:scale-[0.97]"
             >
-              {submitting ? "提交中..." : prompt.trim() ? "加入队列" : "输入提示词后生成"}
+              {submitting
+                ? "提交中..."
+                : !comfyReady
+                  ? "请先在设置中保存工作流"
+                  : prompt.trim()
+                    ? "加入队列"
+                    : "输入提示词后生成"}
             </button>
 
             {hasActive && (
