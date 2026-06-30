@@ -30,7 +30,7 @@ libjpeg-turbo-rs = "0.6"
 rayon = "1"
 kamadak-exif = "0.6"
 base64 = "0.22.1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "blocking"] }
 tiny_http = "0.12"
 which = "7"
 zip = "2"

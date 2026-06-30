@@ -243,7 +243,7 @@ async fn process_task(
         t.status = "running".to_string();
     }
 
-    let provider = match create_provider(&app) {
+    let provider = match create_provider(&app, None) {
         Ok(p) => p,
         Err(e) => {
             if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {

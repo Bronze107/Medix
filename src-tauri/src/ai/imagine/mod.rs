@@ -1,3 +1,4 @@
+pub mod comfyui;
 pub mod queue;
 pub mod workflow;
 pub mod xai;
@@ -66,7 +67,10 @@ pub struct StagedImage {
 
 // --- Factory ---
 
-pub fn create_provider(app: &AppHandle) -> Result<Box<dyn ImageProvider>, String> {
+pub fn create_provider(
+    app: &AppHandle,
+    workflow_id: Option<&str>,
+) -> Result<Box<dyn ImageProvider>, String> {
     let provider = settings::get_image_api_provider(app);
     match provider.as_str() {
         "xai" => {
@@ -77,7 +81,19 @@ pub fn create_provider(app: &AppHandle) -> Result<Box<dyn ImageProvider>, String
             if api_key.is_empty() {
                 return Err("xAI API key not configured".to_string());
             }
-            Ok(Box::new(xai::XaiProvider::new(api_key, base_url, model, proxy)))
+            Ok(Box::new(xai::XaiProvider::new(
+                api_key, base_url, model, proxy,
+            )))
+        }
+        "comfyui" => {
+            let wf_id = workflow_id.ok_or("ComfyUI requires a workflow_id")?;
+            let workflow = crate::db::comfyui::comfyui_workflow_get(app, wf_id)
+                .map_err(|e| format!("Workflow not found: {}", e))?;
+            let base_url = settings::get_comfyui_base_url(app);
+            let timeout = settings::get_comfyui_timeout_secs(app);
+            Ok(Box::new(comfyui::ComfyuiProvider::new(
+                base_url, timeout, workflow,
+            )))
         }
         "" => Err("No image API provider configured".to_string()),
         _ => Err(format!("Unknown image provider: {}", provider)),
