@@ -24,6 +24,7 @@ pub enum ImageTask {
         aspect_ratio: String,
         resolution: String,
         n: u32,
+        workflow_id: Option<String>,
     },
     Edit {
         task_id: String,
@@ -33,6 +34,7 @@ pub enum ImageTask {
         aspect_ratio: String,
         resolution: String,
         n: u32,
+        workflow_id: Option<String>,
     },
 }
 
@@ -57,6 +59,7 @@ struct TaskState {
     staged: Vec<StagedImage>,
     error: Option<String>,
     created_at: String,
+    workflow_id: Option<String>,
 }
 
 impl TaskState {
@@ -183,13 +186,14 @@ async fn process_task(
     staging_dir: &PathBuf,
     task: ImageTask,
 ) {
-    let (task_id, task_type, prompt, media_id, generate_params, edit_params) = match task {
+    let (task_id, task_type, prompt, media_id, generate_params, edit_params, workflow_id) = match task {
         ImageTask::Generate {
             task_id,
             prompt,
             aspect_ratio,
             resolution,
             n,
+            workflow_id,
         } => {
             let params = GenerateParams {
                 prompt: prompt.clone(),
@@ -197,7 +201,7 @@ async fn process_task(
                 resolution,
                 n,
             };
-            (task_id, "generate", prompt, None, Some(params), None)
+            (task_id, "generate", prompt, None, Some(params), None, workflow_id)
         }
         ImageTask::Edit {
             task_id,
@@ -207,6 +211,7 @@ async fn process_task(
             aspect_ratio,
             resolution,
             n,
+            workflow_id,
         } => {
             // Resolve the image path
             let image_data_url = match resolve_edit_image(&app, &media_id, variant_id.as_deref(), &resolution)
@@ -234,6 +239,7 @@ async fn process_task(
                 Some(media_id),
                 None,
                 Some(params),
+                workflow_id,
             )
         }
     };
@@ -243,7 +249,7 @@ async fn process_task(
         t.status = "running".to_string();
     }
 
-    let provider = match create_provider(&app, None) {
+    let provider = match create_provider(&app, workflow_id.as_deref()) {
         Ok(p) => p,
         Err(e) => {
             if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
@@ -409,6 +415,7 @@ pub fn image_queue_submit_generate(
     aspect_ratio: Option<String>,
     resolution: Option<String>,
     n: Option<u32>,
+    workflow_id: Option<String>,
 ) -> Result<String, String> {
     let queue = app.state::<ImageQueue>();
     let task_id = ulid::Ulid::new().to_string();
@@ -418,6 +425,7 @@ pub fn image_queue_submit_generate(
         aspect_ratio: aspect_ratio.unwrap_or_else(|| "auto".to_string()),
         resolution: resolution.unwrap_or_else(|| "1k".to_string()),
         n: n.unwrap_or(1),
+        workflow_id: workflow_id.clone(),
     };
     queue.insert_task(TaskState {
         task_id: task_id.clone(),
@@ -428,6 +436,7 @@ pub fn image_queue_submit_generate(
         staged: Vec::new(),
         error: None,
         created_at: Utc::now().to_rfc3339(),
+        workflow_id,
     });
     queue.send(task).map_err(|e| e.to_string())?;
     let _ = app.emit("image-queue-updated", serde_json::json!({ "remaining": queue.pending_count() }));
@@ -443,6 +452,7 @@ pub fn image_queue_submit_edit(
     aspect_ratio: Option<String>,
     resolution: Option<String>,
     n: Option<u32>,
+    workflow_id: Option<String>,
 ) -> Result<String, String> {
     let queue = app.state::<ImageQueue>();
     let task_id = ulid::Ulid::new().to_string();
@@ -454,6 +464,7 @@ pub fn image_queue_submit_edit(
         aspect_ratio: aspect_ratio.unwrap_or_else(|| "auto".to_string()),
         resolution: resolution.unwrap_or_else(|| "1k".to_string()),
         n: n.unwrap_or(1),
+        workflow_id: workflow_id.clone(),
     };
     queue.insert_task(TaskState {
         task_id: task_id.clone(),
@@ -464,6 +475,7 @@ pub fn image_queue_submit_edit(
         staged: Vec::new(),
         error: None,
         created_at: Utc::now().to_rfc3339(),
+        workflow_id,
     });
     queue.send(task).map_err(|e| e.to_string())?;
     let _ = app.emit("image-queue-updated", serde_json::json!({ "remaining": queue.pending_count() }));

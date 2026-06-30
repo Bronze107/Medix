@@ -1,3 +1,4 @@
+mod comfyui;
 mod browse;
 mod caption;
 mod collection;
@@ -13,6 +14,7 @@ mod variant;
 pub use browse::*;
 pub use caption::*;
 pub use collection::*;
+pub use comfyui::*;
 pub use export::*;
 pub use imagine::*;
 pub use media::*;
