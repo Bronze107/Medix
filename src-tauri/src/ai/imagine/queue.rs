@@ -575,10 +575,12 @@ pub fn image_queue_import(
                 eprintln!("[image-queue] variant thumbnail failed: {}", e);
             }
 
-            if let Err(e) = crate::db::caption_create_for_variant(
-                &app, mid, &variant_id, &task.prompt, Some("ai-edit"),
-            ) {
-                eprintln!("[image-queue] failed to save prompt caption: {}", e);
+            if !task.prompt.is_empty() {
+                if let Err(e) = crate::db::caption_create_for_variant(
+                    &app, mid, &variant_id, &task.prompt, Some("ai-edit"),
+                ) {
+                    eprintln!("[image-queue] failed to save prompt caption: {}", e);
+                }
             }
 
             results.push(crate::media::MediaImportResult {
@@ -686,11 +688,13 @@ pub fn image_queue_import(
                 }
             });
 
-            // Save prompt as caption
-            if let Err(e) =
-                crate::db::caption_create_with_source(&app, &id, &task.prompt, Some("ai-generated"))
-            {
-                eprintln!("[image-queue] failed to save prompt caption: {}", e);
+            // Save prompt as caption (skip if empty — ComfyUI workflows may not have #prompt)
+            if !task.prompt.is_empty() {
+                if let Err(e) = crate::db::caption_create_with_source(
+                    &app, &id, &task.prompt, Some("ai-generated"),
+                ) {
+                    eprintln!("[image-queue] failed to save prompt caption: {}", e);
+                }
             }
 
             // Trigger AI annotation (std::thread — no tokio runtime on main thread)
