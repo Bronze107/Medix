@@ -439,16 +439,14 @@ function AiGenPage() {
 
             <button
               onClick={handleSubmit}
-              disabled={submitting || !prompt.trim() || !comfyReady}
+              disabled={submitting || !comfyReady || (!isComfy && !prompt.trim())}
               className="rounded bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50 active:scale-[0.97]"
             >
               {submitting
                 ? "提交中..."
                 : !comfyReady
                   ? "请先在设置中保存工作流"
-                  : prompt.trim()
-                    ? "加入队列"
-                    : "输入提示词后生成"}
+                  : "加入队列"}
             </button>
 
             {hasActive && (
