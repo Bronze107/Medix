@@ -1,12 +1,8 @@
-export type VariantVisibility = "representative" | "all";
-export type BrowseItemKind = "original" | "variant";
+export type BrowseVisibility = "representative" | "all";
 
 export interface BrowseItem {
-  item_id: string;
-  item_kind: BrowseItemKind;
+  id: string;
   media_id: string;
-  variant_id: string | null;
-  is_display_variant: boolean;
   source_path: string | null;
   width: number | null;
   height: number | null;
@@ -19,15 +15,12 @@ export interface BrowseItem {
   source: string | null;
   sha256: string | null;
   deleted_at: string | null;
-  display_variant_id: string | null;
   thumb_256: string | null;
   lqip: string | null;
   media_type: string | null;
   duration: number | null;
   video_codec: string | null;
   video_fps: number | null;
-  label: string | null;
-  preset_name: string | null;
-  has_derivatives?: boolean;
-  parent_count?: number;
+  has_derivatives: boolean;
+  parent_count: number;
 }

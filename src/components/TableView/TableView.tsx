@@ -142,10 +142,10 @@ function TableView({
 
           return (
             <TableRow
-              key={item.item_id}
+              key={item.id}
               item={item}
-              isSelected={item.item_id === selectedId}
-              isMultiSelected={selectedIds.includes(item.item_id)}
+              isSelected={item.id === selectedId}
+              isMultiSelected={selectedIds.includes(item.id)}
               onClick={() => onSelect(item)}
               onDoubleClick={
                 onDoubleClick ? () => onDoubleClick(item) : undefined
@@ -260,7 +260,7 @@ function TableRow({
       {/* File info */}
       <div className="flex-1 min-w-0">
         <p className="truncate text-xs text-[var(--color-text-secondary)]">
-          {item.item_id.slice(0, 8)}
+          {item.id.slice(0, 8)}
         </p>
       </div>
 

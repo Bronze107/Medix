@@ -7,7 +7,7 @@ import type { Collection } from "@/types/collection";
 import type { LlamaServerStatus, GgufModelList, AutoDetect, EmbeddingInfo } from "@/types/ai";
 import type { SavedFilter } from "@/types/search";
 import type { ExportOptions } from "@/types/export";
-import type { BrowseItem, VariantVisibility } from "@/types/browse";
+import type { BrowseItem, BrowseVisibility } from "@/types/browse";
 import type { ComfyWorkflow, ComfyWorkflowDetail } from "@/types/comfyui";
 
 export function greet(name: string): Promise<string> {
@@ -33,7 +33,7 @@ export function browseSearch(
   descending: boolean = true,
   offset: number = 0,
   limit: number = 500,
-  variantVisibility: VariantVisibility = "representative",
+  variantVisibility: BrowseVisibility = "representative",
 ): Promise<BrowseItem[]> {
   return invoke("browse_search", { query, sortBy, descending, offset, limit, variantVisibility });
 }
@@ -44,7 +44,7 @@ export function browseListByCollection(
   descending: boolean = true,
   offset: number = 0,
   limit: number = 500,
-  variantVisibility: VariantVisibility = "representative",
+  variantVisibility: BrowseVisibility = "representative",
 ): Promise<BrowseItem[]> {
   return invoke("browse_list_by_collection", { collectionId, sortBy, descending, offset, limit, variantVisibility });
 }
@@ -54,7 +54,7 @@ export function browseList(
   descending: boolean = true,
   offset: number = 0,
   limit: number = 500,
-  variantVisibility: VariantVisibility = "representative",
+  variantVisibility: BrowseVisibility = "representative",
 ): Promise<BrowseItem[]> {
   return invoke("browse_list", {
     sortBy,

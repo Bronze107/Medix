@@ -7,16 +7,15 @@ import Gallery from "@/components/Gallery/Gallery";
 
 function mediaToBrowseItem(m: Media): BrowseItem {
   return {
-    item_id: m.id, item_kind: "original" as const, media_id: m.id,
-    variant_id: null, is_display_variant: false,
+    id: m.id, media_id: m.id,
     source_path: m.source_path, width: m.width, height: m.height,
     file_size: m.file_size, created_at: m.created_at, modified_at: m.modified_at,
     imported_at: m.imported_at, source_url: m.source_url, page_url: m.page_url,
     source: m.source, sha256: m.sha256, deleted_at: m.deleted_at,
-    display_variant_id: null, thumb_256: m.thumb_256, lqip: m.lqip,
+    thumb_256: m.thumb_256, lqip: m.lqip,
     media_type: m.media_type, duration: m.duration,
     video_codec: m.video_codec, video_fps: m.video_fps,
-    label: null, preset_name: null,
+    has_derivatives: false, parent_count: 0,
   };
 }
 

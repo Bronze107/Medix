@@ -7,7 +7,7 @@ import ImagineDialog from "@/components/ImagineDialog/ImagineDialog";
 import { useAppStore } from "@/stores/appStore";
 import type { Collection } from "@/types/collection";
 import type { Media } from "@/types/media";
-import type { BrowseItem, VariantVisibility } from "@/types/browse";
+import type { BrowseItem, BrowseVisibility } from "@/types/browse";
 import type { Tag } from "@/types/tag";
 import {
   browseList,
@@ -58,8 +58,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const initialQuery = searchParams.get("q") ?? "";
 
   const [items, setItems] = useState<BrowseItem[]>([]);
-  const [variantVisibility, setVariantVisibility] = useState<VariantVisibility>(
-    () => (localStorage.getItem("medix.variantVisibility") as VariantVisibility) || "representative"
+  const [variantVisibility, setVariantVisibility] = useState<BrowseVisibility>(
+    () => (localStorage.getItem("medix.variantVisibility") as BrowseVisibility) || "representative"
   );
   const [deleteConfirm, setDeleteConfirm] = useState<"batch" | "single" | null>(null);
   const [pendingDeleteInfo, setPendingDeleteInfo] = useState<{ item: BrowseItem } | null>(null);
@@ -488,7 +488,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
         e.preventDefault();
         const m = displayItemsRef.current;
         if (m.length > 0) {
-          setSelectedIds(new Set(m.map((x) => x.item_id)));
+          setSelectedIds(new Set(m.map((x) => x.id)));
         }
       }
       if (e.key === "Delete" && selectedIdsRef2.current.size > 0) {
@@ -537,17 +537,17 @@ function AllMedia({ collectionId }: AllMediaProps) {
   // Keep lastSelectedIndex in sync with single-select (card click without modifiers)
   useEffect(() => {
     if (selectedItem) {
-      const idx = displayItems.findIndex((it) => it.item_id === selectedItem.item_id);
+      const idx = displayItems.findIndex((it) => it.id === selectedItem.id);
       if (idx >= 0) setLastSelectedIndex(idx);
     }
-  }, [selectedItem?.item_id, displayItems]);
+  }, [selectedItem?.id, displayItems]);
 
   const handleToggleSelect = (item: BrowseItem, index: number, shiftKey: boolean) => {
     if (shiftKey && lastSelectedIndex !== null) {
       // Range select from lastSelectedIndex to index
       const start = Math.min(lastSelectedIndex, index);
       const end = Math.max(lastSelectedIndex, index);
-      const rangeIds = displayItems.slice(start, end + 1).map((it) => it.item_id);
+      const rangeIds = displayItems.slice(start, end + 1).map((it) => it.id);
       setSelectedIds((prev) => {
         const next = new Set(prev);
         for (const id of rangeIds) next.add(id);
@@ -556,10 +556,10 @@ function AllMedia({ collectionId }: AllMediaProps) {
     } else {
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        if (next.has(item.item_id)) {
-          next.delete(item.item_id);
+        if (next.has(item.id)) {
+          next.delete(item.id);
         } else {
-          next.add(item.item_id);
+          next.add(item.id);
         }
         return next;
       });
@@ -568,7 +568,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   };
 
   const handleSelectAll = () => {
-    setSelectedIds(new Set(displayItems.map((it) => it.item_id)));
+    setSelectedIds(new Set(displayItems.map((it) => it.id)));
   };
 
   const handleBatchTagAdd = async (tagId: string) => {
@@ -591,7 +591,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
 
   const confirmBatchDelete = async () => {
     // Collect media IDs for batch delete
-    const itemMap = new Map(items.map((it) => [it.item_id, it]));
+    const itemMap = new Map(items.map((it) => [it.id, it]));
     const mediaIds: string[] = [];
     for (const id of selectedIds) {
       const item = itemMap.get(id);
@@ -871,10 +871,10 @@ function AllMedia({ collectionId }: AllMediaProps) {
             <TableView
               media={displayItems}
               groups={groups}
-              selectedId={selectedItem?.item_id ?? null}
+              selectedId={selectedItem?.id ?? null}
               onSelect={selectItem}
               onDoubleClick={(item) => {
-                const idx = displayItems.findIndex((it) => it.item_id === item.item_id);
+                const idx = displayItems.findIndex((it) => it.id === item.id);
                 if (idx >= 0) setLightboxIndex(idx);
               }}
               onContextMenu={(e, item) => {
@@ -907,10 +907,10 @@ function AllMedia({ collectionId }: AllMediaProps) {
               media={displayItems}
               groups={groups}
               scale={gridScale}
-              selectedId={selectedItem?.item_id ?? null}
+              selectedId={selectedItem?.id ?? null}
               onSelect={selectItem}
               onDoubleClick={(item) => {
-                const idx = displayItems.findIndex((it) => it.item_id === item.item_id);
+                const idx = displayItems.findIndex((it) => it.id === item.id);
                 if (idx >= 0) setLightboxIndex(idx);
               }}
               onContextMenu={(e, item) => {
@@ -925,7 +925,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
         </div>
         <DetailPanel
           key={detailPanelKey}
-          media={selectedItem ? { id: selectedItem.media_id, source_path: selectedItem.source_path, width: selectedItem.width, height: selectedItem.height, file_size: selectedItem.file_size, created_at: selectedItem.created_at, modified_at: selectedItem.modified_at, imported_at: selectedItem.imported_at, source_url: selectedItem.source_url, page_url: selectedItem.page_url, source: selectedItem.source, sha256: selectedItem.sha256, deleted_at: selectedItem.deleted_at, display_variant_id: selectedItem.display_variant_id, thumb_256: selectedItem.item_kind === "variant" && selectedItem.variant_id ? (selectedItem.thumb_256?.replace(`/${selectedItem.variant_id}_256.jpg`, `/${selectedItem.media_id}_256.jpg`) ?? null) : selectedItem.thumb_256, lqip: selectedItem.lqip, media_type: selectedItem.media_type, duration: selectedItem.duration, video_codec: selectedItem.video_codec, video_fps: selectedItem.video_fps, phash: null } as Media : null}
+          media={selectedItem ? { id: selectedItem.media_id, source_path: selectedItem.source_path, width: selectedItem.width, height: selectedItem.height, file_size: selectedItem.file_size, created_at: selectedItem.created_at, modified_at: selectedItem.modified_at, imported_at: selectedItem.imported_at, source_url: selectedItem.source_url, page_url: selectedItem.page_url, source: selectedItem.source, sha256: selectedItem.sha256, deleted_at: selectedItem.deleted_at, thumb_256: selectedItem.thumb_256, lqip: selectedItem.lqip, media_type: selectedItem.media_type, duration: selectedItem.duration, video_codec: selectedItem.video_codec, video_fps: selectedItem.video_fps } as Media : null}
           collapsed={detailCollapsed}
           onToggleCollapse={() => {
             const newCollapsed = !detailCollapsed;
@@ -959,7 +959,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               setCollectionsForPicker(all);
               // Convert item_ids to media_ids for collection (variants share parent media_id)
               setAddToCollectionMediaIds([...new Set(
-                Array.from(selectedIds).map((id) => items.find((it) => it.item_id === id)?.media_id ?? id)
+                Array.from(selectedIds).map((id) => items.find((it) => it.id === id)?.media_id ?? id)
               )]);
               setCollectionPickerSearch("");
               setShowAddToCollection(true);
@@ -1349,16 +1349,16 @@ function AllMedia({ collectionId }: AllMediaProps) {
 
       {/* Export dialog */}
       {showExportDialog && (() => {
-        const itemMap = new Map(items.map((it) => [it.item_id, it]));
+        const itemMap = new Map(items.map((it) => [it.id, it]));
         const mediaSet = new Set<string>();
         const variantList: string[] = [];
         let hasOriginals = false;
         for (const id of selectedIds) {
           const item = itemMap.get(id);
-          if (item?.item_kind === "variant" && item.variant_id) {
-            variantList.push(item.variant_id);
+          if (item && item.parent_count > 0) {
+            variantList.push(item.id);
           }
-          if (item?.item_kind === "original") hasOriginals = true;
+          if (item && item.parent_count === 0) hasOriginals = true;
           if (item) mediaSet.add(item.media_id);
         }
         return (
@@ -1381,11 +1381,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
           onClick={(e) => e.stopPropagation()}
         >
           {/* Single-item actions */}
-          {!selectedIds.has(ctxMenu.item.item_id) || selectedIds.size <= 1 ? (
+          {!selectedIds.has(ctxMenu.item.id) || selectedIds.size <= 1 ? (
             <>
               <button
                 onClick={() => {
-                  const idx = displayItems.findIndex((it) => it.item_id === ctxMenu.item.item_id);
+                  const idx = displayItems.findIndex((it) => it.id === ctxMenu.item.id);
                   if (idx >= 0) setLightboxIndex(idx);
                   setCtxMenu(null);
                 }}
@@ -1432,7 +1432,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
           <button
             onClick={() => {
               setShowBatchTagDialog(true);
-              if (!selectedIds.has(ctxMenu.item.item_id)) setSelectedIds(new Set([ctxMenu.item.item_id]));
+              if (!selectedIds.has(ctxMenu.item.id)) setSelectedIds(new Set([ctxMenu.item.id]));
               setCtxMenu(null);
             }}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
@@ -1442,13 +1442,13 @@ function AllMedia({ collectionId }: AllMediaProps) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6Z" />
             </svg>
             添加标签
-            {selectedIds.has(ctxMenu.item.item_id) && selectedIds.size > 1 ? `（${selectedIds.size} 张）` : ""}
+            {selectedIds.has(ctxMenu.item.id) && selectedIds.size > 1 ? `（${selectedIds.size} 张）` : ""}
           </button>
           <button
             onClick={async () => {
               // Convert item_ids to media_ids for collection (variants share parent media_id)
-              const ids = selectedIds.has(ctxMenu.item.item_id)
-                ? [...new Set(Array.from(selectedIds).map((id) => items.find((it) => it.item_id === id)?.media_id ?? id))]
+              const ids = selectedIds.has(ctxMenu.item.id)
+                ? [...new Set(Array.from(selectedIds).map((id) => items.find((it) => it.id === id)?.media_id ?? id))]
                 : [ctxMenu.item.media_id];
               const all = await loadCollections();
               setCollectionsForPicker(all);
@@ -1463,7 +1463,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
             </svg>
             添加到集合
-            {selectedIds.has(ctxMenu.item.item_id) && selectedIds.size > 1 ? `（${selectedIds.size} 张）` : ""}
+            {selectedIds.has(ctxMenu.item.id) && selectedIds.size > 1 ? `（${selectedIds.size} 张）` : ""}
           </button>
           {collectionId && (
             <button
@@ -1479,7 +1479,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
             </button>
           )}
           <div className="my-1 border-t border-[var(--color-border)]" />
-          {selectedIds.has(ctxMenu.item.item_id) && selectedIds.size > 1 ? (
+          {selectedIds.has(ctxMenu.item.id) && selectedIds.size > 1 ? (
             <>
               <button
                 onClick={() => { setSelectedIds(new Set()); setCtxMenu(null); }}
@@ -1535,14 +1535,14 @@ function AllMedia({ collectionId }: AllMediaProps) {
             file_size: it.file_size, created_at: it.created_at, modified_at: it.modified_at,
             imported_at: it.imported_at, source_url: it.source_url, page_url: it.page_url,
             source: it.source, sha256: it.sha256, deleted_at: it.deleted_at,
-            display_variant_id: it.display_variant_id, thumb_256: it.thumb_256, lqip: it.lqip,
+            thumb_256: it.thumb_256, lqip: it.lqip,
             media_type: it.media_type, duration: it.duration,
-            video_codec: it.video_codec, video_fps: it.video_fps, phash: null,
+            video_codec: it.video_codec, video_fps: it.video_fps,
           } as Media))}
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={(idx) => setLightboxIndex(idx)}
-          initialVariantId={lightboxIndex !== null ? displayItems[lightboxIndex]?.variant_id ?? null : null}
+          initialVariantId={null}
         />
       )}
 
@@ -1656,7 +1656,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
       <ConfirmDialog
         open={deleteConfirm === "single"}
         title="删除"
-        message={pendingDeleteInfo?.item.item_kind === "variant" ? "确定要删除这个变体吗？此操作不可撤销。" : "确定要删除这张图片吗？可以在回收站中恢复。"}
+        message={"确定要删除这张图片吗？可以在回收站中恢复。"}
         variant="danger"
         confirmLabel="删除"
         onConfirm={async () => {

@@ -233,11 +233,11 @@ function Gallery({
                   const itemWidth = rowHeight * ratio;
                   const absIndex = row.startIndex + row.items.indexOf(item);
                   return (
-                    <div key={item.item_id} style={{ width: `${itemWidth}px`, flexShrink: 0 }}>
+                    <div key={item.id} style={{ width: `${itemWidth}px`, flexShrink: 0 }}>
                       <ThumbnailCard
                         item={item}
-                        isSelected={item.item_id === selectedId}
-                        isMultiSelected={selectedIds.includes(item.item_id)}
+                        isSelected={item.id === selectedId}
+                        isMultiSelected={selectedIds.includes(item.id)}
                         onClick={() => onSelect(item)}
                         onDoubleClick={onDoubleClick ? () => onDoubleClick(item) : undefined}
                         onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
@@ -364,7 +364,7 @@ function ThumbnailCard({
         {/* Hover info overlay */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/50 to-transparent pb-2 pt-8 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <p className="truncate px-3 text-[11px] font-medium text-white/90">
-            {item.item_id.slice(0, 8)}…
+            {item.id.slice(0, 8)}…
           </p>
         </div>
         {/* Derivatives badge */}
