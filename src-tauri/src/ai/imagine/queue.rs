@@ -11,7 +11,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Semaphore;
 
-use super::{create_provider, EditParams, GenerateParams, ImageProvider, StagedImage};
+use rusqlite::params;
+
+use super::{create_provider, EditParams, GenerateParams, StagedImage};
 
 const MAX_CONCURRENT: usize = 2;
 
@@ -28,8 +30,7 @@ pub enum ImageTask {
     },
     Edit {
         task_id: String,
-        media_id: String,
-        variant_id: Option<String>,
+        source_media_ids: Vec<String>,
         prompt: String,
         aspect_ratio: String,
         resolution: String,
@@ -43,7 +44,7 @@ pub struct TaskInfo {
     pub task_id: String,
     pub task_type: String,
     pub prompt: String,
-    pub media_id: Option<String>,
+    pub source_media_ids: Option<Vec<String>>,
     pub status: String,
     pub staged: Vec<StagedImage>,
     pub error: Option<String>,
@@ -54,7 +55,7 @@ struct TaskState {
     task_id: String,
     task_type: String,
     prompt: String,
-    media_id: Option<String>,
+    source_media_ids: Option<Vec<String>>,
     status: String,
     staged: Vec<StagedImage>,
     error: Option<String>,
@@ -68,7 +69,7 @@ impl TaskState {
             task_id: self.task_id.clone(),
             task_type: self.task_type.clone(),
             prompt: self.prompt.clone(),
-            media_id: self.media_id.clone(),
+            source_media_ids: self.source_media_ids.clone(),
             status: self.status.clone(),
             staged: self.staged.clone(),
             error: self.error.clone(),
@@ -186,7 +187,7 @@ async fn process_task(
     staging_dir: &PathBuf,
     task: ImageTask,
 ) {
-    let (task_id, task_type, prompt, media_id, generate_params, edit_params, workflow_id) = match task {
+    let (task_id, _task_type, _prompt, generate_params, edit_params, workflow_id) = match task {
         ImageTask::Generate {
             task_id,
             prompt,
@@ -201,21 +202,43 @@ async fn process_task(
                 resolution,
                 n,
             };
-            (task_id, "generate", prompt, None, Some(params), None, workflow_id)
+            (task_id, "generate", prompt, Some(params), None, workflow_id)
         }
         ImageTask::Edit {
             task_id,
-            media_id,
-            variant_id,
+            source_media_ids,
             prompt,
             aspect_ratio,
             resolution,
             n,
             workflow_id,
         } => {
-            // Resolve the image path
-            let image_data_url = match resolve_edit_image(&app, &media_id, variant_id.as_deref(), &resolution)
-            {
+            // Resolve first source image for the data URL (primary input)
+            let max_dim: u32 = match resolution.as_str() {
+                "2k" => 2048,
+                _ => 1024,
+            };
+            let conn = match crate::db::get_conn(&app) {
+                Ok(c) => c,
+                Err(e) => {
+                    if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
+                        t.status = "failed".to_string();
+                        t.error = Some(e);
+                    }
+                    return;
+                }
+            };
+            let primary_path = match find_media_path(&*conn, &source_media_ids[0]) {
+                Ok(p) => p,
+                Err(e) => {
+                    if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
+                        t.status = "failed".to_string();
+                        t.error = Some(e);
+                    }
+                    return;
+                }
+            };
+            let image_data_url = match read_and_encode_image(&primary_path, max_dim) {
                 Ok(url) => url,
                 Err(e) => {
                     if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
@@ -236,7 +259,6 @@ async fn process_task(
                 task_id,
                 "edit",
                 prompt,
-                Some(media_id),
                 None,
                 Some(params),
                 workflow_id,
@@ -320,57 +342,30 @@ async fn process_task(
     }
 }
 
-/// Resolve the image path for editing and encode as data URL (reused from commands/imagine.rs).
-fn resolve_edit_image(
-    app: &AppHandle,
-    media_id: &str,
-    variant_id: Option<&str>,
-    resolution: &str,
-) -> Result<String, String> {
-    let source_path = if let Some(vid) = variant_id {
-        // variant_id is now a lineage child media ID - look up its file in the library
-        let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        let library_dir = app_dir.join("library");
-        let mut found = None;
-        for entry in fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let name = entry.file_name();
-            if name.to_string_lossy().starts_with(vid) {
-                found = Some(entry.path());
-                break;
-            }
-        }
-        found.ok_or_else(|| format!("Media file not found for: {}", vid))?
-    } else {
-        let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        let library_dir = app_dir.join("library");
-        let mut found = None;
-        for entry in fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with(&format!("{}.", media_id)) {
-                found = Some(entry.path());
-                break;
-            }
-        }
-        found.ok_or("Original file not found".to_string())?
-    };
+/// Look up the source_path from the media table.
+fn find_media_path(conn: &rusqlite::Connection, media_id: &str) -> Result<String, String> {
+    let path: String = conn
+        .query_row(
+            "SELECT source_path FROM media WHERE id = ?1",
+            params![media_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("media {} not found: {}", media_id, e))?;
+    Ok(path)
+}
 
-    let img = image::open(&source_path).map_err(|e| e.to_string())?;
-    let max_dim: u32 = match resolution {
-        "2k" => 2048,
-        _ => 1024,
-    };
+/// Read an image from disk, optionally resize, and encode as data URL.
+fn read_and_encode_image(source_path: &str, max_dim: u32) -> Result<String, String> {
+    let img = image::open(source_path).map_err(|e| e.to_string())?;
     let (w, h) = (img.width(), img.height());
     let image_data_url = if w.max(h) > max_dim {
         let ratio = max_dim as f64 / w.max(h) as f64;
         let new_w = (w as f64 * ratio).round() as u32;
         let new_h = (h as f64 * ratio).round() as u32;
         let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3);
-        image_to_data_url(&resized, &source_path)?
+        image_to_data_url(&resized, source_path)?
     } else {
-        image_to_data_url(&img, &source_path)?
+        image_to_data_url(&img, source_path)?
     };
 
     let b64_len = image_data_url.len();
@@ -385,8 +380,8 @@ fn resolve_edit_image(
     Ok(image_data_url)
 }
 
-fn image_to_data_url(img: &image::DynamicImage, source_path: &PathBuf) -> Result<String, String> {
-    let ext = source_path
+fn image_to_data_url(img: &image::DynamicImage, source_path: &str) -> Result<String, String> {
+    let ext = std::path::Path::new(source_path)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("jpg")
@@ -440,7 +435,7 @@ pub fn image_queue_submit_generate(
         task_id: task_id.clone(),
         task_type: "generate".to_string(),
         prompt: prompt.trim().to_string(),
-        media_id: None,
+        source_media_ids: None,
         status: "pending".to_string(),
         staged: Vec::new(),
         error: None,
@@ -455,8 +450,7 @@ pub fn image_queue_submit_generate(
 #[tauri::command]
 pub fn image_queue_submit_edit(
     app: AppHandle,
-    media_id: String,
-    variant_id: Option<String>,
+    source_media_ids: Vec<String>,
     prompt: String,
     aspect_ratio: Option<String>,
     resolution: Option<String>,
@@ -467,8 +461,7 @@ pub fn image_queue_submit_edit(
     let task_id = ulid::Ulid::new().to_string();
     let task = ImageTask::Edit {
         task_id: task_id.clone(),
-        media_id: media_id.clone(),
-        variant_id: variant_id.clone(),
+        source_media_ids: source_media_ids.clone(),
         prompt: prompt.trim().to_string(),
         aspect_ratio: aspect_ratio.unwrap_or_else(|| "auto".to_string()),
         resolution: resolution.unwrap_or_else(|| "1k".to_string()),
@@ -479,7 +472,7 @@ pub fn image_queue_submit_edit(
         task_id: task_id.clone(),
         task_type: "edit".to_string(),
         prompt: prompt.trim().to_string(),
-        media_id: Some(media_id),
+        source_media_ids: Some(source_media_ids),
         status: "pending".to_string(),
         staged: Vec::new(),
         error: None,
@@ -532,23 +525,27 @@ pub fn image_queue_import(
     };
 
     let provider = crate::settings::get_image_api_provider(&app);
-    let source = if task.media_id.is_some() {
-        format!("edited:{}", provider)
-    } else {
-        format!("generated:{}", provider)
-    };
 
-    if let Some(ref mid) = task.media_id {
-        // Edit mode: import as new media with lineage
+    if let Some(ref source_media_ids) = task.source_media_ids {
+        // Edit mode: create derivative media records with lineage
+        if source_media_ids.is_empty() {
+            return Err("No source media IDs provided for edit task".to_string());
+        }
+
         let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let library_dir = app_dir.join("library");
+
+        let provider_tag = task.workflow_id.as_deref().map_or("unknown", |w| {
+            if w.contains("comfyui") { "comfyui" } else { "xai" }
+        });
+        let source = format!("ai-edited:{}", provider_tag);
 
         let mut results = Vec::new();
         for img in &selected {
             let ext = find_staged_ext(&staging_dir, &img.id)?;
             let src = staging_dir.join(format!("{}.{}", img.id, ext));
             let new_id = ulid::Ulid::new().to_string();
-            let dest = library_dir.join(format!("{}.{}", new_id, ext));
+            let dest = library_dir.join(format!("{}_{}.{}", source_media_ids[0], new_id, ext));
 
             if let Err(e) = fs::copy(&src, &dest) {
                 results.push(crate::media::MediaImportResult {
@@ -574,10 +571,11 @@ pub fn image_queue_import(
                 }
             };
             let file_size = fs::metadata(&dest).map(|m| m.len() as i64).unwrap_or(0);
+            let dest_str = dest.to_string_lossy().replace('\\', "/");
 
             let media = crate::media::Media {
                 id: new_id.clone(),
-                source_path: None,
+                source_path: Some(dest_str.clone()),
                 width: Some(decoded.width() as i32),
                 height: Some(decoded.height() as i32),
                 file_size: Some(file_size),
@@ -593,7 +591,7 @@ pub fn image_queue_import(
                 display_variant_id: None,
                 thumb_256: None,
                 lqip: None,
-                media_type: None,
+                media_type: Some("image".to_string()),
                 duration: None,
                 video_codec: None,
                 video_fps: None,
@@ -610,9 +608,11 @@ pub fn image_queue_import(
                 continue;
             }
 
-            // Link via lineage
-            if let Err(e) = crate::db::lineage_insert(&app, mid, &new_id, "edit", None) {
-                eprintln!("[image-queue] failed to insert lineage: {}", e);
+            // Create lineage links for ALL source images
+            for src_id in source_media_ids {
+                if let Err(e) = crate::db::lineage_insert(&app, src_id, &new_id, "edit", task.workflow_id.as_deref()) {
+                    eprintln!("[image-queue] failed to insert lineage: {}", e);
+                }
             }
 
             // Generate thumbnail
@@ -620,6 +620,7 @@ pub fn image_queue_import(
                 eprintln!("[image-queue] thumbnail failed: {}", e);
             }
 
+            // Save prompt as caption (if not empty)
             if !task.prompt.is_empty() {
                 if let Err(e) = crate::db::caption_create_with_source(&app, &new_id, &task.prompt, Some("ai-edit")) {
                     eprintln!("[image-queue] failed to save prompt caption: {}", e);
@@ -628,7 +629,7 @@ pub fn image_queue_import(
 
             results.push(crate::media::MediaImportResult {
                 id: new_id,
-                path: dest.to_string_lossy().replace('\\', "/"),
+                path: dest_str,
                 success: true,
                 error: None,
             });
@@ -644,6 +645,7 @@ pub fn image_queue_import(
         Ok(results)
     } else {
         // Generate mode: import as new media
+        let source = format!("generated:{}", provider);
         let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let library_dir = app_dir.join("library");
 

@@ -32,7 +32,7 @@ pub fn db_path(app: &AppHandle) -> PathBuf {
 }
 
 /// Get a pooled connection from the Tauri managed state.
-fn get_conn(app: &AppHandle) -> Result<r2d2::PooledConnection<SqliteConnectionManager>, String> {
+pub(crate) fn get_conn(app: &AppHandle) -> Result<r2d2::PooledConnection<SqliteConnectionManager>, String> {
     app.state::<DbPool>().get().map_err(|e| e.to_string())
 }
 
