@@ -2167,6 +2167,22 @@ pub fn media_query_filtered(
     media_query_filtered_path(&db_path(app), media_ids, dimensions, date_range, file_size, media_type, sort_by, descending)
 }
 
+// --- LineageGraph / LineageEdge structs ---
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LineageGraph {
+    pub parents: Vec<LineageEdge>,
+    pub children: Vec<LineageEdge>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LineageEdge {
+    pub media_id: String,
+    pub relation_type: String,
+    pub workflow_id: Option<String>,
+    pub created_at: String,
+}
+
 // --- Variant operations ---
 
 pub fn variant_list(
@@ -2373,6 +2389,155 @@ pub fn variant_preset_delete(app: &AppHandle, name: &str) -> Result<(), Box<dyn 
     let conn = get_conn(app)?;
     conn.execute("DELETE FROM variant_presets WHERE name = ?1", params![name])?;
     Ok(())
+}
+
+// --- media_lineage operations ---
+
+pub fn lineage_insert_path(
+    conn: &Connection,
+    parent_media_id: &str,
+    child_media_id: &str,
+    relation_type: &str,
+    workflow_id: Option<&str>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR IGNORE INTO media_lineage (parent_media_id, child_media_id, relation_type, workflow_id)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![parent_media_id, child_media_id, relation_type, workflow_id],
+    )?;
+    Ok(())
+}
+
+pub fn lineage_insert(
+    app: &AppHandle,
+    parent_media_id: &str,
+    child_media_id: &str,
+    relation_type: &str,
+    workflow_id: Option<&str>,
+) -> Result<(), String> {
+    let conn = get_conn(app)?;
+    lineage_insert_path(&conn, parent_media_id, child_media_id, relation_type, workflow_id)
+        .map_err(|e| e.to_string())
+}
+
+pub fn lineage_list_path(conn: &Connection, media_id: &str) -> Result<LineageGraph, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT parent_media_id, relation_type, workflow_id, created_at
+         FROM media_lineage WHERE child_media_id = ?1 ORDER BY created_at"
+    )?;
+    let parents: Vec<LineageEdge> = stmt
+        .query_map(params![media_id], |r| {
+            Ok(LineageEdge {
+                media_id: r.get(0)?,
+                relation_type: r.get(1)?,
+                workflow_id: r.get(2)?,
+                created_at: r.get(3)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut stmt = conn.prepare(
+        "SELECT child_media_id, relation_type, workflow_id, created_at
+         FROM media_lineage WHERE parent_media_id = ?1 ORDER BY created_at"
+    )?;
+    let children: Vec<LineageEdge> = stmt
+        .query_map(params![media_id], |r| {
+            Ok(LineageEdge {
+                media_id: r.get(0)?,
+                relation_type: r.get(1)?,
+                workflow_id: r.get(2)?,
+                created_at: r.get(3)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(LineageGraph { parents, children })
+}
+
+pub fn lineage_list(app: &AppHandle, media_id: &str) -> Result<LineageGraph, String> {
+    let conn = get_conn(app)?;
+    lineage_list_path(&conn, media_id).map_err(|e| e.to_string())
+}
+
+pub fn lineage_remove_path(
+    conn: &Connection,
+    parent_media_id: &str,
+    child_media_id: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM media_lineage WHERE parent_media_id = ?1 AND child_media_id = ?2",
+        params![parent_media_id, child_media_id],
+    )?;
+    Ok(())
+}
+
+pub fn lineage_remove(
+    app: &AppHandle,
+    parent_media_id: &str,
+    child_media_id: &str,
+) -> Result<(), String> {
+    let conn = get_conn(app)?;
+    lineage_remove_path(&conn, parent_media_id, child_media_id).map_err(|e| e.to_string())
+}
+
+/// Returns true if inserting (parent → child) would create a cycle in the DAG.
+pub fn lineage_would_cycle_path(conn: &Connection, parent_id: &str, child_id: &str) -> Result<bool, rusqlite::Error> {
+    use std::collections::HashSet;
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut queue: Vec<String> = vec![child_id.to_string()];
+
+    while let Some(current) = queue.pop() {
+        if current == parent_id {
+            return Ok(true);
+        }
+        if visited.insert(current.clone()) {
+            let mut stmt = conn.prepare(
+                "SELECT child_media_id FROM media_lineage WHERE parent_media_id = ?1"
+            )?;
+            let descendants: Vec<String> = stmt
+                .query_map(params![current], |r| r.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            queue.extend(descendants);
+        }
+    }
+
+    Ok(false)
+}
+
+pub fn lineage_insert_safe(
+    app: &AppHandle,
+    parent_media_id: &str,
+    child_media_id: &str,
+    relation_type: &str,
+    workflow_id: Option<&str>,
+) -> Result<(), String> {
+    let conn = get_conn(app)?;
+    if lineage_would_cycle_path(&conn, parent_media_id, child_media_id).map_err(|e| e.to_string())? {
+        return Err("Adding this lineage would create a cycle".into());
+    }
+    lineage_insert_path(&conn, parent_media_id, child_media_id, relation_type, workflow_id)
+        .map_err(|e| e.to_string())
+}
+
+pub fn media_is_root(conn: &Connection, media_id: &str) -> Result<bool, rusqlite::Error> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM media_lineage WHERE child_media_id = ?1",
+        params![media_id],
+        |r| r.get(0),
+    )?;
+    Ok(count == 0)
+}
+
+pub fn media_has_derivatives(conn: &Connection, media_id: &str) -> Result<bool, rusqlite::Error> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM media_lineage WHERE parent_media_id = ?1",
+        params![media_id],
+        |r| r.get(0),
+    )?;
+    Ok(count > 0)
 }
 
 // --- Caption operations ---
