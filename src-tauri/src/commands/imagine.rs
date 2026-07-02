@@ -101,10 +101,8 @@ pub async fn image_edit(
     n: Option<u32>,
 ) -> Result<Vec<StagedImage>, String> {
     let source_path = if let Some(ref vid) = variant_id {
-        let variant = crate::db::variant_get_by_id(&app, vid)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "Variant not found".to_string())?;
-        std::path::PathBuf::from(&variant.file_path)
+        // variant_id is now a lineage child media ID - look up its file in the library
+        resolve_media_path(&app, vid)?
     } else {
         resolve_media_path(&app, &media_id)?
     };
@@ -207,55 +205,67 @@ pub async fn image_confirm_import(
     };
 
     if let Some(ref mid) = media_id {
-        // Editing mode: import as variants
-        let variants_dir = {
+        // Editing mode: import as new media with lineage
+        let library_dir = {
             let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-            app_dir.join("variants")
+            app_dir.join("library")
         };
-        fs::create_dir_all(&variants_dir).map_err(|e| e.to_string())?;
 
-        let mid_str: &str = mid.as_ref();
         let mut results = Vec::new();
         for sid in &staged_ids {
             let ext = find_staged_ext(&staging, sid)?;
             let src = staging.join(format!("{}.{}", sid, ext));
-            let variant_id = Ulid::new().to_string();
-            let dest = variants_dir.join(format!("{}_{}.{}", mid_str, variant_id, ext));
+            let new_id = Ulid::new().to_string();
+            let dest = library_dir.join(format!("{}.{}", new_id, ext));
             fs::copy(&src, &dest).map_err(|e| e.to_string())?;
             let _ = fs::remove_file(&src);
 
             let img = image::open(&dest).map_err(|e| e.to_string())?;
             let file_size = fs::metadata(&dest).map_err(|e| e.to_string())?.len() as i64;
 
-            let label = if prompt.len() > 50 { prompt[..50].to_string() } else { prompt.clone() };
-            let variant = crate::variants::Variant {
-                id: variant_id.clone(),
-                media_id: mid_str.to_string(),
-                preset_name: String::new(),
-                format: ext.clone(),
+            // Insert as new media
+            let media = crate::media::Media {
+                id: new_id.clone(),
+                source_path: None,
                 width: Some(img.width() as i32),
                 height: Some(img.height() as i32),
-                quality: None,
                 file_size: Some(file_size),
-                file_path: dest.to_string_lossy().replace('\\', "/"),
-                label: Some(label),
+                created_at: None,
+                modified_at: None,
+                imported_at: chrono::Utc::now().to_rfc3339(),
+                source_url: None,
+                page_url: None,
                 source: Some(source.clone()),
+                phash: None,
+                sha256: None,
+                deleted_at: None,
+                display_variant_id: None,
+                thumb_256: None,
+                lqip: None,
                 media_type: None,
                 duration: None,
                 video_codec: None,
                 video_fps: None,
             };
-            crate::db::variant_insert(&app, &variant).map_err(|e| e.to_string())?;
+            crate::db::insert_media(&app, &media).map_err(|e| e.to_string())?;
 
-            // Store prompt as caption on the variant
-            if let Err(e) = crate::db::caption_create_for_variant(
-                &app, mid_str, &variant_id, &prompt, Some("ai-edit"),
-            ) {
+            // Link via lineage
+            if let Err(e) = crate::db::lineage_insert(&app, mid, &new_id, "edit", None) {
+                eprintln!("[imagine] failed to insert lineage: {}", e);
+            }
+
+            // Generate thumbnails
+            if let Err(e) = crate::media::thumbnail::generate_thumbnails_from_image(&app, &new_id, &img) {
+                eprintln!("[imagine] thumbnail failed: {}", e);
+            }
+
+            // Store prompt as caption
+            if let Err(e) = crate::db::caption_create_with_source(&app, &new_id, &prompt, Some("ai-edit")) {
                 eprintln!("[imagine] failed to save prompt caption: {}", e);
             }
 
             results.push(crate::media::MediaImportResult {
-                id: variant_id,
+                id: new_id,
                 path: dest.to_string_lossy().replace('\\', "/"),
                 success: true,
                 error: None,

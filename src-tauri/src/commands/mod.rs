@@ -9,7 +9,7 @@ mod model;
 mod settings;
 mod tag;
 mod thumbnail;
-mod variant;
+mod lineage;
 
 pub use browse::*;
 pub use caption::*;
@@ -22,7 +22,7 @@ pub use model::*;
 pub use settings::*;
 pub use tag::*;
 pub use thumbnail::*;
-pub use variant::*;
+pub use lineage::*;
 
 use tauri::command;
 

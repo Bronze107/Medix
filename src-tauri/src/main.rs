@@ -9,7 +9,6 @@ mod search;
 mod server;
 mod settings;
 mod tag;
-mod variants;
 
 use tauri::Manager;
 
@@ -35,8 +34,7 @@ use commands::{
     media_search, media_tag_add, media_tag_add_batch, media_tag_add_for_variant, media_tag_remove, media_tag_remove_batch, media_tag_remove_for_variant, media_tags_clear, media_tags_get, media_tags_get_for_variant, media_tags_intersect,
     media_thumbnail, media_thumbnail_batch, model_list, saved_filters_delete, saved_filters_list, saved_filters_save,
     settings_get, settings_get_all, settings_set, test_proxy, tag_create, tag_delete, tag_list, tag_rename,
-    variant_annotate, variant_delete, variant_generate, variant_import, variant_list, variant_preset_create, variant_preset_delete, variant_presets,
-    media_reset_all_display_variants, media_set_display_variant,
+    media_lineage_list, media_lineage_add, media_lineage_remove, media_list_roots_count,
 };
 
 fn main() {
@@ -144,16 +142,10 @@ fn main() {
             tag_delete,
             tag_list,
             tag_rename,
-            variant_annotate,
-            variant_delete,
-            variant_generate,
-            variant_import,
-            variant_list,
-            variant_preset_create,
-            variant_preset_delete,
-            variant_presets,
-            media_reset_all_display_variants,
-            media_set_display_variant,
+            media_lineage_list,
+            media_lineage_add,
+            media_lineage_remove,
+            media_list_roots_count,
             caption_list,
             caption_create,
             caption_create_batch,

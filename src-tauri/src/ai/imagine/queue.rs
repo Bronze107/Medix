@@ -328,10 +328,19 @@ fn resolve_edit_image(
     resolution: &str,
 ) -> Result<String, String> {
     let source_path = if let Some(vid) = variant_id {
-        let variant = crate::db::variant_get_by_id(app, vid)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "Variant not found".to_string())?;
-        PathBuf::from(&variant.file_path)
+        // variant_id is now a lineage child media ID - look up its file in the library
+        let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let library_dir = app_dir.join("library");
+        let mut found = None;
+        for entry in fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with(vid) {
+                found = Some(entry.path());
+                break;
+            }
+        }
+        found.ok_or_else(|| format!("Media file not found for: {}", vid))?
     } else {
         let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let library_dir = app_dir.join("library");
@@ -530,61 +539,95 @@ pub fn image_queue_import(
     };
 
     if let Some(ref mid) = task.media_id {
-        // Edit mode: import as variants
+        // Edit mode: import as new media with lineage
         let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        let variants_dir = app_dir.join("variants");
-        fs::create_dir_all(&variants_dir).map_err(|e| e.to_string())?;
+        let library_dir = app_dir.join("library");
 
         let mut results = Vec::new();
         for img in &selected {
             let ext = find_staged_ext(&staging_dir, &img.id)?;
             let src = staging_dir.join(format!("{}.{}", img.id, ext));
-            let variant_id = ulid::Ulid::new().to_string();
-            let dest = variants_dir.join(format!("{}_{}.{}", mid, variant_id, ext));
-            fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+            let new_id = ulid::Ulid::new().to_string();
+            let dest = library_dir.join(format!("{}.{}", new_id, ext));
+
+            if let Err(e) = fs::copy(&src, &dest) {
+                results.push(crate::media::MediaImportResult {
+                    id: String::new(),
+                    path: img.path.clone(),
+                    success: false,
+                    error: Some(e.to_string()),
+                });
+                continue;
+            }
             let _ = fs::remove_file(&src);
 
-            let decoded = image::open(&dest).map_err(|e| e.to_string())?;
-            let file_size = fs::metadata(&dest).map_err(|e| e.to_string())?.len() as i64;
+            let decoded = match image::open(&dest) {
+                Ok(d) => d,
+                Err(e) => {
+                    results.push(crate::media::MediaImportResult {
+                        id: String::new(),
+                        path: img.path.clone(),
+                        success: false,
+                        error: Some(e.to_string()),
+                    });
+                    continue;
+                }
+            };
+            let file_size = fs::metadata(&dest).map(|m| m.len() as i64).unwrap_or(0);
 
-            let label: String = task.prompt.chars().take(50).collect();
-            let variant = crate::variants::Variant {
-                id: variant_id.clone(),
-                media_id: mid.clone(),
-                preset_name: String::new(),
-                format: ext.clone(),
+            let media = crate::media::Media {
+                id: new_id.clone(),
+                source_path: None,
                 width: Some(decoded.width() as i32),
                 height: Some(decoded.height() as i32),
-                quality: None,
                 file_size: Some(file_size),
-                file_path: dest.to_string_lossy().replace('\\', "/"),
-                label: Some(label),
+                created_at: None,
+                modified_at: None,
+                imported_at: Utc::now().to_rfc3339(),
+                source_url: None,
+                page_url: None,
                 source: Some(source.clone()),
+                phash: None,
+                sha256: None,
+                deleted_at: None,
+                display_variant_id: None,
+                thumb_256: None,
+                lqip: None,
                 media_type: None,
                 duration: None,
                 video_codec: None,
                 video_fps: None,
             };
-            crate::db::variant_insert(&app, &variant).map_err(|e| e.to_string())?;
 
-            // Generate thumbnail for the variant
-            let dest_clone = dest.clone();
-            if let Err(e) = crate::media::thumbnail::generate_variant_thumbnail(
-                &app, &variant_id, &dest_clone,
-            ) {
-                eprintln!("[image-queue] variant thumbnail failed: {}", e);
+            if let Err(e) = crate::db::insert_media(&app, &media) {
+                let _ = fs::remove_file(&dest);
+                results.push(crate::media::MediaImportResult {
+                    id: String::new(),
+                    path: img.path.clone(),
+                    success: false,
+                    error: Some(e.to_string()),
+                });
+                continue;
+            }
+
+            // Link via lineage
+            if let Err(e) = crate::db::lineage_insert(&app, mid, &new_id, "edit", None) {
+                eprintln!("[image-queue] failed to insert lineage: {}", e);
+            }
+
+            // Generate thumbnail
+            if let Err(e) = crate::media::thumbnail::generate_thumbnails_from_image(&app, &new_id, &decoded) {
+                eprintln!("[image-queue] thumbnail failed: {}", e);
             }
 
             if !task.prompt.is_empty() {
-                if let Err(e) = crate::db::caption_create_for_variant(
-                    &app, mid, &variant_id, &task.prompt, Some("ai-edit"),
-                ) {
+                if let Err(e) = crate::db::caption_create_with_source(&app, &new_id, &task.prompt, Some("ai-edit")) {
                     eprintln!("[image-queue] failed to save prompt caption: {}", e);
                 }
             }
 
             results.push(crate::media::MediaImportResult {
-                id: variant_id,
+                id: new_id,
                 path: dest.to_string_lossy().replace('\\', "/"),
                 success: true,
                 error: None,

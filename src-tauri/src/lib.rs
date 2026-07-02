@@ -9,4 +9,3 @@ pub mod search;
 pub mod server;
 pub mod settings;
 pub mod tag;
-pub mod variants;
