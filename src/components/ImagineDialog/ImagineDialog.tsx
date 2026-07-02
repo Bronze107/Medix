@@ -15,6 +15,8 @@ interface Props {
   mediaId: string;
   variantId?: string | null;
   variantPath?: string | null;
+  sourceMediaIds?: string[];
+  sourceMediaPath?: string;
   onClose: () => void;
 }
 

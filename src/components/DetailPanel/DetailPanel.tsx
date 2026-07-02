@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 
 function formatDurationChinese(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -13,13 +12,12 @@ function formatDurationChinese(seconds: number): string {
 import { listen } from "@tauri-apps/api/event";
 import { showToast } from "@/components/Toast/Toast";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
-import { open } from "@tauri-apps/plugin-dialog";
 import { useThumbnail } from "@/hooks/useThumbnail";
 import ImagineDialog from "@/components/ImagineDialog/ImagineDialog";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
-import type { Variant, VariantPreset } from "@/types/variant";
+import type { LineageGraph } from "@/types/lineage";
 import type { Caption } from "@/types/caption";
 import {
   mediaTagsGetForVariant,
@@ -28,23 +26,14 @@ import {
   mediaTagsClear,
   tagList,
   tagCreate,
-  variantList,
-  variantGenerate,
-  variantImport,
-  variantDelete,
-  variantAnnotate,
-  variantPresets,
-  variantPresetCreate,
-  variantPresetDelete,
-  mediaSetDisplayVariant,
   captionList,
   captionCreate,
-  captionCreateForVariant,
   captionUpdate,
   captionDelete,
   embeddingInfo,
   embeddingDelete,
   mediaAiAnnotate,
+  mediaLineageList,
   aiPendingCount,
   mediaSoftDelete,
 } from "@/lib/tauri";
@@ -55,7 +44,7 @@ interface DetailPanelProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onDeleted?: () => void;
-  initialVariantId?: string | null;
+  onNavigate?: (mediaId: string) => void;
 }
 
 function parsePlatform(url: string | null): string | null {
@@ -120,110 +109,9 @@ function formatDate(dateStr: string | null): string {
   }
 }
 
-// --- Dropdown for variant list, kept in DOM (hidden when closed) for image cache ---
-function TargetMenu({
-  media,
-  variants,
-  targetId,
-  onSelect,
-}: {
-  media: Media;
-  variants: Variant[];
-  targetId: string | null;
-  onSelect: (id: string | null) => void;
-}) {
-  return (
-    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-lg">
-      {/* Original */}
-      <button
-        onClick={() => onSelect(null)}
-        className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)] ${!targetId ? "bg-[var(--color-accent-soft)]" : ""}`}
-      >
-        <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
-          {media.thumb_256 ? (
-            <img src={convertFileSrc(media.thumb_256)} alt="" className="h-full w-full object-cover" draggable={false} decoding="async" />
-          ) : (
-            <div className="h-full w-full bg-[var(--color-bg-secondary)]" />
-          )}
-        </div>
-        <span className={`text-xs ${!targetId ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>原图</span>
-      </button>
-      {variants.map((v) => {
-        const label = v.label || v.preset_name || "未命名变体";
-        const active = targetId === v.id;
-        const fmt = v.format.toUpperCase();
-        const dim = `${v.width ?? "?"}×${v.height ?? "?"}`;
-        return (
-          <button
-            key={v.id}
-            onClick={() => onSelect(v.id)}
-            className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-bg-hover)] ${active ? "bg-[var(--color-accent-soft)]" : ""}`}
-          >
-            <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--color-bg-tertiary)]">
-              <MenuThumb itemId={v.id} filePath={v.file_path} />
-            </div>
-            <div className="min-w-0 flex-1 text-left">
-              <div className={`truncate text-xs ${active ? "font-semibold text-[var(--color-accent)]" : "text-[var(--color-text-secondary)]"}`}>
-                {label}
-                {media.display_variant_id === v.id && (
-                  <span className="ml-1 text-[10px] text-[var(--color-accent)]">👁</span>
-                )}
-              </div>
-              <p className="truncate text-[10px] text-[var(--color-text-muted)]">
-                {fmt}{v.quality && v.format === "jpeg" ? `·Q${v.quality}` : ""} · {dim} · {formatFileSize(v.file_size)}
-              </p>
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function MenuThumb({ itemId, filePath }: { itemId: string; filePath?: string }) {
-  const thumbUrl = useThumbnail(itemId, undefined);
-  // Prefer thumbnail over full-size variant image
-  const url = thumbUrl || (filePath ? convertFileSrc(filePath) : null);
+function ThumbnailPreview({ media }: { media: Media }) {
   const [loaded, setLoaded] = useState(false);
-
-  if (!url) return <div className="h-full w-full bg-[var(--color-bg-secondary)]" />;
-
-  return (
-    <img
-      src={url}
-      alt=""
-      decoding="async"
-      loading="lazy"
-      className={`h-full w-full object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
-      onLoad={() => setLoaded(true)}
-    />
-  );
-}
-
-function ThumbnailPreview({
-  media,
-  targetId,
-  variants,
-}: {
-  media: Media;
-  targetId: string | null;
-  variants: Variant[];
-}) {
-  const [loaded, setLoaded] = useState(false);
-  const variantThumbUrl = useThumbnail(targetId ?? "", undefined);
-  let thumbUrl: string | null = null;
-
-  if (targetId) {
-    thumbUrl = variantThumbUrl || null;
-    if (!thumbUrl) {
-      const variant = variants.find((v) => v.id === targetId);
-      if (variant?.file_path) {
-        thumbUrl = convertFileSrc(variant.file_path);
-      }
-    }
-  } else {
-    thumbUrl = media.thumb_256 ? convertFileSrc(media.thumb_256) : null;
-  }
+  const thumbUrl = useThumbnail(media.id);
 
   if (!thumbUrl) {
     return (
@@ -268,10 +156,9 @@ function ThumbnailPreview({
   );
 }
 
-function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVariantId }: DetailPanelProps) {
+function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<"details" | "captions" | "tags">("details");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showDeleteVariantConfirm, setShowDeleteVariantConfirm] = useState(false);
   const [showClearTagsConfirm, setShowClearTagsConfirm] = useState(false);
 
   // Tags state
@@ -283,23 +170,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const inputRef = useRef<HTMLInputElement>(null);
   const captionEditRef = useRef<HTMLTextAreaElement>(null);
 
-  // Version state
-  const [variants, setVariants] = useState<Variant[]>([]);
-  const [presets, setPresets] = useState<VariantPreset[]>([]);
-
-  // Version generation form
-  const [versionLabel, setVersionLabel] = useState("");
-  const [versionFormat, setVersionFormat] = useState("jpeg");
-  const [versionMaxWidth, setVersionMaxWidth] = useState<number | null>(1080);
-  const [versionMaxHeight, setVersionMaxHeight] = useState<number | null>(null);
-  const [versionQuality, setVersionQuality] = useState(75);
-  const [versionResizeFilter, setVersionResizeFilter] = useState("triangle");
-  const [versionGenerating, setVersionGenerating] = useState(false);
-
-  // Import version
-  const [importVersionPaths, setImportVersionPaths] = useState<string[]>([]);
-  const [importingVersion, setImportingVersion] = useState(false);
-  const [versionMode, setVersionMode] = useState<"import" | "generate">("generate");
+  // Lineage state
+  const [lineage, setLineage] = useState<LineageGraph>({ parents: [], children: [] });
 
   // Captions state
   const [captions, setCaptions] = useState<Caption[]>([]);
@@ -307,14 +179,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const [newCaptionText, setNewCaptionText] = useState("");
   const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
-  const [targetId, setTargetId] = useState<string | null>(null); // null=original, string=variant_id
-  const [showVersionForm, setShowVersionForm] = useState(false);
-  const [newPresetName, setNewPresetName] = useState("");
-  const [presetToDelete, setPresetToDelete] = useState<VariantPreset | null>(null);
   const [showAiEdit, setShowAiEdit] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
-  const [showTargetMenu, setShowTargetMenu] = useState(false);
-  const targetMenuRef = useRef<HTMLDivElement>(null);
   const [copiedCaptionId, setCopiedCaptionId] = useState<string | null>(null);
 
   // Auto-resize caption edit textarea when entering/exiting edit mode
@@ -335,21 +201,12 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     }
   }, []);
 
-  const loadMediaTags = useCallback(async (mediaId: string, variantId: string | null) => {
+  const loadMediaTags = useCallback(async (mediaId: string) => {
     try {
-      const list = await mediaTagsGetForVariant(mediaId, variantId);
+      const list = await mediaTagsGetForVariant(mediaId, null);
       setTags(list);
     } catch (e) {
       console.error("Failed to load media tags:", e);
-    }
-  }, []);
-
-  const loadVariants = useCallback(async (mediaId: string) => {
-    try {
-      const list = await variantList(mediaId);
-      setVariants(list);
-    } catch (e) {
-      console.error("Failed to load variants:", e);
     }
   }, []);
 
@@ -373,102 +230,49 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
 
   useEffect(() => {
     loadAllTags();
-    variantPresets().then(setPresets);
   }, [loadAllTags]);
 
   useEffect(() => {
     if (media) {
-      // When initialVariantId is explicitly provided (browse item click), use it;
-      // otherwise fall back to the media's display_variant_id (old behavior).
-      const effectiveVariantId = initialVariantId !== undefined ? initialVariantId : (media.display_variant_id ?? null);
-      setTargetId(effectiveVariantId);
-      setShowVersionForm(false);
-      loadMediaTags(media.id, null);
-      loadVariants(media.id);
+      loadMediaTags(media.id);
       loadCaptions(media.id);
-      loadEmbeddings(media.id, effectiveVariantId);
+      loadEmbeddings(media.id, null);
     } else {
       setTags([]);
-      setVariants([]);
       setCaptions([]);
       setEmbeddings([]);
       setNewCaptionText("");
       setEditingCaptionId(null);
       setEditingText("");
-      setTargetId(null);
     }
-  }, [media?.id, initialVariantId, loadMediaTags, loadVariants, loadCaptions, loadEmbeddings]);
+  }, [media?.id, loadMediaTags, loadCaptions, loadEmbeddings]);
 
-
-  // Reload tags when target changes
+  // Load lineage when media changes
   useEffect(() => {
-    if (media) {
-      loadMediaTags(media.id, targetId);
-    }
-  }, [targetId, media?.id, loadMediaTags]);
-
-  // Reload embeddings when target changes (original vs variant)
-  useEffect(() => {
-    if (media) {
-      loadEmbeddings(media.id, targetId);
-    }
-  }, [targetId, media?.id, loadEmbeddings]);
+    if (!media) return;
+    mediaLineageList(media.id).then(setLineage).catch(() => setLineage({ parents: [], children: [] }));
+  }, [media?.id]);
 
   // Auto-refresh captions, tags & embeddings when AI annotation completes
   useEffect(() => {
     const unlisten = listen<{ remaining: number }>("ai-task-done", () => {
       if (media) {
         loadCaptions(media.id);
-        loadMediaTags(media.id, targetId);
-        loadEmbeddings(media.id, targetId);
+        loadMediaTags(media.id);
+        loadEmbeddings(media.id, null);
       }
     });
     return () => { unlisten.then((f) => f()); };
-  }, [media?.id, targetId, loadCaptions, loadMediaTags, loadEmbeddings]);
+  }, [media?.id, loadCaptions, loadMediaTags, loadEmbeddings]);
 
   // Reload tags when batch-tagging or other manual tag changes happen
   useEffect(() => {
     const handler = () => {
-      if (media) loadMediaTags(media.id, targetId);
+      if (media) loadMediaTags(media.id);
     };
     window.addEventListener("tags-changed", handler);
     return () => window.removeEventListener("tags-changed", handler);
-  }, [media?.id, targetId, loadMediaTags]);
-
-  // Reload variants when AI editing adds new variants
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (media && detail?.mediaId === media.id) {
-        loadVariants(media.id);
-      }
-    };
-    window.addEventListener("variants-changed", handler);
-    return () => window.removeEventListener("variants-changed", handler);
-  }, [media?.id, loadVariants]);
-
-  // Click outside target menu → close
-  useEffect(() => {
-    if (!showTargetMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (targetMenuRef.current && !targetMenuRef.current.contains(e.target as Node)) {
-        setShowTargetMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showTargetMenu]);
-
-  // Drag-and-drop import for variant panel
-  useEffect(() => {
-    if (!showVersionForm || versionMode !== "import") return;
-    const unlisten = listen<{ paths: string[]; position: { x: number; y: number } }>("tauri://drag-drop", (event) => {
-      const paths = event.payload.paths;
-      if (paths.length === 0) return;
-      setImportVersionPaths(paths);
-    });
-    return () => { unlisten.then((f) => f()); };
-  }, [showVersionForm, versionMode]);
+  }, [media?.id, loadMediaTags]);
 
   useEffect(() => {
     const input = newTagInput.trim().toLowerCase();
@@ -510,8 +314,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     }
 
     try {
-      await mediaTagAddForVariant(media.id, targetId, tagId);
-      await loadMediaTags(media.id, targetId);
+      await mediaTagAddForVariant(media.id, null, tagId);
+      await loadMediaTags(media.id);
       setNewTagInput("");
       setShowSuggestions(false);
     } catch (e) {
@@ -522,8 +326,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
   const handleRemoveTag = async (tagId: string) => {
     if (!media) return;
     try {
-      await mediaTagRemoveForVariant(media.id, targetId, tagId);
-      await loadMediaTags(media.id, targetId);
+      await mediaTagRemoveForVariant(media.id, null, tagId);
+      await loadMediaTags(media.id);
       showToast("已移除标签");
     } catch (e) {
       console.error("Failed to remove tag:", e);
@@ -534,132 +338,10 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     if (!media || tags.length === 0) return;
     try {
       await mediaTagsClear(media.id);
-      await loadMediaTags(media.id, targetId);
+      await loadMediaTags(media.id);
       showToast(`已清除 ${tags.length} 个标签`);
     } catch (e) {
       console.error("Failed to remove tag:", e);
-    }
-  };
-
-  const fillPreset = (preset: VariantPreset) => {
-    setVersionLabel(preset.label);
-    setVersionFormat(preset.format);
-    setVersionMaxWidth(preset.max_width ?? null);
-    setVersionMaxHeight(preset.max_height ?? null);
-    setVersionQuality(preset.quality);
-    setVersionResizeFilter(preset.resize_filter || "triangle");
-  };
-
-  const handleSavePreset = async () => {
-    const label = newPresetName.trim();
-    if (!label) return;
-    const name = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    try {
-      await variantPresetCreate(
-        name,
-        label,
-        versionFormat,
-        versionMaxWidth,
-        versionMaxHeight,
-        versionQuality,
-        versionResizeFilter,
-      );
-      const list = await variantPresets();
-      setPresets(list);
-      setNewPresetName("");
-      showToast("已保存预设");
-    } catch (e) {
-      console.error("Failed to save preset:", e);
-      showToast(`保存预设失败: ${e}`);
-    }
-  };
-
-  const handleDeletePreset = async (preset: VariantPreset) => {
-    try {
-      await variantPresetDelete(preset.name);
-      const list = await variantPresets();
-      setPresets(list);
-      showToast(`已删除预设 "${preset.label}"`);
-    } catch (e) {
-      console.error("Failed to delete preset:", e);
-      showToast(`删除预设失败: ${e}`);
-    } finally {
-      setPresetToDelete(null);
-    }
-  };
-
-  const handleGenerateVersion = async () => {
-    if (!media) return;
-    setVersionGenerating(true);
-    try {
-      await variantGenerate(
-        media.id,
-        versionLabel.trim(),
-        versionFormat,
-        versionMaxWidth,
-        versionMaxHeight,
-        versionQuality,
-        versionResizeFilter,
-      );
-      await loadVariants(media.id);
-      setVersionLabel("");
-      setShowVersionForm(false);
-    } catch (e) {
-      console.error("Failed to generate version:", e);
-    } finally {
-      setVersionGenerating(false);
-    }
-  };
-
-  const handleImportVersion = async () => {
-    if (!media) return;
-    const paths = importVersionPaths
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
-    if (paths.length === 0) return;
-    setImportingVersion(true);
-    try {
-      // Process in chunks of 6 to avoid overwhelming CPU/I/O with parallel
-      // image decodes, file copies, and DB writes.
-      const CONCURRENCY = 6;
-      for (let i = 0; i < paths.length; i += CONCURRENCY) {
-        const chunk = paths.slice(i, i + CONCURRENCY);
-        await Promise.all(
-          chunk.map(async (p) => {
-            const v = await variantImport(media.id, p);
-            variantAnnotate(media.id, v.id).catch((e) =>
-              console.error("Failed to annotate imported version:", e),
-            );
-          }),
-        );
-      }
-      await loadVariants(media.id);
-      window.dispatchEvent(
-        new CustomEvent("variants-changed", { detail: { mediaId: media.id } }),
-      );
-      setImportVersionPaths([]);
-      setShowVersionForm(false);
-    } catch (e) {
-      console.error("Failed to import version:", e);
-      showToast(`导入失败: ${e}`);
-    } finally {
-      setImportingVersion(false);
-    }
-  };
-
-  const handleDeleteVariant = async () => {
-    if (!targetId || !media) return;
-    try {
-      await variantDelete(targetId);
-      setShowDeleteVariantConfirm(false);
-      setTargetId(null);
-      await loadVariants(media.id);
-      window.dispatchEvent(
-        new CustomEvent("variants-changed", { detail: { mediaId: media.id } }),
-      );
-      showToast("已删除变体");
-    } catch (e) {
-      console.error("Failed to delete variant:", e);
     }
   };
 
@@ -672,7 +354,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     const optimistic: Caption = {
       id: tempId,
       media_id: media.id,
-      variant_id: targetId ?? null,
+      variant_id: null,
       text,
       source: null,
       created_at: null,
@@ -681,12 +363,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     setCaptions((prev) => [optimistic, ...prev]);
     setNewCaptionText("");
     try {
-      let caption: Caption;
-      if (targetId) {
-        caption = await captionCreateForVariant(media.id, targetId, text);
-      } else {
-        caption = await captionCreate(media.id, text);
-      }
+      const caption = await captionCreate(media.id, text);
       setCaptions((prev) => prev.map((c) => (c.id === tempId ? caption : c)));
     } catch (e) {
       console.error("Failed to add caption:", e);
@@ -747,7 +424,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     const optimistic: Caption = {
       id: tempId,
       media_id: media.id,
-      variant_id: targetId ?? null,
+      variant_id: null,
       text,
       source: null,
       created_at: null,
@@ -755,12 +432,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     };
     setCaptions((prev) => [optimistic, ...prev]);
     try {
-      let caption: Caption;
-      if (targetId) {
-        caption = await captionCreateForVariant(media.id, targetId, text);
-      } else {
-        caption = await captionCreate(media.id, text);
-      }
+      const caption = await captionCreate(media.id, text);
       // Replace temp with real caption
       setCaptions((prev) => prev.map((c) => (c.id === tempId ? caption : c)));
     } catch (e) {
@@ -802,7 +474,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
     {/* Expanded panel — slides in when not collapsed */}
     <div className={`absolute inset-y-0 right-0 z-40 w-80 ${entered ? "transition-transform duration-300 ease-in-out" : ""} ${!collapsed && entered ? "translate-x-0" : "translate-x-full"}`}>
     <div className="flex h-full w-80 flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-4 shadow-2xl shadow-black/20">
-      {/* Target selector */}
+      {/* Header */}
       <div className="mb-2 flex items-center gap-2">
         <button
           onClick={onToggleCollapse}
@@ -813,56 +485,68 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
           </svg>
         </button>
-        <div className="relative flex-1" ref={targetMenuRef}>
-          <button
-            onClick={() => setShowTargetMenu((s) => !s)}
-            className="flex w-full items-center justify-between gap-2 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none hover:border-[var(--color-text-muted)] transition-colors"
-          >
-            <span className="truncate">
-              {targetId
-                ? variants.find((v) => v.id === targetId)?.label || variants.find((v) => v.id === targetId)?.preset_name || "未命名变体"
-                : "原图"}
-            </span>
-            <svg className="h-3 w-3 shrink-0 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-            </svg>
-          </button>
-          <div className={`${showTargetMenu ? "" : "hidden"}`}>
-            <TargetMenu
-              media={media}
-              variants={variants}
-              targetId={targetId}
-              onSelect={(id) => {
-                setTargetId(id);
-                setShowTargetMenu(false);
-              }}
-            />
-          </div>
-        </div>
-        <button
-          onClick={() => setShowVersionForm(true)}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] active:scale-[0.97]"
-          title="添加变体"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-        </button>
-        {media.display_variant_id && (
-          targetId === media.display_variant_id ? (
-            <span className="text-xs text-[var(--color-accent)]" title="当前显示变体">👁</span>
-          ) : targetId ? null : (
-            <span className="text-xs text-[var(--color-accent)]" title="当前显示为其他变体">👁</span>
-          )
-        )}
+        <span className="flex-1 truncate text-xs font-medium text-[var(--color-text-primary)]">
+          详情
+        </span>
       </div>
 
-      <ThumbnailPreview media={media} targetId={targetId} variants={variants} />
+      <ThumbnailPreview media={media} />
+
+      {/* Lineage chain */}
+      {(lineage.parents.length > 0 || lineage.children.length > 0) && (
+        <div className="px-4 py-3 -mx-4 border-y border-[var(--color-border)] mb-3">
+          <h4 className="text-[11px] font-medium text-[var(--color-text-muted)] mb-2">衍生关系</h4>
+
+          {/* Parents */}
+          {lineage.parents.length > 0 && (
+            <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+              <span className="text-[10px] text-[var(--color-text-muted)] shrink-0">
+                来源 ({lineage.parents.length})
+              </span>
+              {lineage.parents.map((p) => (
+                <button
+                  key={p.media_id}
+                  onClick={() => {
+                    if (onNavigate) onNavigate(p.media_id);
+                    else window.dispatchEvent(new CustomEvent("navigate-to-media", { detail: p.media_id }));
+                  }}
+                  className="max-w-[120px] truncate rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+                  title={p.media_id}
+                >
+                  {p.media_id.slice(0, 8)}...
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Children */}
+          {lineage.children.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] text-[var(--color-text-muted)] shrink-0">
+                衍生 ({lineage.children.length})
+              </span>
+              {lineage.children.map((c) => (
+                <button
+                  key={c.media_id}
+                  onClick={() => {
+                    if (onNavigate) onNavigate(c.media_id);
+                    else window.dispatchEvent(new CustomEvent("navigate-to-media", { detail: c.media_id }));
+                  }}
+                  className="max-w-[120px] truncate rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
+                  title={c.media_id}
+                >
+                  {c.media_id.slice(0, 8)}...
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tab dots */}
       <div className="mb-3 flex items-center justify-center gap-4 border-b border-[var(--color-border)] pb-2">
         {(["details", "captions", "tags"] as const).map((tab) => {
-          const label = tab === "details" ? "详情" : tab === "captions" ? `描述${(() => { const n = captions.filter(c => targetId ? c.variant_id === targetId : !c.variant_id).length; return n > 0 ? ` (${n})` : ""; })()}` : `标签${tags.length > 0 ? ` (${tags.length})` : ""}`;
+          const label = tab === "details" ? "详情" : tab === "captions" ? `描述${(() => { const n = captions.filter(c => !c.variant_id).length; return n > 0 ? ` (${n})` : ""; })()}` : `标签${tags.length > 0 ? ` (${tags.length})` : ""}`;
           const active = activeTab === tab;
           return (
             <button
@@ -881,50 +565,21 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         })}
       </div>
 
-      {activeTab === "details" && (() => {
-          const t = targetId ? variants.find((v) => v.id === targetId) : null;
-          // Variant selected but not yet loaded — suppress render to avoid flash of original data
-          if (targetId && !t) return null;
-          const dimWidth = t?.width ?? media.width;
-          const dimHeight = t?.height ?? media.height;
-          const fileSize = t?.file_size ?? media.file_size;
-          const isVar = !!t;
-          return (
+      {activeTab === "details" && (
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
           <div className="space-y-3 text-sm">
-            {!isVar && (
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">ID</p>
               <p className="mt-0.5 break-all font-mono text-xs text-[var(--color-text-secondary)]">
                 {media.id}
               </p>
             </div>
-            )}
-
-            {isVar && t && (
-            <div>
-              <p className="text-xs text-[var(--color-text-muted)]">变体 ID</p>
-              <p className="mt-0.5 break-all font-mono text-[11px] text-[var(--color-text-secondary)]">
-                {t.id}
-              </p>
-            </div>
-            )}
-
-            {isVar && (
-            <div>
-              <p className="text-xs text-[var(--color-text-muted)]">格式</p>
-              <p className="mt-0.5 text-[var(--color-text-secondary)]">
-                {t?.format.toUpperCase()}
-                {t?.quality && t?.format === "jpeg" ? ` · Q${t.quality}` : ""}
-              </p>
-            </div>
-            )}
 
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">尺寸</p>
               <p className="mt-0.5 text-[var(--color-text-secondary)]">
-                {dimWidth ?? "?"} × {dimHeight ?? "?"} px
+                {media.width ?? "?"} × {media.height ?? "?"} px
               </p>
             </div>
 
@@ -959,22 +614,11 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">文件大小</p>
               <p className="mt-0.5 text-[var(--color-text-secondary)]">
-                {formatFileSize(fileSize)}
+                {formatFileSize(media.file_size)}
               </p>
             </div>
 
-            {isVar && t?.source && (
-            <div>
-              <p className="text-xs text-[var(--color-text-muted)]">来源</p>
-              <p className="mt-0.5 text-[var(--color-text-secondary)]">
-                {t.source === "generated" && "生成"}
-                {t.source === "imported" && "导入"}
-                {t.source !== "generated" && t.source !== "imported" && t.source}
-              </p>
-            </div>
-            )}
-
-            {!isVar && media.source !== "web" && (
+            {media.source !== "web" && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">原始路径</p>
                 <p className="mt-0.5 break-all text-xs text-[var(--color-text-secondary)]">
@@ -983,7 +627,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
               </div>
             )}
 
-            {!isVar && media.source && (
+            {media.source && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">来源</p>
                 <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
@@ -994,7 +638,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                 </p>
               </div>
             )}
-            {!isVar && media.source_url && (
+            {media.source_url && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">图片 URL</p>
                 <p className="mt-0.5 break-all text-xs">
@@ -1009,7 +653,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                 </p>
               </div>
             )}
-            {!isVar && media.page_url && (
+            {media.page_url && (
               <div>
                 <p className="text-xs text-[var(--color-text-muted)]">页面 URL</p>
                 <p className="mt-0.5 break-all text-xs">
@@ -1025,14 +669,12 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
               </div>
             )}
 
-            {!isVar && (
             <div>
               <p className="text-xs text-[var(--color-text-muted)]">导入时间</p>
               <p className="mt-0.5 text-[var(--color-text-secondary)]">
                 {formatDate(media.imported_at)}
               </p>
             </div>
-            )}
           </div>
 
             {embeddings.length > 0 && (
@@ -1052,7 +694,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
                     <button
                       onClick={async () => {
                         try {
-                          await embeddingDelete(media.id, targetId);
+                          await embeddingDelete(media.id, null);
                           setEmbeddings([]);
                         } catch (err) {
                           console.error("Failed to delete embedding:", err);
@@ -1073,103 +715,93 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
             )}
           </div>
         </div>
-      );
-      })()}
+      )}
 
       {activeTab === "tags" && (
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
-            {(() => {
-              if (targetId && !variants.some((v) => v.id === targetId)) {
-                return <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">变体未找到</p>;
-              }
-              return (
-                <>
-                  {tags.length > 0 && (
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-[11px] text-[var(--color-text-muted)]">{tags.length} 个标签</span>
-                      <button
-                        onClick={() => setShowClearTagsConfirm(true)}
-                        className="text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-colors"
-                      >
-                        清除全部
-                      </button>
-                    </div>
-                  )}
-                  <div className="mb-2 flex flex-wrap gap-1.5">
-                    {tags.length === 0 && (
-                      <span className="text-xs text-[var(--color-text-muted)]">暂无标签</span>
+            {tags.length > 0 && (
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] text-[var(--color-text-muted)]">{tags.length} 个标签</span>
+                <button
+                  onClick={() => setShowClearTagsConfirm(true)}
+                  className="text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] transition-colors"
+                >
+                  清除全部
+                </button>
+              </div>
+            )}
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {tags.length === 0 && (
+                <span className="text-xs text-[var(--color-text-muted)]">暂无标签</span>
+              )}
+              {tags.map((tag) => {
+                const isAi = tag.source === "ai";
+                return (
+                  <span
+                    key={tag.id}
+                    className={`group inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs ${
+                      isAi
+                        ? "bg-[var(--color-accent-soft)] text-[var(--color-accent-hover)]"
+                        : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
+                    }`}
+                  >
+                    {tag.name}
+                    {isAi && (
+                      <span className="rounded bg-[var(--color-accent-soft)] px-1 text-[11px] text-[var(--color-accent)]">
+                        AI
+                      </span>
                     )}
-                    {tags.map((tag) => {
-                      const isAi = tag.source === "ai";
-                      return (
-                        <span
-                          key={tag.id}
-                          className={`group inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs ${
-                            isAi
-                              ? "bg-[var(--color-accent-soft)] text-[var(--color-accent-hover)]"
-                              : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]"
-                          }`}
-                        >
-                          {tag.name}
-                          {isAi && (
-                            <span className="rounded bg-[var(--color-accent-soft)] px-1 text-[11px] text-[var(--color-accent)]">
-                              AI
-                            </span>
-                          )}
-                          <button
-                            onClick={() => handleRemoveTag(tag.id)}
-                            className="opacity-0 transition-opacity group-hover:opacity-100"
-                            title="移除标签"
-                          >
-                            <svg className="h-3 w-3 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
+                    <button
+                      onClick={() => handleRemoveTag(tag.id)}
+                      className="opacity-0 transition-opacity group-hover:opacity-100"
+                      title="移除标签"
+                    >
+                      <svg className="h-3 w-3 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
 
-                  <div className="relative">
-                    <input
-                      ref={inputRef}
-                      type="text"
-                      value={newTagInput}
-                      onChange={(e) => {
-                        setNewTagInput(e.target.value);
-                        setShowSuggestions(true);
-                      }}
-                      onFocus={() => setShowSuggestions(true)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          handleAddTag(newTagInput);
-                        }
-                        if (e.key === "Escape") {
-                          setShowSuggestions(false);
-                        }
-                      }}
-                      placeholder="添加标签..."
-                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
-                    />
-                    {showSuggestions && suggestions.length > 0 && (
-                      <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] shadow-lg">
-                        {suggestions.map((tag) => (
-                          <button
-                            key={tag.id}
-                            onClick={() => handleAddTag(tag.name)}
-                            className="block w-full px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-                          >
-                            {tag.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
-              );
-            })()}
+            <div className="relative">
+              <input
+                ref={inputRef}
+                type="text"
+                value={newTagInput}
+                onChange={(e) => {
+                  setNewTagInput(e.target.value);
+                  setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddTag(newTagInput);
+                  }
+                  if (e.key === "Escape") {
+                    setShowSuggestions(false);
+                  }
+                }}
+                placeholder="添加标签..."
+                className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
+              />
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] shadow-lg">
+                  {suggestions.map((tag) => (
+                    <button
+                      key={tag.id}
+                      onClick={() => handleAddTag(tag.name)}
+                      className="block w-full px-2 py-1.5 text-left text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                    >
+                      {tag.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1178,9 +810,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
             {(() => {
-              const targetCaptions = captions.filter(
-                (c) => targetId ? c.variant_id === targetId : !c.variant_id
-              );
+              const targetCaptions = captions.filter((c) => !c.variant_id);
               if (targetCaptions.length === 0) {
                 return <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无描述</p>;
               }
@@ -1327,240 +957,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         </div>
       )}
 
-      {showVersionForm && (
-        <div className="flex flex-col overflow-y-auto overflow-x-hidden border-t border-[var(--color-border)] pt-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-[var(--color-text-primary)]">添加变体</p>
-            <button onClick={() => setShowVersionForm(false)} className="rounded p-0.5 text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]">
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Mode tabs */}
-          <div className="mb-3 flex rounded-lg border border-[var(--color-border-light)] p-0.5">
-            <button
-              onClick={() => setVersionMode("generate")}
-              className={`flex-1 rounded-md px-2 py-1 text-xs transition-colors ${
-                versionMode === "generate"
-                  ? "bg-[var(--color-bg-tertiary)] font-medium text-[var(--color-text-primary)]"
-                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-              }`}
-            >
-              生成变体
-            </button>
-            <button
-              onClick={() => setVersionMode("import")}
-              className={`flex-1 rounded-md px-2 py-1 text-xs transition-colors ${
-                versionMode === "import"
-                  ? "bg-[var(--color-bg-tertiary)] font-medium text-[var(--color-text-primary)]"
-                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-              }`}
-            >
-              导入文件
-            </button>
-          </div>
-
-          {versionMode === "import" ? (
-            <div className="flex flex-col gap-2">
-              {importVersionPaths.length === 0 ? (
-                <button
-                  onClick={async () => {
-                    const selected = await open({
-                      multiple: true,
-                      filters: [{
-                        name: "图片/视频",
-                        extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "mp4", "webm", "mkv", "avi", "mov"],
-                      }],
-                    });
-                    if (selected) setImportVersionPaths(Array.isArray(selected) ? selected : [selected]);
-                  }}
-                  className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)]/50 px-4 py-6 text-xs text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-bg-hover)]"
-                >
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0-3 3m3-3 3 3M6.75 19.5h10.5A2.25 2.25 0 0 0 19.5 17.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Z" />
-                  </svg>
-                  <span>点击选择文件</span>
-                  <span className="text-[10px] opacity-70">支持图片/视频，可多选</span>
-                </button>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <div className="max-h-32 overflow-auto rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-2">
-                    {importVersionPaths.map((p, i) => (
-                      <div key={i} className="truncate text-xs text-[var(--color-text-secondary)]">
-                        {p.split(/[\\/]/).pop()}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={async () => {
-                        const selected = await open({
-                          multiple: true,
-                          filters: [{
-                            name: "图片/视频",
-                            extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp", "mp4", "webm", "mkv", "avi", "mov"],
-                          }],
-                        });
-                        if (selected) setImportVersionPaths(Array.isArray(selected) ? selected : [selected]);
-                      }}
-                      className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
-                    >
-                      重新选择
-                    </button>
-                    <button
-                      onClick={() => setImportVersionPaths([])}
-                      className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
-                    >
-                      清空
-                    </button>
-                    <button
-                      onClick={handleImportVersion}
-                      disabled={importingVersion}
-                      className="flex-1 rounded bg-[var(--color-accent)] px-2 py-1 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
-                    >
-                      {importingVersion ? "导入中..." : `导入 ${importVersionPaths.length} 个文件`}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <label className="block text-[11px] text-[var(--color-text-muted)]">预设模板</label>
-                <div className="flex flex-wrap gap-1">
-                  {presets.map((p) => (
-                    <div key={p.name} className="group inline-flex items-center overflow-hidden rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)]">
-                      <button
-                        onClick={() => fillPreset(p)}
-                        className="px-2 py-0.5 text-[10px] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
-                      >
-                        {p.label}
-                      </button>
-                      <button
-                        onClick={() => setPresetToDelete(p)}
-                        className="border-l border-[var(--color-border-light)] px-1 py-0.5 text-[10px] text-[var(--color-text-muted)] opacity-0 transition-all hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] group-hover:opacity-100"
-                        title="删除预设"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                  {presets.length === 0 && (
-                    <span className="text-[10px] text-[var(--color-text-muted)]">暂无预设，可在下方保存当前设置</span>
-                  )}
-                </div>
-                <div className="flex gap-1.5">
-                  <input
-                    type="text"
-                    value={newPresetName}
-                    onChange={(e) => setNewPresetName(e.target.value)}
-                    placeholder="预设名称"
-                    onKeyDown={(e) => { if (e.key === "Enter") handleSavePreset(); }}
-                    className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                  />
-                  <button
-                    onClick={handleSavePreset}
-                    disabled={!newPresetName.trim()}
-                    className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] disabled:opacity-50"
-                  >
-                    保存
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <label className="block text-[11px] text-[var(--color-text-muted)]">变体名称</label>
-                  <input
-                    type="text"
-                    value={versionLabel}
-                    onChange={(e) => setVersionLabel(e.target.value)}
-                    placeholder="可选，如 1080p 缩略图"
-                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-[11px] text-[var(--color-text-muted)]">输出格式</label>
-                  <select
-                    value={versionFormat}
-                    onChange={(e) => setVersionFormat(e.target.value)}
-                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none"
-                  >
-                    <option value="jpeg">JPEG</option>
-                    <option value="png">PNG（无损）</option>
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-[11px] text-[var(--color-text-muted)]">最大尺寸（像素，留空表示不限制）</label>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="number"
-                      value={versionMaxWidth ?? ""}
-                      onChange={(e) => setVersionMaxWidth(e.target.value ? parseInt(e.target.value) : null)}
-                      placeholder="宽度"
-                      className="w-20 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                    />
-                    <span className="text-xs text-[var(--color-text-muted)]">×</span>
-                    <input
-                      type="number"
-                      value={versionMaxHeight ?? ""}
-                      onChange={(e) => setVersionMaxHeight(e.target.value ? parseInt(e.target.value) : null)}
-                      placeholder="高度"
-                      className="w-20 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-                    />
-                  </div>
-                </div>
-
-                {versionFormat === "jpeg" && (
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[11px] text-[var(--color-text-muted)]">JPEG 质量</label>
-                      <span className="text-[11px] tabular-nums text-[var(--color-text-primary)]">{versionQuality}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1}
-                      max={100}
-                      value={versionQuality}
-                      onChange={(e) => setVersionQuality(parseInt(e.target.value) || 75)}
-                      className="h-1.5 w-full cursor-pointer appearance-none rounded bg-[var(--color-bg-hover)] accent-[var(--color-accent)]"
-                    />
-                  </div>
-                )}
-
-                <div className="space-y-1">
-                  <label className="block text-[11px] text-[var(--color-text-muted)]">缩放算法</label>
-                  <select
-                    value={versionResizeFilter}
-                    onChange={(e) => setVersionResizeFilter(e.target.value)}
-                    className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none"
-                  >
-                    <option value="nearest">最近邻（最快）</option>
-                    <option value="triangle">三角（快速均衡）</option>
-                    <option value="catmullrom">Catmull-Rom（质量较好）</option>
-                    <option value="gaussian">高斯</option>
-                    <option value="lanczos3">Lanczos3（最佳质量，最慢）</option>
-                  </select>
-                </div>
-
-                <button
-                  onClick={handleGenerateVersion}
-                  disabled={versionGenerating}
-                  className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-xs text-white transition-colors hover:bg-[var(--color-accent-hover)] disabled:opacity-50"
-                >
-                  {versionGenerating ? "生成中..." : "生成变体"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Floating action bar */}
       <div className="mt-auto border-t border-[var(--color-border)] pt-3">
         <div className="flex items-center justify-center gap-2">
@@ -1586,19 +982,15 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
             onClick={async () => {
               if (!media) return;
               try {
-                if (targetId) {
-                  await variantAnnotate(media.id, targetId);
-                } else {
-                  await mediaAiAnnotate(media.id);
-                }
+                await mediaAiAnnotate(media.id);
                 let remaining = await aiPendingCount();
                 for (let i = 0; i < 10 && remaining > 0; i++) {
                   await new Promise((r) => setTimeout(r, 3000));
                   remaining = await aiPendingCount();
                 }
                 await loadCaptions(media.id);
-                await loadMediaTags(media.id, targetId);
-                await loadEmbeddings(media.id, targetId);
+                await loadMediaTags(media.id);
+                await loadEmbeddings(media.id, null);
                 showToast("AI 标注完成");
               } catch (e) {
                 console.error("Failed to trigger AI annotation:", e);
@@ -1611,58 +1003,15 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
             </svg>
           </button>
-          {targetId && (
-            media.display_variant_id === targetId ? (
-              <button
-                onClick={async () => {
-                  await mediaSetDisplayVariant(media.id, null);
-                  window.dispatchEvent(new CustomEvent("display-variant-changed", { detail: { mediaId: media.id, variantId: null } }));
-                }}
-                className="rounded-lg p-2 text-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] transition-colors"
-                title="恢复显示原图"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                onClick={async () => {
-                  await mediaSetDisplayVariant(media.id, targetId);
-                  window.dispatchEvent(new CustomEvent("display-variant-changed", { detail: { mediaId: media.id, variantId: targetId } }));
-                }}
-                className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-                title="设为主显示变体"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                </svg>
-              </button>
-            )
-          )}
-          {targetId ? (
-            <button
-              onClick={() => setShowDeleteVariantConfirm(true)}
-              className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
-              title="删除变体"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-              </svg>
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
-              title="删除图片"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-              </svg>
-            </button>
-          )}
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)] transition-colors"
+            title="删除图片"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -1688,16 +1037,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
       />
 
       <ConfirmDialog
-        open={showDeleteVariantConfirm}
-        title="删除变体"
-        message="确定要删除这个变体吗？变体文件和记录将被永久删除，不可恢复。"
-        variant="danger"
-        confirmLabel="删除"
-        onConfirm={handleDeleteVariant}
-        onCancel={() => setShowDeleteVariantConfirm(false)}
-      />
-
-      <ConfirmDialog
         open={showClearTagsConfirm}
         title="清除所有标签"
         message={`确定要清除这张图片的所有标签吗？将移除 ${tags.length} 个标签，此操作不可撤销。`}
@@ -1710,34 +1049,20 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, initialVar
         onCancel={() => setShowClearTagsConfirm(false)}
       />
 
-      <ConfirmDialog
-        open={presetToDelete !== null}
-        title="删除预设"
-        message={presetToDelete ? `确定要删除预设 "${presetToDelete.label}" 吗？` : ""}
-        variant="danger"
-        confirmLabel="删除"
-        onConfirm={async () => {
-          if (presetToDelete) await handleDeletePreset(presetToDelete);
-        }}
-        onCancel={() => setPresetToDelete(null)}
-      />
     </div>
     </div>
     {showAiEdit && media && (
       <ImagineDialog
         mediaId={media.id}
-        variantId={targetId}
-        variantPath={targetId
-          ? variants.find((v) => v.id === targetId)?.file_path ?? null
-          : media.thumb_256 ?? null}
+        sourceMediaIds={[media.id]}
+        sourceMediaPath={media.thumb_256 ?? ""}
         onClose={() => setShowAiEdit(false)}
       />
     )}
     {showExportDialog && media && (
       <ExportDialog
         mediaIds={[media.id]}
-        variantIds={targetId ? [targetId] : undefined}
-        hasOriginals={!targetId}
+        hasOriginals={true}
         totalCount={1}
         onClose={() => setShowExportDialog(false)}
       />

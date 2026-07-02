@@ -943,7 +943,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
             }
           }}
           onDeleted={() => { selectItem(null); setDetailCollapsed(false); loadMedia(); }}
-          initialVariantId={selectedItem?.item_kind === "variant" ? selectedItem.variant_id : null}
         />
       </div>
 
