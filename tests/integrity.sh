@@ -4,6 +4,8 @@ source "$(dirname "$0")/_helpers.sh"
 echo "=== 数据完整性测试 ==="
 echo ""
 
+setup_isolated_db "integrity" 30
+
 # ============================================================
 # 媒体完整性
 # ============================================================
@@ -77,17 +79,17 @@ ORPHAN_EMBED=$(q "SELECT COUNT(*) FROM embeddings WHERE media_id NOT IN (SELECT 
 check "embeddings 无孤儿" "0" "$ORPHAN_EMBED"
 
 # ============================================================
-# 版本
+# Lineage
 # ============================================================
-echo "--- 版本 ---"
+echo "--- Lineage ---"
 
-VAR_COUNT=$(q "SELECT COUNT(*) FROM variants")
-ORPHAN_VAR=$(q "SELECT COUNT(*) FROM variants WHERE media_id NOT IN (SELECT id FROM media)")
-check "variants 无孤儿" "0" "$ORPHAN_VAR"
+LINEAGE_COUNT=$(q "SELECT COUNT(*) FROM media_lineage")
+echo "  (info) lineage 链接数: $LINEAGE_COUNT"
 
-# 已删除媒体的版本应一并处理
-ORPHAN_VAR_DEL=$(q "SELECT COUNT(*) FROM variants WHERE media_id IN (SELECT id FROM media WHERE deleted_at IS NOT NULL)")
-echo "  (info) 回收站中媒体关联的版本数: $ORPHAN_VAR_DEL"
+ORPHAN_LINEAGE_PARENT=$(q "SELECT COUNT(*) FROM media_lineage WHERE parent_media_id NOT IN (SELECT id FROM media)")
+ORPHAN_LINEAGE_CHILD=$(q "SELECT COUNT(*) FROM media_lineage WHERE child_media_id NOT IN (SELECT id FROM media)")
+check "media_lineage 无孤儿 (parent_media_id)" "0" "$ORPHAN_LINEAGE_PARENT"
+check "media_lineage 无孤儿 (child_media_id)" "0" "$ORPHAN_LINEAGE_CHILD"
 
 # ============================================================
 # 视频支持 Schema
@@ -110,23 +112,14 @@ check "Media table has video_fps column" \
   "$(q "SELECT COUNT(*) FROM pragma_table_info('media') WHERE name='video_fps';")" \
   "1"
 
-# Existing rows default to media_type='image'
-check "Existing media rows default to media_type='image'" \
-  "$(q "SELECT COUNT(*) FROM media WHERE media_type != 'image';")" \
-  "0"
-
-# Variants table has video columns
-check "Variants table has media_type column" \
-  "$(q "SELECT COUNT(*) FROM pragma_table_info('variants') WHERE name='media_type';")" \
-  "1"
+# Seed data has explicit media_type on all rows
+check "Seed media rows all have media_type set" \
+  "$(q "SELECT COUNT(*) FROM media WHERE media_type IS NOT NULL;")" \
+  "$(q "SELECT COUNT(*) FROM media;")"
 
 # Migration idempotency
 check "Migration 0018 is recorded" \
   "$(q "SELECT COUNT(*) FROM _migrations WHERE name = '0018_video_support';")" \
-  "1"
-
-check "Migration 0019 is recorded" \
-  "$(q "SELECT COUNT(*) FROM _migrations WHERE name = '0019_video_variants';")" \
   "1"
 
 # ============================================================

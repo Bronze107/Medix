@@ -70,11 +70,32 @@ enum Command {
     /// List all collections
     ListCollections,
 
-    /// List variants for a media item
-    ListVariants {
+    /// List lineage (parents and children) for a media item
+    LineageList {
         /// Media ID
         media_id: String,
     },
+
+    /// Add a lineage link between parent and child media
+    LineageAdd {
+        /// Parent media ID
+        parent_id: String,
+        /// Child media ID
+        child_id: String,
+        /// Relation type (e.g. "generated", "derived")
+        relation_type: String,
+    },
+
+    /// Remove a lineage link between parent and child media
+    LineageRemove {
+        /// Parent media ID
+        parent_id: String,
+        /// Child media ID
+        child_id: String,
+    },
+
+    /// Count root media (media with no parents)
+    ListRootsCount,
 
     /// Show statistics (media count, tag count, collection count)
     Stats,
@@ -104,9 +125,6 @@ enum Command {
         #[arg(long)]
         with_collections: bool,
 
-        /// Also create variant records
-        #[arg(long)]
-        with_variants: bool,
     },
 }
 
@@ -297,62 +315,103 @@ fn main() {
             }
         }
 
-        Command::ListVariants { media_id } => {
+        Command::LineageList { media_id } => {
             let conn = match rusqlite::Connection::open(&db_path) {
                 Ok(c) => c,
                 Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
             };
-            let mut stmt = conn.prepare(
-                "SELECT id, preset_name, label, format, width, height, quality, file_size, source, media_type
-                 FROM variants WHERE media_id = ?1 ORDER BY created_at"
-            ).expect("prepare");
-            let rows: Vec<(String, Option<String>, Option<String>, Option<String>, Option<i32>, Option<i32>, Option<i32>, Option<i64>, Option<String>, Option<String>)> = stmt
-                .query_map(rusqlite::params![media_id], |row| {
-                    Ok((
-                        row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?,
-                        row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?,
-                        row.get(8)?, row.get(9)?,
-                    ))
-                })
-                .unwrap()
-                .filter_map(|r| r.ok())
-                .collect();
+            match medix::db::lineage_list_path(&conn, &media_id) {
+                Ok(graph) => {
+                    if cli.json {
+                        println!("{}", serde_json::to_string(&graph).unwrap_or_default());
+                    } else {
+                        println!("{} parents, {} children for {}\n",
+                            graph.parents.len(), graph.children.len(),
+                            &media_id[..media_id.len().min(8)]);
+                        if !graph.parents.is_empty() {
+                            println!("  Parents:");
+                            for edge in &graph.parents {
+                                println!("    {}  relation={}  workflow={}",
+                                    &edge.media_id[..edge.media_id.len().min(8)],
+                                    edge.relation_type,
+                                    edge.workflow_id.as_deref().unwrap_or("—"));
+                            }
+                        }
+                        if !graph.children.is_empty() {
+                            println!("  Children:");
+                            for edge in &graph.children {
+                                println!("    {}  relation={}  workflow={}",
+                                    &edge.media_id[..edge.media_id.len().min(8)],
+                                    edge.relation_type,
+                                    edge.workflow_id.as_deref().unwrap_or("—"));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Lineage query error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
 
-            if cli.json {
-                let items: Vec<String> = rows.iter().map(|(id, preset, label, fmt, w, h, q, sz, src, mt)| {
-                    json_obj(&[
-                        ("id", json_str(id)),
-                        ("preset_name", preset.as_deref().map_or_else(json_null, json_str)),
-                        ("label", label.as_deref().map_or_else(json_null, json_str)),
-                        ("format", fmt.as_deref().map_or_else(json_null, json_str)),
-                        ("width", w.map(|v| v.to_string()).unwrap_or_else(json_null)),
-                        ("height", h.map(|v| v.to_string()).unwrap_or_else(json_null)),
-                        ("quality", q.map(|v| v.to_string()).unwrap_or_else(json_null)),
-                        ("file_size", sz.map(|v| v.to_string()).unwrap_or_else(json_null)),
-                        ("source", src.as_deref().map_or_else(json_null, json_str)),
-                        ("media_type", mt.as_deref().map_or_else(json_null, json_str)),
-                    ])
-                }).collect();
-                println!("[{}]", items.join(","));
-            } else {
-                println!("{} variants for {}\n", rows.len(), &media_id[..media_id.len().min(8)]);
-                for (id, _preset, label, fmt, w, h, q, sz, src, mt) in &rows {
-                    let dims = match (w, h) {
-                        (Some(ww), Some(hh)) => format!("{}x{}", ww, hh),
-                        _ => "—".into(),
-                    };
-                    let mt_str = mt.as_deref().unwrap_or("image");
-                    println!(
-                        "  {}  {:12}  {:6}  {}  {:>8}  q={}  {}  {}",
-                        id.chars().take(8).collect::<String>(),
-                        label.as_deref().unwrap_or("—"),
-                        fmt.as_deref().unwrap_or("—"),
-                        dims,
-                        format_size(sz.map(|s| s as i64)),
-                        q.map(|q| q.to_string()).unwrap_or_else(|| "—".into()),
-                        src.as_deref().unwrap_or("—"),
-                        mt_str,
-                    );
+        Command::LineageAdd { parent_id, child_id, relation_type } => {
+            let conn = match rusqlite::Connection::open(&db_path) {
+                Ok(c) => c,
+                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+            };
+            match medix::db::lineage_insert_path(&conn, &parent_id, &child_id, &relation_type, None) {
+                Ok(()) => {
+                    if cli.json {
+                        println!("{}", json_obj(&[("status", json_str("ok"))]));
+                    } else {
+                        println!("Lineage link created: {} → {} ({})",
+                            &parent_id[..parent_id.len().min(8)],
+                            &child_id[..child_id.len().min(8)],
+                            relation_type);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error creating lineage link: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Command::LineageRemove { parent_id, child_id } => {
+            let conn = match rusqlite::Connection::open(&db_path) {
+                Ok(c) => c,
+                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+            };
+            match medix::db::lineage_remove_path(&conn, &parent_id, &child_id) {
+                Ok(()) => {
+                    if cli.json {
+                        println!("{}", json_obj(&[("status", json_str("ok"))]));
+                    } else {
+                        println!("Lineage link removed: {} → {}",
+                            &parent_id[..parent_id.len().min(8)],
+                            &child_id[..child_id.len().min(8)]);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error removing lineage link: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Command::ListRootsCount => {
+            match medix::db::browse_count_path(&db_path, &medix::media::BrowseVisibility::Representative) {
+                Ok(count) => {
+                    if cli.json {
+                        println!("{}", json_obj(&[("roots", count.to_string())]));
+                    } else {
+                        println!("{}", count);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error counting roots: {}", e);
+                    std::process::exit(1);
                 }
             }
         }
@@ -466,7 +525,7 @@ fn main() {
             }
         }
 
-        Command::Seed { count, with_collections, with_variants } => {
+        Command::Seed { count, with_collections } => {
             let conn = match rusqlite::Connection::open(&db_path) {
                 Ok(c) => c,
                 Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
@@ -543,37 +602,23 @@ fn main() {
                     }
                 }
 
-                // Create variants if requested
-                if with_variants {
-                    let vid = format!("seed_v{}", i);
-                    conn.execute(
-                        "INSERT INTO variants (id, media_id, preset_name, label, source, width, height, file_size, file_path, quality, format, created_at)
-                         VALUES (?1, ?2, 'web_share', 'Web分享', 'generated', 512, 512, 65536, '/tmp/seed_var.jpg', 80, 'jpeg', ?3)",
-                        rusqlite::params![vid, mid, now],
-                    ).unwrap();
-                }
             }
 
             let media_count: i64 = conn.query_row("SELECT COUNT(*) FROM media", [], |r| r.get(0)).unwrap();
             let tag_count: i64 = conn.query_row("SELECT COUNT(*) FROM tags", [], |r| r.get(0)).unwrap();
             let coll_count: i64 = conn.query_row("SELECT COUNT(*) FROM collections", [], |r| r.get(0)).unwrap();
-            let var_count: i64 = conn.query_row("SELECT COUNT(*) FROM variants", [], |r| r.get(0)).unwrap();
 
             if cli.json {
                 println!("{}", json_obj(&[
                     ("media", media_count.to_string()),
                     ("tags", tag_count.to_string()),
                     ("collections", coll_count.to_string()),
-                    ("variants", var_count.to_string()),
                 ]));
             } else {
                 println!("Seeded database:");
                 println!("  Media:       {}", media_count);
                 println!("  Tags:        {}", tag_count);
                 println!("  Collections: {}", coll_count);
-                if with_variants {
-                    println!("  Variants:    {}", var_count);
-                }
             }
         }
     }

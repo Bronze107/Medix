@@ -58,14 +58,19 @@ EMB_EXISTS=$(q "SELECT COUNT(*) FROM embeddings WHERE media_id='$TEST_ID'")
 check "添加 embedding" "1" "$EMB_EXISTS"
 
 # ============================================================
-# Variant 关联
+# Lineage 关联 (替代旧 variant)
 # ============================================================
-echo "--- Variant ---"
+echo "--- Lineage ---"
 
-exec_sql "INSERT INTO variants (id, media_id, preset_name, label, source, width, height, file_size, file_path, quality, format, created_at)
-    VALUES ('_var_01', '$TEST_ID', 'custom', 'test-variant', 'generated', 50, 50, 512, '/tmp/test.var.jpg', 80, 'jpeg', '$NOW')" > /dev/null
-VAR_EXISTS=$(q "SELECT COUNT(*) FROM variants WHERE media_id='$TEST_ID'")
-check "添加 variant" "1" "$VAR_EXISTS"
+# Create a derivative media record
+exec_sql "INSERT INTO media (id, source_path, width, height, file_size, imported_at, source, sha256)
+    VALUES ('_derived_01', '/tmp/test_derived.png', 50, 50, 512, '$NOW', 'generated', 'deadbeef03')" > /dev/null
+
+# Create lineage link: TEST_ID → _derived_01
+exec_sql "INSERT INTO media_lineage (parent_media_id, child_media_id, relation_type, created_at)
+    VALUES ('$TEST_ID', '_derived_01', 'generated', '$NOW')" > /dev/null
+LINEAGE_EXISTS=$(q "SELECT COUNT(*) FROM media_lineage WHERE parent_media_id='$TEST_ID'")
+check "创建 lineage 链接" "1" "$LINEAGE_EXISTS"
 
 exec_sql "INSERT INTO media_tags (media_id, tag_id) VALUES ('$TEST_ID', '_tag_ref')" > /dev/null
 TAG_EXISTS=$(q "SELECT COUNT(*) FROM media_tags WHERE media_id='$TEST_ID'")
@@ -82,22 +87,25 @@ echo "--- 级联删除 (FK ON DELETE CASCADE) ---"
 
 BEFORE_CAPS=$(q "SELECT COUNT(*) FROM captions WHERE media_id='$TEST_ID'")
 BEFORE_EMBS=$(q "SELECT COUNT(*) FROM embeddings WHERE media_id='$TEST_ID'")
-BEFORE_VARS=$(q "SELECT COUNT(*) FROM variants WHERE media_id='$TEST_ID'")
+BEFORE_LINEAGE_PARENT=$(q "SELECT COUNT(*) FROM media_lineage WHERE parent_media_id='$TEST_ID'")
+BEFORE_LINEAGE_CHILD=$(q "SELECT COUNT(*) FROM media_lineage WHERE child_media_id='$TEST_ID'")
 BEFORE_TAGS=$(q "SELECT COUNT(*) FROM media_tags WHERE media_id='$TEST_ID'")
 BEFORE_ITEMS=$(q "SELECT COUNT(*) FROM collection_items WHERE media_id='$TEST_ID'")
-echo "  删除前: $BEFORE_CAPS captions, $BEFORE_EMBS embeddings, $BEFORE_VARS variants, $BEFORE_TAGS tags, $BEFORE_ITEMS collection_items"
+echo "  删除前: $BEFORE_CAPS captions, $BEFORE_EMBS embeddings, $BEFORE_LINEAGE_PARENT lineage_parent, $BEFORE_LINEAGE_CHILD lineage_child, $BEFORE_TAGS tags, $BEFORE_ITEMS collection_items"
 
 exec_sql "DELETE FROM media WHERE id='$TEST_ID'" > /dev/null
 
 AFTER_CAPS=$(q "SELECT COUNT(*) FROM captions WHERE media_id='$TEST_ID'")
 AFTER_EMBS=$(q "SELECT COUNT(*) FROM embeddings WHERE media_id='$TEST_ID'")
-AFTER_VARS=$(q "SELECT COUNT(*) FROM variants WHERE media_id='$TEST_ID'")
+AFTER_LINEAGE_PARENT=$(q "SELECT COUNT(*) FROM media_lineage WHERE parent_media_id='$TEST_ID'")
+AFTER_LINEAGE_CHILD=$(q "SELECT COUNT(*) FROM media_lineage WHERE child_media_id='$TEST_ID'")
 AFTER_TAGS=$(q "SELECT COUNT(*) FROM media_tags WHERE media_id='$TEST_ID'")
 AFTER_ITEMS=$(q "SELECT COUNT(*) FROM collection_items WHERE media_id='$TEST_ID'")
 
 check "级联删除 captions" "0" "$AFTER_CAPS"
 check "级联删除 embeddings" "0" "$AFTER_EMBS"
-check "级联删除 variants" "0" "$AFTER_VARS"
+check "级联删除 lineage_parent" "0" "$AFTER_LINEAGE_PARENT"
+check "级联删除 lineage_child" "0" "$AFTER_LINEAGE_CHILD"
 check "级联删除 media_tags" "0" "$AFTER_TAGS"
 check "级联删除 collection_items" "0" "$AFTER_ITEMS"
 
@@ -120,12 +128,6 @@ check "保存筛选器" "1" "$EXISTS"
 exec_sql "UPDATE settings SET value='[]' WHERE key='saved_filters'" > /dev/null
 GONE=$(q "SELECT COUNT(*) FROM settings WHERE key='saved_filters' AND value LIKE '%$FILTER_NAME%'")
 check "删除筛选器" "0" "$GONE"
-
-# ============================================================
-# 视频版本级联
-echo "--- 视频 Variant ---"
-VARIANTS_FK_COUNT=$(q "SELECT COUNT(*) FROM pragma_foreign_key_list('variants');")
-check "Variants FK cascade 结构存在" "1" "$VARIANTS_FK_COUNT"
 
 # ============================================================
 # 媒体字段完整性（验证隔离 DB 中的媒体数据完整）

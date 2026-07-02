@@ -127,7 +127,7 @@ echo "--- Schema 版本 ---"
 MIGRATIONS=$(q "SELECT COUNT(*) FROM _migrations")
 echo "  (info) 已应用的 migration 数: $MIGRATIONS"
 
-for table in media tags media_tags collections collection_items captions embeddings variants settings _migrations; do
+for table in media tags media_tags collections collection_items captions embeddings settings _migrations media_lineage comfyui_workflows; do
     EXISTS=$(q "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$table'")
     check "表 $table 存在" "1" "$EXISTS"
 done
