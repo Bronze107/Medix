@@ -588,10 +588,23 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
 
     // 0026_media_source
     {
-        conn.execute_batch(
-            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0026_media_source');
-             ALTER TABLE media ADD COLUMN source TEXT;",
-        )?;
+        let has_source: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('media') WHERE name='source'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !has_source {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0026_media_source');
+                 ALTER TABLE media ADD COLUMN source TEXT;",
+            )?;
+        } else {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0026_media_source');",
+            )?;
+        }
     }
 
     // 0027_variant_to_lineage
@@ -600,16 +613,13 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
             "INSERT OR IGNORE INTO _migrations (name) VALUES ('0027_variant_to_lineage');
 
              INSERT OR IGNORE INTO media (
-                 id, file_path, file_name, file_size, format,
+                 id, source_path, file_size,
                  width, height, media_type, source, created_at
              )
              SELECT
                  v.id,
                  v.file_path,
-                 -- Extract filename from path (last segment after /)
-                 REPLACE(v.file_path, RTRIM(v.file_path, REPLACE(v.file_path, '/', '')), ''),
                  v.file_size,
-                 v.format,
                  v.width,
                  v.height,
                  COALESCE(v.media_type, 'image'),
