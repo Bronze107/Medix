@@ -116,11 +116,8 @@ fn bench_find_items_with_tags(c: &mut Criterion) {
         let items: Vec<medix::media::BrowseItem> = stmt
             .query_map([], |row| {
                 Ok(medix::media::BrowseItem {
-                    item_id: row.get(0)?,
+                    id: row.get(0)?,
                     media_id: row.get(0)?,
-                    item_kind: "original".into(),
-                    variant_id: None,
-                    is_display_variant: false,
                     source_path: Some("/tmp/x.jpg".into()),
                     width: row.get(1)?,
                     height: row.get(2)?,
@@ -133,15 +130,14 @@ fn bench_find_items_with_tags(c: &mut Criterion) {
                     source: None,
                     sha256: None,
                     deleted_at: None,
-                    display_variant_id: None,
                     thumb_256: None,
                     lqip: None,
                     media_type: row.get(5)?,
                     duration: None,
                     video_codec: None,
                     video_fps: None,
-                    label: None,
-                    preset_name: None,
+                    has_derivatives: false,
+                    parent_count: 0,
                 })
             })
             .unwrap()

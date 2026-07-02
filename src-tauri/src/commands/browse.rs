@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::db;
-use crate::media::{BrowseItem, VariantVisibility};
+use crate::media::{BrowseItem, BrowseVisibility};
 use tauri::{command, AppHandle, Manager};
 
 #[command]
@@ -13,13 +13,12 @@ pub async fn browse_list(
     limit: u32,
     variant_visibility: String,
 ) -> Result<Vec<BrowseItem>, String> {
-    let visibility = VariantVisibility::parse(&variant_visibility);
+    let visibility = BrowseVisibility::parse(&variant_visibility);
     db::list_browse_items(&app, &sort_by, descending, offset, limit, &visibility)
         .map_err(|e| e.to_string())
 }
 
-/// Given a list of browse items and tag names, return the item_ids that directly have those tags.
-/// Checks per-item: original items use variant_id=NULL, variant items use their variant_id.
+/// Given a list of browse items and tag names, return the item IDs that directly have those tags.
 fn filter_items_by_tags(
     app: &AppHandle,
     items: &mut Vec<BrowseItem>,
@@ -30,35 +29,13 @@ fn filter_items_by_tags(
     }
     let matching = db::find_items_with_tags(app, items, tag_names)
         .map_err(|e| e.to_string())?;
-    items.retain(|it| matching.contains(&it.item_id));
+    items.retain(|it| matching.contains(&it.id));
     Ok(())
 }
 
-/// In representative mode, collapse items to at most one per media.
-/// Prefer: display variant > tag-matching variant > tag-matching original > (none).
-fn collapse_representative(items: &mut Vec<BrowseItem>) {
-    // Group by media_id, pick best item per group
-    let mut best: std::collections::HashMap<String, BrowseItem> = std::collections::HashMap::new();
-    for it in items.drain(..) {
-        let key = &it.media_id;
-        let score = if it.is_display_variant { 3 }
-            else if it.item_kind == "variant" { 2 }
-            else { 1 };
-        best.entry(key.clone())
-            .and_modify(|existing| {
-                let existing_score = if existing.is_display_variant { 3 }
-                    else if existing.item_kind == "variant" { 2 }
-                    else { 1 };
-                if score > existing_score {
-                    *existing = it.clone();
-                }
-            })
-            .or_insert(it);
-    }
-    // Sort results by imported_at (descending) for consistency
-    let mut sorted: Vec<BrowseItem> = best.into_values().collect();
-    sorted.sort_by(|a, b| b.imported_at.cmp(&a.imported_at));
-    *items = sorted;
+/// In representative mode, keep only root items (items not derived from other media).
+fn collapse_to_root(items: &mut Vec<BrowseItem>) {
+    items.retain(|it| it.parent_count == 0);
 }
 
 #[command]
@@ -72,7 +49,7 @@ pub async fn browse_search(
     variant_visibility: String,
 ) -> Result<Vec<BrowseItem>, String> {
     let trimmed = query.trim().to_string();
-    let visibility = VariantVisibility::parse(&variant_visibility);
+    let visibility = BrowseVisibility::parse(&variant_visibility);
 
     // Empty query falls back to browse_list
     if trimmed.is_empty() {
@@ -133,14 +110,14 @@ pub async fn browse_search(
             descending,
             min_score,
         )?;
-        // Compute item-level semantic scores: key = (media_id, variant_id)
-        let item_semantic_scores: Option<HashMap<(String, Option<String>), f64>> =
+        // Compute item-level semantic scores: key = (media_id, None)
+        let item_semantic_scores: Option<HashMap<String, f64>> =
             query_emb_for_items.and_then(|vec| {
                 match crate::search::semantic::semantic_search_by_vector(&vec, &app_clone, 500, min_score) {
                     Ok(scored) => {
                         let mut map = HashMap::new();
                         for s in scored {
-                            map.insert((s.media_id, s.variant_id), s.score);
+                            map.insert(s.media_id, s.score);
                         }
                         Some(map)
                     }
@@ -160,7 +137,7 @@ pub async fn browse_search(
 
     // Always expand in "all" mode to get full set, then filter
     let mut items = db::browse_query_filtered(
-        &app, &media_ids, &sort_by, descending, 0, u32::MAX, &VariantVisibility::All,
+        &app, &media_ids, &sort_by, descending, 0, u32::MAX, &BrowseVisibility::All,
     ).map_err(|e| e.to_string())?;
 
     // Item-level semantic ranking: sort by own embedding score,
@@ -168,31 +145,30 @@ pub async fn browse_search(
     if let Some(ref scores) = item_semantic_scores {
         eprintln!("[search] item-level scores map has {} entries", scores.len());
         let item_score: HashMap<String, f64> = items.iter().map(|it| {
-            let key = (it.media_id.clone(), it.variant_id.clone());
-            let s = scores.get(&key).copied().unwrap_or(0.0);
-            eprintln!("[search]   item={} media={} vid={:?} score={:.4}",
-                &it.item_id[..8.min(it.item_id.len())], &it.media_id[..8], it.variant_id.as_deref().map(|v| &v[..8]), s);
-            (it.item_id.clone(), s)
+            let s = scores.get(&it.media_id).copied().unwrap_or(0.0);
+            eprintln!("[search]   item={} media={} score={:.4}",
+                &it.id[..8.min(it.id.len())], &it.media_id[..8], s);
+            (it.id.clone(), s)
         }).collect();
         let mut group_max: HashMap<String, f64> = HashMap::new();
         for it in items.iter() {
-            let s = item_score[&it.item_id];
+            let s = item_score[&it.id];
             let e = group_max.entry(it.media_id.clone()).or_insert(0.0);
             *e = (*e).max(s);
         }
         items.retain(|it| {
-            let s = item_score.get(&it.item_id).copied().unwrap_or(0.0);
+            let s = item_score.get(&it.id).copied().unwrap_or(0.0);
             let max = group_max.get(&it.media_id).copied().unwrap_or(0.0);
             let keep = max == 0.0 || s >= max * 0.5;
             if !keep {
                 eprintln!("[search]   DROP item={} (score={:.4} < max*0.5={:.4})",
-                    &it.item_id[..8.min(it.item_id.len())], s, max * 0.5);
+                    &it.id[..8.min(it.id.len())], s, max * 0.5);
             }
             keep
         });
         items.sort_by(|a, b| {
-            let sa = item_score.get(&a.item_id).copied().unwrap_or(0.0);
-            let sb = item_score.get(&b.item_id).copied().unwrap_or(0.0);
+            let sa = item_score.get(&a.id).copied().unwrap_or(0.0);
+            let sb = item_score.get(&b.id).copied().unwrap_or(0.0);
             sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
         });
     }
@@ -204,11 +180,11 @@ pub async fn browse_search(
 
     // Step 2: apply visibility
     match visibility {
-        VariantVisibility::All => {
+        BrowseVisibility::All => {
             // Keep all matching items (already filtered)
         }
-        VariantVisibility::Representative => {
-            collapse_representative(&mut items);
+        BrowseVisibility::Representative => {
+            collapse_to_root(&mut items);
         }
     }
 
@@ -232,7 +208,7 @@ pub fn browse_list_by_collection(
     limit: u32,
     variant_visibility: String,
 ) -> Result<Vec<BrowseItem>, String> {
-    let visibility = VariantVisibility::parse(&variant_visibility);
+    let visibility = BrowseVisibility::parse(&variant_visibility);
     let media_ids = db::collection_get_item_ids(&app, &collection_id)
         .map_err(|e| e.to_string())?;
     if media_ids.is_empty() {

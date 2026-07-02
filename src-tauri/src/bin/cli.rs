@@ -146,7 +146,7 @@ fn main() {
 
     match cli.command {
         Command::Search { query, sort, descending, variants, count } => {
-            let visibility = medix::media::VariantVisibility::parse(&variants);
+            let visibility = medix::media::BrowseVisibility::parse(&variants);
             let parsed = medix::search::parser::parse(&query);
             let tag_names: Vec<String> = parsed.tag_group.as_ref()
                 .map(|tg| tg.tags.clone())
@@ -158,34 +158,18 @@ fn main() {
                     let media_ids: Vec<String> = results.iter().map(|m| m.id.clone()).collect();
                     match db::browse_query_filtered_path(
                         &db_path, &media_ids, &sort, descending, 0, u32::MAX,
-                        &medix::media::VariantVisibility::All,
+                        &medix::media::BrowseVisibility::All,
                     ) {
                         Ok(mut browse_items) => {
                             if has_tag_filter {
                                 if let Ok(matching) = db::find_items_with_tags_path(
                                     &db_path, &browse_items, &tag_names
                                 ) {
-                                    browse_items.retain(|it| matching.contains(&it.item_id));
+                                    browse_items.retain(|it| matching.contains(&it.id));
                                 }
                             }
-                            if matches!(visibility, medix::media::VariantVisibility::Representative) {
-                                let mut best: std::collections::HashMap<String, medix::media::BrowseItem> =
-                                    std::collections::HashMap::new();
-                                for it in browse_items.drain(..) {
-                                    let score = if it.is_display_variant { 3 }
-                                        else if it.item_kind == "variant" { 2 }
-                                        else { 1 };
-                                    best.entry(it.media_id.clone())
-                                        .and_modify(|existing| {
-                                            let es = if existing.is_display_variant { 3 }
-                                                else if existing.item_kind == "variant" { 2 }
-                                                else { 1 };
-                                            if score > es { *existing = it.clone(); }
-                                        })
-                                        .or_insert(it);
-                                }
-                                browse_items = best.into_values().collect();
-                                browse_items.sort_by(|a, b| b.imported_at.cmp(&a.imported_at));
+                            if matches!(visibility, medix::media::BrowseVisibility::Representative) {
+                                browse_items.retain(|it| it.parent_count == 0);
                             }
 
                             if count {
@@ -193,9 +177,8 @@ fn main() {
                             } else if cli.json {
                                 let items: Vec<String> = browse_items.iter().map(|it| {
                                     json_obj(&[
-                                        ("item_id", json_str(&it.item_id)),
+                                        ("id", json_str(&it.id)),
                                         ("media_id", json_str(&it.media_id)),
-                                        ("kind", json_str(&it.item_kind)),
                                         ("width", it.width.map(|w| w.to_string()).unwrap_or_else(json_null)),
                                         ("height", it.height.map(|h| h.to_string()).unwrap_or_else(json_null)),
                                         ("file_size", it.file_size.map(|s| s.to_string()).unwrap_or_else(json_null)),
@@ -223,7 +206,7 @@ fn main() {
         }
 
         Command::List { sort, descending, variants, count } => {
-            let visibility = medix::media::VariantVisibility::parse(&variants);
+            let visibility = medix::media::BrowseVisibility::parse(&variants);
             match db::list_browse_items_path(&db_path, &sort, descending, 0, u32::MAX, &visibility) {
                 Ok(results) => {
                     if count {
@@ -231,9 +214,8 @@ fn main() {
                     } else if cli.json {
                         let items: Vec<String> = results.iter().map(|it| {
                             json_obj(&[
-                                ("item_id", json_str(&it.item_id)),
+                                ("id", json_str(&it.id)),
                                 ("media_id", json_str(&it.media_id)),
-                                ("kind", json_str(&it.item_kind)),
                                 ("width", it.width.map(|w| w.to_string()).unwrap_or_else(json_null)),
                                 ("height", it.height.map(|h| h.to_string()).unwrap_or_else(json_null)),
                                 ("file_size", it.file_size.map(|s| s.to_string()).unwrap_or_else(json_null)),
@@ -617,16 +599,12 @@ fn print_browse_list(items: &[medix::media::BrowseItem]) {
     );
     println!("{}", "-".repeat(80));
     for item in items {
-        let kind = if item.item_kind == "variant" {
-            if item.is_display_variant { "display" } else { "variant" }
-        } else {
-            "original"
-        };
+        let kind = if item.parent_count > 0 { "derived" } else { "root" };
         let dims = match (item.width, item.height) {
             (Some(w), Some(h)) => format!("{}x{}", w, h),
             _ => "—".to_string(),
         };
-        let short_id: String = item.item_id.chars().take(8).collect();
+        let short_id: String = item.id.chars().take(8).collect();
         let date = item.imported_at.chars().take(10).collect::<String>();
         let path = item.source_path.as_deref().unwrap_or("—");
         println!(

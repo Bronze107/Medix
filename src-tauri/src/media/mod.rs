@@ -45,11 +45,8 @@ pub struct MediaImportResult {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BrowseItem {
-    pub item_id: String,
-    pub item_kind: String,
+    pub id: String,
     pub media_id: String,
-    pub variant_id: Option<String>,
-    pub is_display_variant: bool,
     pub source_path: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
@@ -62,23 +59,22 @@ pub struct BrowseItem {
     pub source: Option<String>,
     pub sha256: Option<String>,
     pub deleted_at: Option<String>,
-    pub display_variant_id: Option<String>,
     pub thumb_256: Option<String>,
     pub lqip: Option<String>,
     pub media_type: Option<String>,
     pub duration: Option<f64>,
     pub video_codec: Option<String>,
     pub video_fps: Option<f64>,
-    pub label: Option<String>,
-    pub preset_name: Option<String>,
+    pub has_derivatives: bool,
+    pub parent_count: i32,
 }
 
-pub enum VariantVisibility {
+pub enum BrowseVisibility {
     Representative,
     All,
 }
 
-impl VariantVisibility {
+impl BrowseVisibility {
     pub fn parse(value: &str) -> Self {
         match value {
             "all" => Self::All,

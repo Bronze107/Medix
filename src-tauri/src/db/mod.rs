@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager};
 use ulid::Ulid;
 
 use crate::captions::Caption;
-use crate::media::{BrowseItem, Media, VariantVisibility};
+use crate::media::{BrowseItem, BrowseVisibility, Media};
 use crate::tag::Tag;
 use crate::variants::{Variant, VariantPreset};
 
@@ -1040,7 +1040,7 @@ pub fn list_media(
     Ok(results)
 }
 
-// --- Browse item queries (variant browse filter) ---
+// --- Browse item queries (lineage root filter) ---
 
 pub fn list_browse_items_path(
     db_path: &Path,
@@ -1048,96 +1048,83 @@ pub fn list_browse_items_path(
     descending: bool,
     offset: u32,
     limit: u32,
-    visibility: &VariantVisibility,
+    visibility: &BrowseVisibility,
 ) -> Result<Vec<BrowseItem>, Box<dyn std::error::Error>> {
     let conn = Connection::open(db_path)?;
 
     let order = if descending { "DESC" } else { "ASC" };
+    let sort_column = match sort_by {
+        "created_at" => "created_at",
+        "modified_at" => "modified_at",
+        "file_size" => "file_size",
+        "width" => "width",
+        "height" => "height",
+        _ => "imported_at",
+    };
 
-    let (vis_condition, _representative) = match visibility {
-        VariantVisibility::All => ("'all'", false),
-        VariantVisibility::Representative => ("'representative'", true),
+    let root_filter = match visibility {
+        BrowseVisibility::Representative => {
+            "AND m.id NOT IN (SELECT child_media_id FROM media_lineage)"
+        }
+        BrowseVisibility::All => "",
     };
 
     let sql = format!(
-        "SELECT * FROM (
-            SELECT
-                m.id AS item_id,
-                'original' AS item_kind,
-                m.id AS media_id,
-                NULL AS variant_id,
-                0 AS is_display_variant,
-                m.source_path, m.width, m.height, m.file_size,
-                m.created_at, m.modified_at, m.imported_at,
-                m.source_url, m.page_url, m.source,
-                m.sha256, m.deleted_at, m.display_variant_id,
-                m.lqip, m.media_type, m.duration, m.video_codec, m.video_fps,
-                NULL AS label, NULL AS preset_name,
-                m.imported_at AS media_imported_at
-            FROM media m
-            WHERE m.deleted_at IS NULL
-              AND ({} = 'all'
-                   OR m.display_variant_id IS NULL
-                   OR NOT EXISTS (SELECT 1 FROM variants dv WHERE dv.id = m.display_variant_id))
-
-            UNION ALL
-
-            SELECT
-                v.id AS item_id,
-                'variant' AS item_kind,
-                m.id AS media_id,
-                v.id AS variant_id,
-                CASE WHEN m.display_variant_id = v.id THEN 1 ELSE 0 END AS is_display_variant,
-                v.file_path AS source_path,
-                v.width, v.height, v.file_size,
-                v.created_at, NULL AS modified_at, v.created_at AS imported_at,
-                m.source_url, m.page_url, v.source,
-                m.sha256, m.deleted_at, m.display_variant_id,
-                NULL AS lqip,
-                COALESCE(v.media_type, m.media_type) AS media_type,
-                COALESCE(v.duration, m.duration) AS duration,
-                COALESCE(v.video_codec, m.video_codec) AS video_codec,
-                COALESCE(v.video_fps, m.video_fps) AS video_fps,
-                v.label, v.preset_name,
-                m.imported_at AS media_imported_at
-            FROM variants v
-            JOIN media m ON m.id = v.media_id
-            WHERE m.deleted_at IS NULL
-              AND ({} = 'all' OR m.display_variant_id = v.id)
-        ) browse
-        ORDER BY media_imported_at {}, CASE WHEN item_kind = 'original' THEN 0 ELSE 1 END, imported_at {}
+        "SELECT
+            m.id,
+            m.source_path,
+            m.width,
+            m.height,
+            m.file_size,
+            m.created_at,
+            m.modified_at,
+            m.imported_at,
+            m.source_url,
+            m.page_url,
+            m.source,
+            m.sha256,
+            m.deleted_at,
+            m.lqip,
+            m.media_type,
+            m.duration,
+            m.video_codec,
+            m.video_fps,
+            CASE WHEN EXISTS (
+                SELECT 1 FROM media_lineage WHERE parent_media_id = m.id
+            ) THEN 1 ELSE 0 END AS has_derivatives,
+            (SELECT COUNT(*) FROM media_lineage WHERE child_media_id = m.id) AS parent_count
+        FROM media m
+        WHERE m.deleted_at IS NULL
+        {}
+        ORDER BY m.{} {}
         LIMIT ? OFFSET ?",
-        vis_condition, vis_condition, order, order
+        root_filter, sort_column, order
     );
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
         Ok(BrowseItem {
-            item_id: row.get(0)?,
-            item_kind: row.get(1)?,
-            media_id: row.get(2)?,
-            variant_id: row.get(3)?,
-            is_display_variant: row.get::<_, i32>(4)? != 0,
-            source_path: row.get(5)?,
-            width: row.get(6)?,
-            height: row.get(7)?,
-            file_size: row.get(8)?,
-            created_at: row.get(9)?,
-            modified_at: row.get(10)?,
-            imported_at: row.get(11)?,
-            source_url: row.get(12)?,
-            page_url: row.get(13)?,
-            source: row.get(14)?,
-            sha256: row.get(15)?,
-            deleted_at: row.get(16)?,
-            display_variant_id: row.get(17)?,
-            lqip: row.get(18)?,
-            media_type: row.get(19)?,
-            duration: row.get(20)?,
-            video_codec: row.get(21)?,
-            video_fps: row.get(22)?,
-            label: row.get(23)?,
-            preset_name: row.get(24)?,
+            id: row.get(0)?,
+            media_id: row.get(0)?,
+            source_path: row.get(1)?,
+            width: row.get(2)?,
+            height: row.get(3)?,
+            file_size: row.get(4)?,
+            created_at: row.get(5)?,
+            modified_at: row.get(6)?,
+            imported_at: row.get(7)?,
+            source_url: row.get(8)?,
+            page_url: row.get(9)?,
+            source: row.get(10)?,
+            sha256: row.get(11)?,
+            deleted_at: row.get(12)?,
+            lqip: row.get(13)?,
+            media_type: row.get(14)?,
+            duration: row.get(15)?,
+            video_codec: row.get(16)?,
+            video_fps: row.get(17)?,
+            has_derivatives: row.get::<_, i32>(18)? != 0,
+            parent_count: row.get(19)?,
             thumb_256: None,
         })
     })?;
@@ -1155,7 +1142,7 @@ pub fn list_browse_items(
     descending: bool,
     offset: u32,
     limit: u32,
-    visibility: &VariantVisibility,
+    visibility: &BrowseVisibility,
 ) -> Result<Vec<BrowseItem>, Box<dyn std::error::Error>> {
     let path = db_path(app);
     let mut results =
@@ -1166,26 +1153,18 @@ pub fn list_browse_items(
 
 pub fn browse_count_path(
     db_path: &Path,
-    visibility: &VariantVisibility,
+    visibility: &BrowseVisibility,
 ) -> Result<u32, Box<dyn std::error::Error>> {
     let conn = Connection::open(db_path)?;
-    let vis_condition = match visibility {
-        VariantVisibility::All => "'all'",
-        VariantVisibility::Representative => "'representative'",
+    let root_filter = match visibility {
+        BrowseVisibility::Representative => {
+            "AND m.id NOT IN (SELECT child_media_id FROM media_lineage)"
+        }
+        BrowseVisibility::All => "",
     };
     let sql = format!(
-        "SELECT COUNT(*) FROM (
-            SELECT m.id FROM media m
-            WHERE m.deleted_at IS NULL
-              AND ({} = 'all' OR m.display_variant_id IS NULL
-                   OR NOT EXISTS (SELECT 1 FROM variants dv WHERE dv.id = m.display_variant_id))
-            UNION ALL
-            SELECT v.id FROM variants v
-            JOIN media m ON m.id = v.media_id
-            WHERE m.deleted_at IS NULL
-              AND ({} = 'all' OR m.display_variant_id = v.id)
-        )",
-        vis_condition, vis_condition
+        "SELECT COUNT(*) FROM media m WHERE m.deleted_at IS NULL {}",
+        root_filter
     );
     let count: u32 = conn.query_row(&sql, [], |row| row.get(0))?;
     Ok(count)
@@ -1200,7 +1179,7 @@ pub fn browse_query_filtered_path(
     descending: bool,
     offset: u32,
     limit: u32,
-    visibility: &VariantVisibility,
+    visibility: &BrowseVisibility,
 ) -> Result<Vec<BrowseItem>, Box<dyn std::error::Error>> {
     if media_ids.is_empty() {
         return Ok(vec![]);
@@ -1209,110 +1188,89 @@ pub fn browse_query_filtered_path(
     let conn = Connection::open(db_path)?;
 
     let order = if descending { "DESC" } else { "ASC" };
+    let sort_column = match sort_by {
+        "created_at" => "created_at",
+        "modified_at" => "modified_at",
+        "file_size" => "file_size",
+        "width" => "width",
+        "height" => "height",
+        _ => "imported_at",
+    };
+
+    let root_filter = match visibility {
+        BrowseVisibility::Representative => {
+            "AND m.id NOT IN (SELECT child_media_id FROM media_lineage)"
+        }
+        BrowseVisibility::All => "",
+    };
 
     let in_clause = media_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
 
-    let (vis_condition, _representative) = match visibility {
-        VariantVisibility::All => ("'all'", false),
-        VariantVisibility::Representative => ("'representative'", true),
-    };
-
     let sql = format!(
-        "SELECT * FROM (
-            SELECT
-                m.id AS item_id,
-                'original' AS item_kind,
-                m.id AS media_id,
-                NULL AS variant_id,
-                0 AS is_display_variant,
-                m.source_path, m.width, m.height, m.file_size,
-                m.created_at, m.modified_at, m.imported_at,
-                m.source_url, m.page_url, m.source,
-                m.sha256, m.deleted_at, m.display_variant_id,
-                m.lqip, m.media_type, m.duration, m.video_codec, m.video_fps,
-                NULL AS label, NULL AS preset_name,
-                m.imported_at AS media_imported_at
-            FROM media m
-            WHERE m.deleted_at IS NULL
-              AND m.id IN ({})
-              AND ({} = 'all'
-                   OR m.display_variant_id IS NULL
-                   OR NOT EXISTS (SELECT 1 FROM variants dv WHERE dv.id = m.display_variant_id))
-
-            UNION ALL
-
-            SELECT
-                v.id AS item_id,
-                'variant' AS item_kind,
-                m.id AS media_id,
-                v.id AS variant_id,
-                CASE WHEN m.display_variant_id = v.id THEN 1 ELSE 0 END AS is_display_variant,
-                v.file_path AS source_path,
-                v.width, v.height, v.file_size,
-                v.created_at, NULL AS modified_at, v.created_at AS imported_at,
-                m.source_url, m.page_url, v.source,
-                m.sha256, m.deleted_at, m.display_variant_id,
-                NULL AS lqip,
-                COALESCE(v.media_type, m.media_type) AS media_type,
-                COALESCE(v.duration, m.duration) AS duration,
-                COALESCE(v.video_codec, m.video_codec) AS video_codec,
-                COALESCE(v.video_fps, m.video_fps) AS video_fps,
-                v.label, v.preset_name,
-                m.imported_at AS media_imported_at
-            FROM variants v
-            JOIN media m ON m.id = v.media_id
-            WHERE m.deleted_at IS NULL
-              AND m.id IN ({})
-              AND ({} = 'all' OR m.display_variant_id = v.id)
-        ) browse
-        ORDER BY media_imported_at {}, CASE WHEN item_kind = 'original' THEN 0 ELSE 1 END, imported_at {}
+        "SELECT
+            m.id,
+            m.source_path,
+            m.width,
+            m.height,
+            m.file_size,
+            m.created_at,
+            m.modified_at,
+            m.imported_at,
+            m.source_url,
+            m.page_url,
+            m.source,
+            m.sha256,
+            m.deleted_at,
+            m.lqip,
+            m.media_type,
+            m.duration,
+            m.video_codec,
+            m.video_fps,
+            CASE WHEN EXISTS (
+                SELECT 1 FROM media_lineage WHERE parent_media_id = m.id
+            ) THEN 1 ELSE 0 END AS has_derivatives,
+            (SELECT COUNT(*) FROM media_lineage WHERE child_media_id = m.id) AS parent_count
+        FROM media m
+        WHERE m.deleted_at IS NULL
+          AND m.id IN ({})
+        {}
+        ORDER BY m.{} {}
         LIMIT ? OFFSET ?",
-        in_clause, vis_condition,
-        in_clause, vis_condition,
-        order, order
+        in_clause, root_filter, sort_column, order
     );
 
     let mut stmt = conn.prepare(&sql)?;
     let mut param_refs: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-    // Bind media_ids twice (once for each subquery)
     for id in media_ids {
         param_refs.push(Box::new(id.clone()));
     }
-    for id in media_ids {
-        param_refs.push(Box::new(id.clone()));
-    }
-    // Bind limit and offset
     param_refs.push(Box::new(limit as i64));
     param_refs.push(Box::new(offset as i64));
 
     let param_slice: Vec<&dyn rusqlite::types::ToSql> = param_refs.iter().map(|p| p.as_ref()).collect();
     let rows = stmt.query_map(param_slice.as_slice(), |row| {
         Ok(BrowseItem {
-            item_id: row.get(0)?,
-            item_kind: row.get(1)?,
-            media_id: row.get(2)?,
-            variant_id: row.get(3)?,
-            is_display_variant: row.get::<_, i32>(4)? != 0,
-            source_path: row.get(5)?,
-            width: row.get(6)?,
-            height: row.get(7)?,
-            file_size: row.get(8)?,
-            created_at: row.get(9)?,
-            modified_at: row.get(10)?,
-            imported_at: row.get(11)?,
-            source_url: row.get(12)?,
-            page_url: row.get(13)?,
-            source: row.get(14)?,
-            sha256: row.get(15)?,
-            deleted_at: row.get(16)?,
-            display_variant_id: row.get(17)?,
-            lqip: row.get(18)?,
-            media_type: row.get(19)?,
-            duration: row.get(20)?,
-            video_codec: row.get(21)?,
-            video_fps: row.get(22)?,
-            label: row.get(23)?,
-            preset_name: row.get(24)?,
+            id: row.get(0)?,
+            media_id: row.get(0)?,
+            source_path: row.get(1)?,
+            width: row.get(2)?,
+            height: row.get(3)?,
+            file_size: row.get(4)?,
+            created_at: row.get(5)?,
+            modified_at: row.get(6)?,
+            imported_at: row.get(7)?,
+            source_url: row.get(8)?,
+            page_url: row.get(9)?,
+            source: row.get(10)?,
+            sha256: row.get(11)?,
+            deleted_at: row.get(12)?,
+            lqip: row.get(13)?,
+            media_type: row.get(14)?,
+            duration: row.get(15)?,
+            video_codec: row.get(16)?,
+            video_fps: row.get(17)?,
+            has_derivatives: row.get::<_, i32>(18)? != 0,
+            parent_count: row.get(19)?,
             thumb_256: None,
         })
     })?;
@@ -1331,7 +1289,7 @@ pub fn browse_query_filtered(
     descending: bool,
     offset: u32,
     limit: u32,
-    visibility: &VariantVisibility,
+    visibility: &BrowseVisibility,
 ) -> Result<Vec<BrowseItem>, Box<dyn std::error::Error>> {
     let path = db_path(app);
     let mut results =
@@ -1340,8 +1298,7 @@ pub fn browse_query_filtered(
     Ok(results)
 }
 
-/// Given browse items and tag names, return the set of item_ids that directly have those tags.
-/// Original items match where variant_id IS NULL; variant items match where variant_id matches.
+/// Given browse items and tag names, return the set of item IDs that directly have those tags.
 pub fn find_items_with_tags(
     app: &AppHandle,
     items: &[BrowseItem],
@@ -1349,30 +1306,20 @@ pub fn find_items_with_tags(
 ) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
     let fuzzy = crate::settings::is_tag_search_fuzzy(app);
     let conn = get_conn(app)?;
-    let pairs: Vec<(&str, Option<&str>)> = items
-        .iter()
-        .map(|it| (it.media_id.as_str(), it.variant_id.as_deref()))
-        .collect();
-    find_items_with_tags_inner(&conn, pairs.as_slice(), tag_names, fuzzy)
+    let media_ids: Vec<&str> = items.iter().map(|it| it.media_id.as_str()).collect();
+    find_items_with_tags_inner(&conn, media_ids.as_slice(), tag_names, fuzzy)
 }
 
 fn find_items_with_tags_inner(
     conn: &Connection,
-    pairs: &[(&str, Option<&str>)],
+    media_ids: &[&str],
     tag_names: &[String],
     fuzzy: bool,
 ) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
-    if tag_names.is_empty() || pairs.is_empty() {
+    if tag_names.is_empty() || media_ids.is_empty() {
         return Ok(HashSet::new());
     }
-    let mut conditions = Vec::new();
-    for pair in pairs.iter() {
-        if pair.1.is_some() {
-            conditions.push("(mt.media_id = ? AND mt.variant_id = ?)".to_string());
-        } else {
-            conditions.push("(mt.media_id = ? AND mt.variant_id IS NULL)".to_string());
-        }
-    }
+    let placeholders: Vec<String> = media_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
     let name_condition: String = if fuzzy {
         tag_names.iter().map(|_| "t.name LIKE ?").collect::<Vec<_>>().join(" OR ")
     } else {
@@ -1380,11 +1327,11 @@ fn find_items_with_tags_inner(
         format!("t.name IN ({})", ph)
     };
     let sql = format!(
-        "SELECT DISTINCT mt.media_id, mt.variant_id
+        "SELECT DISTINCT mt.media_id
          FROM media_tags mt
          JOIN tags t ON mt.tag_id = t.id
-         WHERE ({}) AND ({})",
-        name_condition, conditions.join(" OR ")
+         WHERE ({}) AND mt.variant_id IS NULL AND mt.media_id IN ({})",
+        name_condition, placeholders.join(",")
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -1392,16 +1339,11 @@ fn find_items_with_tags_inner(
         if fuzzy { params.push(Box::new(format!("%{}%", tn))); }
         else { params.push(Box::new(tn.clone())); }
     }
-    for (mid, vid) in pairs {
+    for mid in media_ids {
         params.push(Box::new(mid.to_string()));
-        if let Some(v) = vid { params.push(Box::new(v.to_string())); }
     }
     let param_slice: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-    let rows = stmt.query_map(param_slice.as_slice(), |row| {
-        let mid: String = row.get(0)?;
-        let vid: Option<String> = row.get(1)?;
-        Ok(match vid { Some(v) => v, None => mid })
-    })?;
+    let rows = stmt.query_map(param_slice.as_slice(), |row| row.get::<_, String>(0))?;
     let mut result = HashSet::new();
     for r in rows { result.insert(r?); }
     Ok(result)
@@ -1414,29 +1356,20 @@ pub fn find_items_with_tags_path(
     tag_names: &[String],
 ) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
     let conn = Connection::open(db_path)?;
-    let pairs: Vec<(&str, Option<&str>)> = items
-        .iter()
-        .map(|it| (it.media_id.as_str(), it.variant_id.as_deref()))
-        .collect();
-    find_items_with_tags_inner(&conn, pairs.as_slice(), tag_names, false)
+    let media_ids: Vec<&str> = items.iter().map(|it| it.media_id.as_str()).collect();
+    find_items_with_tags_inner(&conn, media_ids.as_slice(), tag_names, false)
 }
 
 pub(crate) fn resolve_browse_thumb_paths(app: &AppHandle, items: &mut [BrowseItem]) {
-    let Ok(app_dir) = app.path().app_data_dir() else {
-        return;
-    };
+    let Ok(app_dir) = app.path().app_data_dir() else { return };
     let thumbs_dir = app_dir.join("thumbnails");
     for item in items.iter_mut() {
-        let thumb_id = match item.item_kind.as_str() {
-            "variant" => item.variant_id.as_deref().unwrap_or(&item.media_id),
-            _ => &item.media_id,
-        };
-        let thumb_path = thumbs_dir.join(format!("{}_256.jpg", thumb_id));
-        // Only set thumb_256 if the file actually exists on disk;
-        // otherwise frontend will fall back to source_path or useThumbnail.
-        if thumb_path.exists() {
-            item.thumb_256 = Some(thumb_path.to_string_lossy().replace('\\', "/"));
-        }
+        item.thumb_256 = Some(
+            thumbs_dir
+                .join(format!("{}_256.jpg", item.id))
+                .to_string_lossy()
+                .replace('\\', "/"),
+        );
     }
 }
 
@@ -3794,11 +3727,8 @@ mod tests {
         // Build minimal browse items
         fn make_item(id: &str, w: i32, h: i32, sz: i64) -> BrowseItem {
             BrowseItem {
-                item_id: id.into(),
+                id: id.into(),
                 media_id: id.into(),
-                item_kind: "original".into(),
-                variant_id: None,
-                is_display_variant: false,
                 source_path: Some(format!("/tmp/{}.jpg", id)),
                 width: Some(w),
                 height: Some(h),
@@ -3811,15 +3741,14 @@ mod tests {
                 source: None,
                 sha256: None,
                 deleted_at: None,
-                display_variant_id: None,
                 thumb_256: None,
                 lqip: None,
                 media_type: Some("image".into()),
                 duration: None,
                 video_codec: None,
                 video_fps: None,
-                label: None,
-                preset_name: None,
+                has_derivatives: false,
+                parent_count: 0,
             }
         }
         let items = vec![make_item("ft1", 100, 100, 100), make_item("ft2", 200, 200, 200)];
