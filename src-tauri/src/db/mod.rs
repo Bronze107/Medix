@@ -566,6 +566,95 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
         )?;
     }
 
+    // 0025_media_lineage
+    {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0025_media_lineage');
+             CREATE TABLE IF NOT EXISTS media_lineage (
+                 parent_media_id  TEXT NOT NULL,
+                 child_media_id   TEXT NOT NULL,
+                 relation_type    TEXT NOT NULL DEFAULT 'edit',
+                 workflow_id      TEXT,
+                 created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                 PRIMARY KEY (parent_media_id, child_media_id),
+                 FOREIGN KEY (parent_media_id) REFERENCES media(id) ON DELETE CASCADE,
+                 FOREIGN KEY (child_media_id) REFERENCES media(id) ON DELETE CASCADE,
+                 FOREIGN KEY (workflow_id) REFERENCES comfyui_workflows(id) ON DELETE SET NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_lineage_parent ON media_lineage(parent_media_id);
+             CREATE INDEX IF NOT EXISTS idx_lineage_child ON media_lineage(child_media_id);",
+        )?;
+    }
+
+    // 0026_media_source
+    {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0026_media_source');
+             ALTER TABLE media ADD COLUMN source TEXT;",
+        )?;
+    }
+
+    // 0027_variant_to_lineage
+    {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0027_variant_to_lineage');
+
+             INSERT OR IGNORE INTO media (
+                 id, file_path, file_name, file_size, format,
+                 width, height, media_type, source, created_at
+             )
+             SELECT
+                 v.id,
+                 v.file_path,
+                 -- Extract filename from path (last segment after /)
+                 REPLACE(v.file_path, RTRIM(v.file_path, REPLACE(v.file_path, '/', '')), ''),
+                 v.file_size,
+                 v.format,
+                 v.width,
+                 v.height,
+                 COALESCE(v.media_type, 'image'),
+                 v.source,
+                 v.created_at
+             FROM variants v
+             WHERE NOT EXISTS (SELECT 1 FROM media WHERE id = v.id);
+
+             INSERT OR IGNORE INTO media_lineage (
+                 parent_media_id, child_media_id, relation_type
+             )
+             SELECT
+                 v.media_id,
+                 v.id,
+                 'edit'
+             FROM variants v
+             WHERE EXISTS (SELECT 1 FROM media WHERE id = v.id)
+               AND NOT EXISTS (
+                   SELECT 1 FROM media_lineage
+                   WHERE parent_media_id = v.media_id AND child_media_id = v.id
+               );
+
+             UPDATE captions SET media_id = variant_id
+             WHERE variant_id IS NOT NULL
+               AND EXISTS (SELECT 1 FROM media WHERE id = variant_id);
+
+             UPDATE embeddings SET media_id = variant_id
+             WHERE variant_id IS NOT NULL
+               AND EXISTS (SELECT 1 FROM media WHERE id = variant_id);
+
+             UPDATE media_tags SET media_id = variant_id
+             WHERE variant_id IS NOT NULL
+               AND EXISTS (SELECT 1 FROM media WHERE id = variant_id);",
+        )?;
+    }
+
+    // 0028_drop_variants
+    {
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0028_drop_variants');
+             DROP TABLE IF EXISTS variants;
+             DROP TABLE IF EXISTS variant_presets;",
+        )?;
+    }
+
     Ok(())
 }
 
