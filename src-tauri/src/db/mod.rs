@@ -298,14 +298,14 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
     }
 
     // 0013: variant annotation + display variant
-    let has_variant_captions: bool = conn
+    let has_display_variant: bool = conn
         .query_row(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('captions') WHERE name='variant_id'",
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('media') WHERE name='display_variant_id'",
             [],
             |row| row.get(0),
         )
         .unwrap_or(false);
-    if !has_variant_captions {
+    if !has_display_variant {
         conn.execute_batch(
             "INSERT OR IGNORE INTO _migrations (name) VALUES ('0013_variant_annotation');
              ALTER TABLE captions ADD COLUMN variant_id TEXT REFERENCES variants(id) ON DELETE CASCADE;
@@ -313,6 +313,11 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
              ALTER TABLE media ADD COLUMN display_variant_id TEXT REFERENCES variants(id) ON DELETE SET NULL;
              CREATE INDEX IF NOT EXISTS idx_captions_variant ON captions(variant_id);
              CREATE INDEX IF NOT EXISTS idx_embeddings_variant ON embeddings(variant_id);",
+        )?;
+    } else {
+        // Ensure the migration entry exists so subsequent passes don't re-try
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0013_variant_annotation');"
         )?;
     }
 
@@ -608,60 +613,197 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
 
     // 0027_variant_to_lineage
     {
-        conn.execute_batch(
-            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0027_variant_to_lineage');
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0027_variant_to_lineage'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0027_variant_to_lineage');
 
-             INSERT OR IGNORE INTO media (
-                 id, source_path, file_size,
-                 width, height, media_type, source, created_at
-             )
-             SELECT
-                 v.id,
-                 v.file_path,
-                 v.file_size,
-                 v.width,
-                 v.height,
-                 COALESCE(v.media_type, 'image'),
-                 v.source,
-                 v.created_at
-             FROM variants v
-             WHERE NOT EXISTS (SELECT 1 FROM media WHERE id = v.id);
+                 INSERT OR IGNORE INTO media (
+                     id, source_path, file_size,
+                     width, height, media_type, source, created_at
+                 )
+                 SELECT
+                     v.id,
+                     v.file_path,
+                     v.file_size,
+                     v.width,
+                     v.height,
+                     COALESCE(v.media_type, 'image'),
+                     v.source,
+                     v.created_at
+                 FROM variants v
+                 WHERE NOT EXISTS (SELECT 1 FROM media WHERE id = v.id);
 
-             INSERT OR IGNORE INTO media_lineage (
-                 parent_media_id, child_media_id, relation_type
-             )
-             SELECT
-                 v.media_id,
-                 v.id,
-                 'edit'
-             FROM variants v
-             WHERE EXISTS (SELECT 1 FROM media WHERE id = v.id)
-               AND NOT EXISTS (
-                   SELECT 1 FROM media_lineage
-                   WHERE parent_media_id = v.media_id AND child_media_id = v.id
-               );
+                 INSERT OR IGNORE INTO media_lineage (
+                     parent_media_id, child_media_id, relation_type
+                 )
+                 SELECT
+                     v.media_id,
+                     v.id,
+                     'edit'
+                 FROM variants v
+                 WHERE EXISTS (SELECT 1 FROM media WHERE id = v.id)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM media_lineage
+                       WHERE parent_media_id = v.media_id AND child_media_id = v.id
+                   );
 
-             UPDATE captions SET media_id = variant_id
-             WHERE variant_id IS NOT NULL
-               AND EXISTS (SELECT 1 FROM media WHERE id = variant_id);
+                 UPDATE captions SET media_id = variant_id
+                 WHERE variant_id IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM media WHERE id = variant_id);
 
-             UPDATE embeddings SET media_id = variant_id
-             WHERE variant_id IS NOT NULL
-               AND EXISTS (SELECT 1 FROM media WHERE id = variant_id);
+                 UPDATE embeddings SET media_id = variant_id
+                 WHERE variant_id IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM media WHERE id = variant_id);
 
-             UPDATE media_tags SET media_id = variant_id
-             WHERE variant_id IS NOT NULL
-               AND EXISTS (SELECT 1 FROM media WHERE id = variant_id);",
-        )?;
+                 UPDATE media_tags SET media_id = variant_id
+                 WHERE variant_id IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM media WHERE id = variant_id);",
+            )?;
+        }
     }
 
     // 0028_drop_variants
+    // Unconditional: DROP TABLE IF EXISTS is safe to re-run, and we need it here
+    // to clean up the variants table that 0003_variants may have just re-created.
     {
         conn.execute_batch(
             "INSERT OR IGNORE INTO _migrations (name) VALUES ('0028_drop_variants');
              DROP TABLE IF EXISTS variants;
              DROP TABLE IF EXISTS variant_presets;",
         )?;
+    }
+
+    // 0029_remove_variant_columns
+    // Drop FK constraints referencing the (now-dropped) variants table.
+    // SQLite with SQLITE_DEFAULT_FOREIGN_KEYS=1 requires the FK parent table to exist at
+    // statement-prep time, so we must eliminate these FK constraints entirely.
+    // We keep the display_variant_id column on media (without FK) for struct compatibility;
+    // variant_id columns are fully removed from captions, embeddings, and media_tags.
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0029_remove_variant_columns'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            // Check whether any variant FK columns remain (e.g. captions.variant_id).
+            // If they do, recreate the affected tables without them.
+            let has_variant_captions: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM pragma_table_info('captions') WHERE name='variant_id'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+            if has_variant_captions {
+                conn.execute_batch(
+                    "INSERT OR IGNORE INTO _migrations (name) VALUES ('0029_remove_variant_columns');
+                     PRAGMA foreign_keys = OFF;
+
+                     /* captions — drop variant_id column (data already migrated via 0027) */
+                     CREATE TABLE captions_new (
+                         id TEXT PRIMARY KEY,
+                         media_id TEXT NOT NULL,
+                         text TEXT NOT NULL,
+                         source TEXT,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+                     );
+                     INSERT INTO captions_new SELECT id, media_id, text, source, created_at, updated_at FROM captions;
+                     DROP TABLE captions;
+                     ALTER TABLE captions_new RENAME TO captions;
+                     CREATE INDEX IF NOT EXISTS idx_captions_media ON captions(media_id);
+
+                     /* embeddings — drop variant_id column */
+                     CREATE TABLE embeddings_new (
+                         media_id TEXT NOT NULL,
+                         model TEXT NOT NULL,
+                         content_type TEXT NOT NULL,
+                         vector BLOB NOT NULL,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+                     );
+                     INSERT INTO embeddings_new SELECT media_id, model, content_type, vector, created_at FROM embeddings;
+                     DROP TABLE embeddings;
+                     ALTER TABLE embeddings_new RENAME TO embeddings;
+                     CREATE UNIQUE INDEX idx_embeddings_unique ON embeddings(media_id, model, content_type);
+                     CREATE INDEX idx_embeddings_media ON embeddings(media_id);
+                     CREATE INDEX idx_embeddings_model ON embeddings(model);
+
+                     /* media_tags — drop variant_id column */
+                     CREATE TABLE media_tags_new (
+                         media_id TEXT NOT NULL,
+                         tag_id TEXT NOT NULL,
+                         confidence REAL,
+                         source TEXT,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         PRIMARY KEY (media_id, tag_id),
+                         FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE,
+                         FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+                     );
+                     INSERT INTO media_tags_new SELECT media_id, tag_id, confidence, source, created_at FROM media_tags;
+                     DROP TABLE media_tags;
+                     ALTER TABLE media_tags_new RENAME TO media_tags;
+                     CREATE INDEX IF NOT EXISTS idx_media_tags_media ON media_tags(media_id);
+                     CREATE INDEX IF NOT EXISTS idx_media_tags_tag ON media_tags(tag_id);
+
+                     /* media — keep display_variant_id column but WITHOUT FK constraint */
+                     CREATE TABLE media_new (
+                         id TEXT PRIMARY KEY,
+                         source_path TEXT,
+                         phash BLOB,
+                         width INTEGER,
+                         height INTEGER,
+                         file_size INTEGER,
+                         created_at TIMESTAMP,
+                         modified_at TIMESTAMP,
+                         imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         source_url TEXT,
+                         page_url TEXT,
+                         source TEXT,
+                         deleted_at TEXT,
+                         sha256 TEXT,
+                         display_variant_id TEXT,
+                         lqip TEXT,
+                         media_type TEXT DEFAULT 'image',
+                         duration REAL,
+                         video_codec TEXT,
+                         video_fps REAL
+                     );
+                     INSERT INTO media_new
+                     SELECT id, source_path, phash, width, height, file_size,
+                            created_at, modified_at, imported_at,
+                            source_url, page_url, source,
+                            deleted_at, sha256, display_variant_id,
+                            lqip, media_type, duration, video_codec, video_fps
+                     FROM media;
+                     DROP TABLE media;
+                     ALTER TABLE media_new RENAME TO media;
+                     CREATE INDEX IF NOT EXISTS idx_media_imported_at ON media(imported_at);
+                     CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at);
+                     CREATE INDEX IF NOT EXISTS idx_media_type ON media(media_type);
+                     CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
+                     CREATE INDEX IF NOT EXISTS idx_media_deleted_at ON media(deleted_at);
+                     CREATE INDEX IF NOT EXISTS idx_media_deleted_imported ON media(deleted_at, imported_at);
+
+                     PRAGMA foreign_keys = ON;",
+                )?;
+            } else {
+                conn.execute_batch(
+                    "INSERT OR IGNORE INTO _migrations (name) VALUES ('0029_remove_variant_columns');"
+                )?;
+            }
+        }
     }
 
     Ok(())
@@ -1318,7 +1460,7 @@ fn find_items_with_tags_inner(
     if tag_names.is_empty() || media_ids.is_empty() {
         return Ok(HashSet::new());
     }
-    let placeholders: Vec<String> = media_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let placeholders: Vec<String> = media_ids.iter().map(|_| "?".to_string()).collect();
     let name_condition: String = if fuzzy {
         tag_names.iter().map(|_| "t.name LIKE ?").collect::<Vec<_>>().join(" OR ")
     } else {
@@ -1329,7 +1471,7 @@ fn find_items_with_tags_inner(
         "SELECT DISTINCT mt.media_id
          FROM media_tags mt
          JOIN tags t ON mt.tag_id = t.id
-         WHERE ({}) AND mt.variant_id IS NULL AND mt.media_id IN ({})",
+         WHERE ({}) AND mt.media_id IN ({})",
         name_condition, placeholders.join(",")
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -3200,12 +3342,6 @@ mod tests {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO variants (id, media_id, preset_name, label, source, width, height, file_size, file_path, quality, format, created_at)
-             VALUES ('var_del', 'del_test', 'custom', 'v', 'generated', 50, 50, 256, '/tmp/v.jpg', 80, 'jpeg', ?1)",
-            params![now],
-        )
-        .unwrap();
-        conn.execute(
             "INSERT INTO collections (id, name) VALUES ('col_del', 'Test')",
             [],
         )
@@ -3259,16 +3395,6 @@ mod tests {
             .unwrap(),
             0,
             "embeddings should cascade"
-        );
-        assert_eq!(
-            conn.query_row::<i64, _, _>(
-                "SELECT COUNT(*) FROM variants WHERE media_id='del_test'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap(),
-            0,
-            "variants should cascade"
         );
         assert_eq!(
             conn.query_row::<i64, _, _>(
@@ -3391,7 +3517,8 @@ mod tests {
         let expected = [
             "_migrations", "media", "tags", "media_tags",
             "collections", "collection_items", "captions",
-            "embeddings", "variants", "settings",
+            "embeddings", "settings",
+            "media_lineage", "comfyui_workflows",
         ];
 
         for table in &expected {
