@@ -28,4 +28,6 @@ export interface BrowseItem {
   video_fps: number | null;
   label: string | null;
   preset_name: string | null;
+  has_derivatives?: boolean;
+  parent_count?: number;
 }

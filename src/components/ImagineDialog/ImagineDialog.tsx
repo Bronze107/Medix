@@ -13,14 +13,12 @@ import type { ComfyWorkflow, WorkflowParam } from "@/types/comfyui";
 
 interface Props {
   mediaId: string;
-  variantId?: string | null;
-  variantPath?: string | null;
   sourceMediaIds?: string[];
   sourceMediaPath?: string;
   onClose: () => void;
 }
 
-function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
+function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Props) {
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState("auto");
   const [resolution, setResolution] = useState("1k");
@@ -39,7 +37,9 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
   const isComfy = provider === "comfyui";
   const comfyReady = !isComfy || (isComfy && selectedWorkflowId && workflows.length > 0);
 
-  const thumbUrl = variantPath ? convertFileSrc(variantPath) : useThumbnail(mediaId);
+  const editMediaIds = sourceMediaIds ?? [mediaId];
+
+  const thumbUrl = sourceMediaPath ? convertFileSrc(sourceMediaPath) : useThumbnail(mediaId);
 
   // Detect provider + load edit workflows
   useEffect(() => {
@@ -80,8 +80,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
     setError(null);
     try {
       await imageQueueSubmitEdit(
-        mediaId,
-        variantId ?? null,
+        editMediaIds,
         isComfy ? (workflowValues.prompt || prompt.trim()) : prompt.trim(),
         aspectRatio,
         resolution,
@@ -126,7 +125,7 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
           <div className="flex-1 overflow-auto p-5">
             <div className="flex gap-4">
               {/* Thumbnail */}
-              <div className="w-40 h-40 shrink-0 rounded-lg overflow-hidden bg-[var(--color-bg-tertiary)]">
+              <div className="relative w-40 h-40 shrink-0 rounded-lg overflow-hidden bg-[var(--color-bg-tertiary)]">
                 {thumbUrl ? (
                   <img
                     src={thumbUrl}
@@ -137,6 +136,11 @@ function ImagineDialog({ mediaId, variantId, variantPath, onClose }: Props) {
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-[var(--color-text-muted)] text-[11px]">
                     原图
+                  </div>
+                )}
+                {editMediaIds.length > 1 && (
+                  <div className="absolute bottom-1 left-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white text-center">
+                    已选择 {editMediaIds.length} 张输入图
                   </div>
                 )}
               </div>

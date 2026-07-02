@@ -31,7 +31,7 @@ import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import Lightbox from "@/components/Lightbox/Lightbox";
 import { showToast } from "@/components/Toast/Toast";
-import { aiPendingCount, collectionAddBatch, collectionGetItemIds, collectionList as loadCollections, collectionRemoveItem as removeFromCollection, mediaFindDuplicates, mediaSoftDelete, variantDelete } from "@/lib/tauri";
+import { aiPendingCount, collectionAddBatch, collectionGetItemIds, collectionList as loadCollections, collectionRemoveItem as removeFromCollection, mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
@@ -87,7 +87,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const [aiEditMediaId, setAiEditMediaId] = useState<string | null>(null);
-  const [aiEditVariantId, setAiEditVariantId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [aiRemaining, setAiRemaining] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -591,20 +590,14 @@ function AllMedia({ collectionId }: AllMediaProps) {
   };
 
   const confirmBatchDelete = async () => {
-    // Delete variants first to avoid FK cascade conflicts
+    // Collect media IDs for batch delete
     const itemMap = new Map(items.map((it) => [it.item_id, it]));
-    const variantIds: string[] = [];
     const mediaIds: string[] = [];
     for (const id of selectedIds) {
       const item = itemMap.get(id);
-      if (item?.item_kind === "variant" && item.variant_id) {
-        variantIds.push(item.variant_id);
-      } else if (item) {
+      if (item) {
         mediaIds.push(item.media_id);
       }
-    }
-    for (const vid of variantIds) {
-      try { await variantDelete(vid); } catch (e) { console.error("Failed to delete variant:", vid, e); }
     }
     for (const mid of mediaIds) {
       try { await mediaSoftDelete(mid); } catch (e) { console.error("Failed to delete:", mid, e); }
@@ -614,8 +607,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
     setDeleteConfirm(null);
     loadMedia();
     window.dispatchEvent(new CustomEvent("collections-changed"));
-    const total = variantIds.length + mediaIds.length;
-    showToast(`已删除 ${total} 项`);
+    showToast(`已删除 ${mediaIds.length} 项`);
   };
 
   const handleCreateAndBatchAdd = async () => {
@@ -1418,7 +1410,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
               <button
                 onClick={() => {
                   setAiEditMediaId(ctxMenu.item.media_id);
-                  setAiEditVariantId(ctxMenu.item.variant_id ?? null);
                   setCtxMenu(null);
                 }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
@@ -1671,11 +1662,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
         onConfirm={async () => {
           if (!pendingDeleteInfo) return;
           try {
-            if (pendingDeleteInfo.item.item_kind === "variant" && pendingDeleteInfo.item.variant_id) {
-              await variantDelete(pendingDeleteInfo.item.variant_id);
-            } else {
-              await mediaSoftDelete(pendingDeleteInfo.item.media_id);
-            }
+            await mediaSoftDelete(pendingDeleteInfo.item.media_id);
             selectItem(null);
             loadMedia();
             window.dispatchEvent(new CustomEvent("collections-changed"));
@@ -1691,8 +1678,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
       {aiEditMediaId && (
         <ImagineDialog
           mediaId={aiEditMediaId}
-          variantId={aiEditVariantId}
-          onClose={() => { setAiEditMediaId(null); setAiEditVariantId(null); }}
+          sourceMediaIds={[aiEditMediaId]}
+          onClose={() => { setAiEditMediaId(null); }}
         />
       )}
     </div>

@@ -264,15 +264,9 @@ function TableRow({
         </p>
       </div>
 
-      {/* Kind */}
-      <div className="w-14 text-center text-[11px]">
-        {item.item_kind === "variant" ? (
-          <span className={item.is_display_variant ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)]"}>
-            {item.is_display_variant ? "展示" : "变体"}
-          </span>
-        ) : (
-          <span className="text-[var(--color-text-muted)]/40">原图</span>
-        )}
+      {/* Parent count / source indicator */}
+      <div className="w-14 text-center text-[11px] text-[var(--color-text-muted)]">
+        {item.parent_count && item.parent_count > 0 ? `${item.parent_count} 个来源` : "原始"}
       </div>
 
       {/* Dimensions */}

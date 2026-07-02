@@ -159,7 +159,7 @@ function Gallery({
   useEffect(() => {
     if (scrollToKey !== undefined && scrollToKey !== prevScrollToKeyRef.current && selectedId && rows.length > 0) {
       const rowIndex = rows.findIndex(
-        (row) => row.type === "media" && row.items.some((item) => item.item_id === selectedId),
+        (row) => row.type === "media" && row.items.some((item) => item.media_id === selectedId),
       );
       if (rowIndex >= 0) {
         virtualizer.scrollToIndex(rowIndex, { align: "start" });
@@ -367,14 +367,10 @@ function ThumbnailCard({
             {item.item_id.slice(0, 8)}…
           </p>
         </div>
-        {/* Kind badge for variants */}
-        {item.item_kind === "variant" && (
-          <div className={`absolute left-2 top-2 z-10 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-            item.is_display_variant
-              ? "bg-[var(--color-accent)]/80 text-white"
-              : "bg-white/20 text-white/90"
-          }`}>
-            {item.is_display_variant ? "展示变体" : (item.label || item.preset_name || "变体")}
+        {/* Derivatives badge */}
+        {item.has_derivatives && (
+          <div className="absolute left-2 top-2 z-10 rounded bg-[var(--color-accent)]/80 px-1.5 py-0.5 text-[10px] font-medium text-white">
+            衍生
           </div>
         )}
         {/* Duration badge for video */}

@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { mediaGetPaths, variantList } from "@/lib/tauri";
+import { mediaGetPaths } from "@/lib/tauri";
 import { useThumbnail } from "@/hooks/useThumbnail";
 import type { Media } from "@/types/media";
-import type { Variant } from "@/types/variant";
 
 interface LightboxProps {
   media: Media[];
@@ -36,7 +35,7 @@ function FilmstripThumb({
   isActive: boolean;
   onClick: () => void;
 }) {
-  const url = useThumbnail(item.id, item.display_variant_id);
+  const url = useThumbnail(item.id);
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -177,7 +176,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
   const item = media[currentIndex];
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [rawOriginalPath, setRawOriginalPath] = useState<string | null>(null);
-  const [variants, setVariants] = useState<Variant[]>([]);
+  const [variants, setVariants] = useState<Array<{ id: string; file_path: string; width: number | null; height: number | null; file_size: number | null; label: string | null; preset_name: string | null; source: string | null; media_type: string | null; format: string; quality: number | null }>>([]);
   const [viewState, setViewState] = useState<ViewState>({ type: "single", activeId: null });
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -200,19 +199,8 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
         setOriginalUrl(convertFileSrc(paths.original));
       }
     });
-    variantList(item.id).then((list) => {
-      setVariants(list);
-      // Determine active variant: initialVariantId takes priority, then display_variant_id, then original
-      const targetId = (initialVariantId !== undefined && initialVariantId !== null)
-        ? initialVariantId
-        : (item.display_variant_id ?? null);
-      if (targetId) {
-        const found = list.find((v) => v.id === targetId);
-        setViewState({ type: "single", activeId: found ? found.id : null });
-      } else {
-        setViewState({ type: "single", activeId: null });
-      }
-    });
+    setVariants([]);
+    setViewState({ type: "single", activeId: null });
   }, [item, initialVariantId]);
 
   // Helper: get file path for an id (null = original)
