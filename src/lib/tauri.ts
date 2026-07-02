@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Media, MediaImportResult } from "@/types/media";
 import type { Tag } from "@/types/tag";
-import type { Variant, VariantPreset } from "@/types/variant";
+import type { LineageGraph } from "@/types/lineage";
 import type { Caption } from "@/types/caption";
 import type { Collection } from "@/types/collection";
 import type { LlamaServerStatus, GgufModelList, AutoDetect, EmbeddingInfo } from "@/types/ai";
@@ -259,70 +259,6 @@ export function mediaSearch(
   return invoke("media_search", { query, sortBy, descending, offset, limit });
 }
 
-// --- Variants ---
-
-export function variantList(mediaId: string): Promise<Variant[]> {
-  return invoke("variant_list", { mediaId });
-}
-
-export function variantGenerate(
-  mediaId: string,
-  label: string,
-  format: string,
-  maxWidth: number | null,
-  maxHeight: number | null,
-  quality: number,
-  resizeFilter?: string | null,
-): Promise<Variant> {
-  return invoke("variant_generate", { mediaId, label, format, maxWidth, maxHeight, quality, resizeFilter: resizeFilter ?? null });
-}
-
-export function variantImport(
-  mediaId: string,
-  sourcePath: string,
-): Promise<Variant> {
-  return invoke("variant_import", { mediaId, sourcePath });
-}
-
-export function variantDelete(id: string): Promise<void> {
-  return invoke("variant_delete", { id });
-}
-
-export function variantPresets(): Promise<VariantPreset[]> {
-  return invoke("variant_presets");
-}
-
-export function variantPresetCreate(
-  name: string,
-  label: string,
-  format: string,
-  maxWidth: number | null,
-  maxHeight: number | null,
-  quality: number,
-  resizeFilter: string,
-): Promise<void> {
-  return invoke("variant_preset_create", { name, label, format, maxWidth, maxHeight, quality, resizeFilter });
-}
-
-export function variantPresetDelete(name: string): Promise<void> {
-  return invoke("variant_preset_delete", { name });
-}
-
-export function variantAnnotate(mediaId: string, variantId: string): Promise<void> {
-  return invoke("variant_annotate", { mediaId, variantId });
-}
-
-export function mediaSetDisplayVariant(
-  mediaId: string,
-  variantId: string | null,
-): Promise<void> {
-  return invoke("media_set_display_variant", { mediaId, variantId });
-}
-
-export function mediaResetAllDisplayVariants(): Promise<number> {
-  return invoke("media_reset_all_display_variants");
-}
-
 // --- Captions ---
 
 export function captionList(mediaId: string): Promise<Caption[]> {
@@ -460,25 +396,6 @@ export function imageGenerate(
   return invoke("image_generate", { prompt, aspectRatio, resolution, n });
 }
 
-export function imageEdit(
-  mediaId: string,
-  variantId: string | null,
-  prompt: string,
-  aspectRatio?: string,
-  resolution?: string,
-  n?: number,
-): Promise<StagedImage[]> {
-  return invoke("image_edit", { mediaId, variantId, prompt, aspectRatio, resolution, n });
-}
-
-export function imageConfirmImport(
-  stagedIds: string[],
-  prompt: string,
-  mediaId?: string | null,
-): Promise<MediaImportResult[]> {
-  return invoke("image_confirm_import", { stagedIds, prompt, mediaId });
-}
-
 export function imageDiscardStaged(stagedIds: string[]): Promise<void> {
   return invoke("image_discard_staged", { stagedIds });
 }
@@ -506,16 +423,22 @@ export function imageQueueSubmitGenerate(
   return invoke("image_queue_submit_generate", { prompt, aspectRatio, resolution, n, workflowId: workflowId ?? null });
 }
 
-export function imageQueueSubmitEdit(
-  mediaId: string,
-  variantId: string | null,
+export async function imageQueueSubmitEdit(
+  sourceMediaIds: string[],
   prompt: string,
   aspectRatio?: string,
   resolution?: string,
   n?: number,
   workflowId?: string | null,
 ): Promise<string> {
-  return invoke("image_queue_submit_edit", { mediaId, variantId, prompt, aspectRatio, resolution, n, workflowId: workflowId ?? null });
+  return invoke("image_queue_submit_edit", {
+    sourceMediaIds,
+    prompt,
+    aspectRatio: aspectRatio || "auto",
+    resolution: resolution || "1k",
+    n: n || 1,
+    workflowId: workflowId || null,
+  });
 }
 
 export function imageQueueList(): Promise<ImageTaskInfo[]> {
@@ -539,6 +462,31 @@ export function imageQueueDiscard(taskId: string): Promise<void> {
 
 export function imageQueueDismiss(taskId: string): Promise<void> {
   return invoke("image_queue_dismiss", { taskId });
+}
+
+// --- Lineage ---
+
+export async function mediaLineageList(mediaId: string): Promise<LineageGraph> {
+  return invoke("media_lineage_list", { mediaId });
+}
+
+export async function mediaLineageAdd(
+  parentId: string,
+  childId: string,
+  relationType: string,
+): Promise<void> {
+  return invoke("media_lineage_add", { parentId, childId, relationType });
+}
+
+export async function mediaLineageRemove(
+  parentId: string,
+  childId: string,
+): Promise<void> {
+  return invoke("media_lineage_remove", { parentId, childId });
+}
+
+export async function mediaListRootsCount(): Promise<number> {
+  return invoke("media_list_roots_count");
 }
 
 // --- ComfyUI ---

@@ -12,13 +12,14 @@ export interface Media {
   source: string | null;
   sha256: string | null;
   deleted_at: string | null;
-  display_variant_id: string | null;
   thumb_256: string | null;
   lqip: string | null;
   media_type: string | null;
   duration: number | null;
   video_codec: string | null;
   video_fps: number | null;
+  has_derivatives?: boolean;
+  parent_count?: number;
 }
 
 export interface MediaImportResult {

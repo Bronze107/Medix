@@ -395,6 +395,10 @@ impl ImageProvider for ComfyuiProvider {
 
         let mut values = HashMap::new();
         values.insert("prompt".to_string(), params.prompt.clone());
+        // Single-image upload: maps to the first #input_image param in the workflow.
+        // Future: support multi-image upload by iterating over params.source_media_ids
+        // and uploading each image via POST /upload/image with distinct field names,
+        // then inserting e.g. "input_image1" -> "filename1.png", "input_image2" -> "filename2.png".
         values.insert("input_image".to_string(), uploaded_filename.to_string());
 
         let result = self.submit_and_wait(values).await;

@@ -202,11 +202,12 @@ impl WorkflowManager {
         }
     }
 
-    fn input_key_for_param(param_name: &str) -> String {
+    fn input_key_for_param(param_name: &str) -> &str {
         match param_name {
-            "prompt" | "negative_prompt" => "text".into(),
-            "input_image" => "image".into(),
-            _ => param_name.to_string(),
+            "prompt" | "positive_prompt" => "text",
+            "negative_prompt" => "text",
+            _ if param_name.starts_with("input_image") => "image",
+            _ => param_name,
         }
     }
 
@@ -296,17 +297,17 @@ impl WorkflowManager {
         // inputs (both formats)
         if let Some(inputs) = node["inputs"].as_object_mut() {
             let input_key = Self::input_key_for_param(param_name);
-            if inputs.contains_key(&input_key) {
+            if inputs.contains_key(input_key) {
                 if let Ok(n) = value.parse::<f64>() {
                     inputs.insert(
-                        input_key,
+                        input_key.to_string(),
                         serde_json::Value::Number(
                             serde_json::Number::from_f64(n)
                                 .unwrap_or(serde_json::Number::from(0)),
                         ),
                     );
                 } else {
-                    inputs.insert(input_key, serde_json::Value::String(value.clone()));
+                    inputs.insert(input_key.to_string(), serde_json::Value::String(value.clone()));
                 }
             }
         }
