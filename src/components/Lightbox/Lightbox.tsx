@@ -16,7 +16,7 @@ type CompareMode = "side-by-side" | "slider";
 // --- View state machine ---
 type ViewState =
   | { type: "single"; activeId: string | null }
-  | { type: "compare"; leftId: string | null; rightId: string | null; mode: CompareMode };
+  | { type: "compare"; leftId: string; rightId: string; mode: CompareMode };
 
 function FilmstripThumb({
   item,
@@ -49,11 +49,15 @@ function FilmstripThumb({
 function Filmstrip({
   media,
   currentIndex,
+  comparePinned,
   onNavigate,
+  onEnterCompare,
 }: {
   media: Media[];
   currentIndex: number;
+  comparePinned: string | null;
   onNavigate: (index: number) => void;
+  onEnterCompare: (rightId: string) => void;
 }) {
   const start = Math.max(0, currentIndex - 3);
   const end = Math.min(media.length, currentIndex + 4);
@@ -66,7 +70,13 @@ function Filmstrip({
           key={m.id}
           item={m}
           isActive={start + i === currentIndex}
-          onClick={() => onNavigate(start + i)}
+          onClick={() => {
+            if (comparePinned && m.id !== comparePinned) {
+              onEnterCompare(m.id);
+            } else {
+              onNavigate(start + i);
+            }
+          }}
         />
       ))}
     </div>
@@ -75,8 +85,9 @@ function Filmstrip({
 
 function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
   const item = media[currentIndex];
-  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  const [fileUrlCache, setFileUrlCache] = useState<Record<string, string>>({});
   const [viewState, setViewState] = useState<ViewState>({ type: "single", activeId: null });
+  const [comparePinned, setComparePinned] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -84,55 +95,86 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Load original when item changes
+  // Pre-load current item's URL into cache
   useEffect(() => {
-    setOriginalUrl(null);
-    setScale(1);
-    setOffset({ x: 0, y: 0 });
-
     if (!item) return;
-    mediaGetPaths(item.id).then((paths) => {
-      if (paths.original) {
-        setOriginalUrl(convertFileSrc(paths.original));
+    const id = item.id;
+    if (fileUrlCache[id]) return;
+    mediaGetPaths(id).then((paths) => {
+      const url = paths.original;
+      if (url) {
+        setFileUrlCache(prev => ({ ...prev, [id]: convertFileSrc(url) }));
       }
     });
-    setViewState({ type: "single", activeId: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id]);
+
+  // Reset view state and zoom on item change
+  useEffect(() => {
+    setScale(1);
+    setOffset({ x: 0, y: 0 });
+    setComparePinned(null);
+    if (!item) return;
+    setViewState({ type: "single", activeId: item.id });
   }, [item]);
 
-  // Helper: get file path for the original image.
-  const getFilePath = useCallback(
-    (_id: string | null): string | null => {
-      if (_id === null) return originalUrl;
-      return null;
-    },
-    [originalUrl],
-  );
+  // Resolve any media ID to a file URL via the cache
+  function getFilePath(mediaId: string | null): string | null {
+    if (!mediaId) return null;
+    return fileUrlCache[mediaId] ?? null;
+  }
 
-  // Helper: get media type for the active item.
-  const getActiveMediaType = useCallback(
-    (_id: string | null): string => {
-      return item?.media_type ?? "image";
-    },
-    [item],
-  );
+  // Resolve media type — only the current item's type is known
+  function getActiveMediaType(mediaId: string | null): string {
+    if (!mediaId || mediaId === item?.id) return item?.media_type ?? "image";
+    return "image";
+  }
 
-  // Determine if we're in compare mode
-  const compareMode =
-    viewState.type === "compare" ? viewState.mode : null;
-
-  // Determine which ids are selected for comparison
+  // Derived values
+  const compareMode = viewState.type === "compare" ? viewState.mode : null;
   const compareLeft = viewState.type === "compare" ? viewState.leftId : undefined;
   const compareRight = viewState.type === "compare" ? viewState.rightId : undefined;
-
-  // Active id for single view
   const activeId = viewState.type === "single" ? viewState.activeId : null;
+
+  // ---- compare pin flow ----
+  const handleEnterCompare = useCallback((rightId: string) => {
+    if (!comparePinned) return;
+    setComparePinned(null);
+    setViewState({
+      type: "compare",
+      leftId: comparePinned,
+      rightId,
+      mode: "side-by-side",
+    });
+  }, [comparePinned]);
+
+  // Pre-load compare image URLs when entering compare mode
+  const compareIds = viewState.type === "compare"
+    ? `${viewState.leftId}|${viewState.rightId}`
+    : null;
+
+  useEffect(() => {
+    if (!compareIds) return;
+    const [leftId, rightId] = compareIds.split("|");
+    [leftId, rightId].forEach(cacheId => {
+      if (cacheId && !fileUrlCache[cacheId]) {
+        mediaGetPaths(cacheId).then(paths => {
+          const url = paths.original;
+          if (url) {
+            setFileUrlCache(prev => ({ ...prev, [cacheId]: convertFileSrc(url) }));
+          }
+        });
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compareIds]);
 
   // Keyboard
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       switch (e.key) {
         case " ":
-          if (getActiveMediaType(activeId) === "video" && videoRef.current) {
+          if (viewState.type !== "compare" && getActiveMediaType(activeId) === "video" && videoRef.current) {
             e.preventDefault();
             if (videoRef.current.paused) {
               videoRef.current.play();
@@ -143,24 +185,32 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
           break;
         case "Escape":
           e.stopPropagation();
-          onClose();
+          if (viewState.type === "compare") {
+            setViewState({ type: "single", activeId: item?.id ?? null });
+          } else {
+            onClose();
+          }
           break;
         case "ArrowLeft":
-          if (getActiveMediaType(activeId) === "video" && videoRef.current && viewState.type !== "compare") {
+          if (viewState.type === "compare") {
+            if (currentIndex > 0) onNavigate(currentIndex - 1);
+          } else if (getActiveMediaType(activeId) === "video" && videoRef.current) {
             e.preventDefault();
             videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
-          } else if (viewState.type !== "compare" && currentIndex > 0) {
+          } else if (currentIndex > 0) {
             onNavigate(currentIndex - 1);
           }
           break;
         case "ArrowRight":
-          if (getActiveMediaType(activeId) === "video" && videoRef.current && viewState.type !== "compare") {
+          if (viewState.type === "compare") {
+            if (currentIndex < media.length - 1) onNavigate(currentIndex + 1);
+          } else if (getActiveMediaType(activeId) === "video" && videoRef.current) {
             e.preventDefault();
             videoRef.current.currentTime = Math.min(
               videoRef.current.duration || Infinity,
               videoRef.current.currentTime + 5,
             );
-          } else if (viewState.type !== "compare" && currentIndex < media.length - 1) {
+          } else if (currentIndex < media.length - 1) {
             onNavigate(currentIndex + 1);
           }
           break;
@@ -177,7 +227,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [currentIndex, media.length, onClose, onNavigate, viewState, activeId, getActiveMediaType]);
+  }, [currentIndex, media.length, onClose, onNavigate, viewState, activeId, getActiveMediaType, item]);
 
   // Mouse wheel zoom — cursor-relative (single view only)
   const handleWheel = useCallback(
@@ -257,14 +307,16 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
 
   if (!item) return null;
 
-  const mainUrl = viewState.type === "single" ? getFilePath(viewState.activeId) : null;
+  const mainUrl = viewState.type === "single" && viewState.activeId
+    ? getFilePath(viewState.activeId)
+    : null;
 
   return (
     <div
       className="fixed inset-0 z-50 bg-black/95"
       onClick={() => {
         if (viewState.type === "compare") {
-          setViewState({ type: "single", activeId: null });
+          setViewState({ type: "single", activeId: item?.id ?? null });
         } else {
           onClose();
         }
@@ -319,13 +371,37 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
             </div>
           )}
 
-          {/* Compare mode indicator + toggle */}
+          {/* Compare pin button — single view only */}
+          {viewState.type === "single" && (
+            <div className="flex items-center gap-1 border-l border-white/20 pl-3">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (comparePinned) {
+                    setComparePinned(null);
+                  } else {
+                    setComparePinned(activeId ?? item?.id ?? null);
+                  }
+                }}
+                className={`rounded px-2 py-1 text-xs transition-colors ${
+                  comparePinned
+                    ? "bg-[var(--color-accent)] text-white"
+                    : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+                }`}
+                title={comparePinned ? "已固定当前图片，点击另一张开始对比" : "固定当前图片进行对比"}
+              >
+                {comparePinned ? "已固定" : "对比"}
+              </button>
+            </div>
+          )}
+
+          {/* Compare mode toolbar */}
           {viewState.type === "compare" && (
             <div className="flex items-center gap-1 border-l border-white/20 pl-3">
               <span className="text-xs text-white/50">对比</span>
               <button
                 onClick={(e) => { e.stopPropagation(); setViewState({ ...viewState, mode: "side-by-side" }); }}
-                className={`rounded px-2 py-0.5 text-xs ${
+                className={`rounded px-2 py-0.5 text-xs transition-colors ${
                   viewState.mode === "side-by-side" ? "bg-white/20 text-white" : "text-white/50 hover:text-white/80"
                 }`}
               >
@@ -333,13 +409,40 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setViewState({ ...viewState, mode: "slider" }); }}
-                className={`rounded px-2 py-0.5 text-xs ${
+                className={`rounded px-2 py-0.5 text-xs transition-colors ${
                   viewState.mode === "slider" ? "bg-white/20 text-white" : "text-white/50 hover:text-white/80"
                 }`}
               >
                 叠加
               </button>
-              <span className="ml-1 text-[10px] text-white/30">点击空白退出对比</span>
+
+              {/* Swap left/right */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setViewState(prev => prev.type === "compare"
+                    ? { ...prev, leftId: prev.rightId, rightId: prev.leftId }
+                    : prev
+                  );
+                }}
+                className="rounded px-2 py-0.5 text-xs text-white/50 transition-colors hover:bg-white/10 hover:text-white/80"
+                title="交换左右"
+              >
+                ⇄ 交换
+              </button>
+
+              {/* Exit compare */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setViewState({ type: "single", activeId: item?.id ?? null });
+                }}
+                className="rounded px-2 py-0.5 text-xs text-white/50 transition-colors hover:bg-white/10 hover:text-white/80"
+              >
+                退出对比
+              </button>
+
+              <span className="ml-1 text-[11px] text-white/30">点击空白退出对比</span>
             </div>
           )}
         </div>
@@ -374,23 +477,23 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
               {/* ──── Side-by-side ──── */}
               <div className="flex h-full w-full">
                 <div className="flex-1 relative overflow-hidden border-r border-white/20">
-                  <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
-                    原图
+                  <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[11px] text-white/40">
+                    {compareLeft?.slice(0, 8)}
                   </div>
                   {getActiveMediaType(compareLeft ?? null) === "video" ? (
                     <video src={getFilePath(compareLeft ?? null) ?? ""} controls className="absolute inset-0 w-full h-full object-contain" />
                   ) : (
-                    <img src={getFilePath(compareLeft ?? null) ?? ""} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
+                    <img src={getFilePath(compareLeft ?? null) ?? ""} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} decoding="async" />
                   )}
                 </div>
                 <div className="flex-1 relative overflow-hidden">
-                  <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
-                    原图
+                  <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[11px] text-white/40">
+                    {compareRight?.slice(0, 8)}
                   </div>
                   {getActiveMediaType(compareRight ?? null) === "video" ? (
                     <video src={getFilePath(compareRight ?? null) ?? ""} controls className="absolute inset-0 w-full h-full object-contain" />
                   ) : (
-                    <img src={getFilePath(compareRight ?? null) ?? ""} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
+                    <img src={getFilePath(compareRight ?? null) ?? ""} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} decoding="async" />
                   )}
                 </div>
               </div>
@@ -445,8 +548,8 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
                 </div>
               </div>
               <div className="pointer-events-none absolute bottom-4 left-0 right-0 text-center">
-                <span className="rounded bg-black/50 px-2 py-1 text-[10px] text-white/50">
-                  原图 ← → 原图
+                <span className="rounded bg-black/50 px-2 py-1 text-[11px] text-white/50">
+                  {compareLeft?.slice(0, 8)} ← → {compareRight?.slice(0, 8)}
                 </span>
               </div>
               {item?.media_type === "video" && (
@@ -483,7 +586,13 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
       {/* Filmstrip — only in single view, when not comparing */}
       {viewState.type !== "compare" && media.length > 1 && (
         <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/60 backdrop-blur-sm">
-          <Filmstrip media={media} currentIndex={currentIndex} onNavigate={onNavigate} />
+          <Filmstrip
+            media={media}
+            currentIndex={currentIndex}
+            comparePinned={comparePinned}
+            onNavigate={onNavigate}
+            onEnterCompare={handleEnterCompare}
+          />
         </div>
       )}
 
