@@ -3,6 +3,7 @@ import type { Media } from "@/types/media";
 import type { BrowseItem } from "@/types/browse";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
 import { mediaListTrash, mediaRecover, mediaPermanentDelete, mediaEmptyTrash } from "@/lib/tauri";
+import { showToast } from "@/components/Toast/Toast";
 import Gallery from "@/components/Gallery/Gallery";
 
 function mediaToBrowseItem(m: Media): BrowseItem {
@@ -161,13 +162,15 @@ function Trash() {
 
   const confirmEmptyTrash = async () => {
     try {
-      await mediaEmptyTrash();
+      const count = await mediaEmptyTrash();
+      showToast(`已永久删除 ${count} 项`);
       setSelected(null);
       setSelectedIds(new Set());
       loadTrash();
       window.dispatchEvent(new CustomEvent("collections-changed"));
     } catch (e) {
       console.error("Failed to empty trash:", e);
+      showToast("清空失败: " + String(e));
     } finally {
       setConfirmType(null);
     }

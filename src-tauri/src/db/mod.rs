@@ -947,6 +947,127 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
         }
     }
 
+    // 0031_fix_media_variant_fk
+    // Migration 0030 used display_variant_id column existence as a proxy for the FK,
+    // but the FK could still be present on media even if the detection missed it.
+    // This migration directly queries pragma_foreign_key_list to check for any
+    // remaining FK to the (now-dropped) variants table, and rebuilds media if found.
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0031_fix_media_variant_fk'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            // Check each table that might have a stale FK to the dropped variants table.
+            // Use pragma_foreign_key_list for reliable FK detection (not column-name heuristics).
+            let has_fk = |tbl: &str| -> bool {
+                conn.query_row(
+                    &format!("SELECT COUNT(*) > 0 FROM pragma_foreign_key_list('{}') WHERE \"table\" = 'variants'", tbl),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false)
+            };
+
+            let media_broken = has_fk("media");
+            let captions_broken = has_fk("captions");
+            let embeddings_broken = has_fk("embeddings");
+            let media_tags_broken = has_fk("media_tags");
+
+            if media_broken || captions_broken || embeddings_broken || media_tags_broken {
+                conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+
+                // media: keep display_variant_id column, drop FK only
+                if media_broken {
+                    conn.execute_batch(
+                        "CREATE TABLE IF NOT EXISTS media_new (
+                             id TEXT PRIMARY KEY, source_path TEXT, phash BLOB,
+                             width INTEGER, height INTEGER, file_size INTEGER,
+                             created_at TIMESTAMP, modified_at TIMESTAMP,
+                             imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                             source_url TEXT, page_url TEXT, source TEXT,
+                             deleted_at TEXT, sha256 TEXT,
+                             display_variant_id TEXT, lqip TEXT,
+                             media_type TEXT DEFAULT 'image',
+                             duration REAL, video_codec TEXT, video_fps REAL
+                         );
+                         INSERT INTO media_new SELECT * FROM media;
+                         DROP TABLE media;
+                         ALTER TABLE media_new RENAME TO media;
+                         CREATE INDEX IF NOT EXISTS idx_media_imported_at ON media(imported_at);
+                         CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at);
+                         CREATE INDEX IF NOT EXISTS idx_media_type ON media(media_type);
+                         CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
+                         CREATE INDEX IF NOT EXISTS idx_media_deleted_at ON media(deleted_at);
+                         CREATE INDEX IF NOT EXISTS idx_media_deleted_imported ON media(deleted_at, imported_at);",
+                    )?;
+                }
+
+                // captions: drop variant_id column entirely
+                if captions_broken {
+                    conn.execute_batch(
+                        "CREATE TABLE IF NOT EXISTS captions_new (
+                             id TEXT PRIMARY KEY, media_id TEXT NOT NULL, text TEXT NOT NULL,
+                             source TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                             FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+                         );
+                         INSERT INTO captions_new SELECT id, media_id, text, source, created_at, updated_at FROM captions;
+                         DROP TABLE captions;
+                         ALTER TABLE captions_new RENAME TO captions;
+                         CREATE INDEX IF NOT EXISTS idx_captions_media ON captions(media_id);",
+                    )?;
+                }
+
+                // embeddings: drop variant_id column entirely
+                if embeddings_broken {
+                    conn.execute_batch(
+                        "CREATE TABLE IF NOT EXISTS embeddings_new (
+                             media_id TEXT NOT NULL, model TEXT NOT NULL,
+                             content_type TEXT NOT NULL, vector BLOB NOT NULL,
+                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                             FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+                         );
+                         INSERT INTO embeddings_new SELECT media_id, model, content_type, vector, created_at FROM embeddings;
+                         DROP TABLE embeddings;
+                         ALTER TABLE embeddings_new RENAME TO embeddings;
+                         CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_unique ON embeddings(media_id, model, content_type);
+                         CREATE INDEX IF NOT EXISTS idx_embeddings_media ON embeddings(media_id);
+                         CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);",
+                    )?;
+                }
+
+                // media_tags: drop variant_id column entirely
+                if media_tags_broken {
+                    conn.execute_batch(
+                        "CREATE TABLE IF NOT EXISTS media_tags_new (
+                             media_id TEXT NOT NULL, tag_id TEXT NOT NULL,
+                             confidence REAL, source TEXT,
+                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                             PRIMARY KEY (media_id, tag_id),
+                             FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE,
+                             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+                         );
+                         INSERT INTO media_tags_new SELECT media_id, tag_id, confidence, source, created_at FROM media_tags;
+                         DROP TABLE media_tags;
+                         ALTER TABLE media_tags_new RENAME TO media_tags;
+                         CREATE INDEX IF NOT EXISTS idx_media_tags_media ON media_tags(media_id);
+                         CREATE INDEX IF NOT EXISTS idx_media_tags_tag ON media_tags(tag_id);",
+                    )?;
+                }
+
+                conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+            }
+
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0031_fix_media_variant_fk');",
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -2946,12 +3067,15 @@ pub fn media_empty_trash(app: &AppHandle) -> Result<usize, Box<dyn std::error::E
         .filter_map(|r| r.ok())
         .collect();
 
-    let count = ids.len();
+    let mut deleted = 0usize;
     for id in &ids {
-        media_permanent_delete(app, id)?;
+        match media_permanent_delete(app, id) {
+            Ok(()) => deleted += 1,
+            Err(e) => eprintln!("[trash] failed to permanently delete {}: {}", id, e),
+        }
     }
 
-    Ok(count)
+    Ok(deleted)
 }
 
 pub fn media_find_similar(
