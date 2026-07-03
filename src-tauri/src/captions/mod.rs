@@ -4,7 +4,6 @@ use serde::Serialize;
 pub struct Caption {
     pub id: String,
     pub media_id: String,
-    pub variant_id: Option<String>,
     pub text: String,
     pub source: Option<String>,
     pub created_at: Option<String>,

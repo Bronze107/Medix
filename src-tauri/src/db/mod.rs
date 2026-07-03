@@ -1655,39 +1655,25 @@ pub fn media_tags_get(
     app: &AppHandle,
     media_id: &str,
 ) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
-    media_tags_get_with_variant(app, media_id, None)
+    media_tags_get_by_media_id(app, media_id)
 }
 
-pub fn media_tags_get_with_variant(
+pub fn media_tags_get_by_media_id(
     app: &AppHandle,
     media_id: &str,
-    variant_id: Option<&str>,
 ) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.name, mt.source, mt.confidence FROM tags t
+         JOIN media_tags mt ON t.id = mt.tag_id
+         WHERE mt.media_id = ?1
+         ORDER BY t.name",
+    )?;
+    let tag_iter = stmt.query_map(params![media_id], |row| {
+        Ok(Tag { id: row.get(0)?, name: row.get(1)?, source: row.get(2)?, confidence: row.get(3)?, item_count: None })
+    })?;
     let mut results = Vec::new();
-    if let Some(vid) = variant_id {
-        let mut stmt = conn.prepare(
-            "SELECT t.id, t.name, mt.source, mt.confidence FROM tags t
-             JOIN media_tags mt ON t.id = mt.tag_id
-             WHERE mt.media_id = ?1 AND mt.variant_id = ?2
-             ORDER BY t.name",
-        )?;
-        let tag_iter = stmt.query_map(params![media_id, vid], |row| {
-            Ok(Tag { id: row.get(0)?, name: row.get(1)?, source: row.get(2)?, confidence: row.get(3)?, item_count: None })
-        })?;
-        for tag in tag_iter { results.push(tag?); }
-    } else {
-        let mut stmt = conn.prepare(
-            "SELECT t.id, t.name, mt.source, mt.confidence FROM tags t
-             JOIN media_tags mt ON t.id = mt.tag_id
-             WHERE mt.media_id = ?1 AND mt.variant_id IS NULL
-             ORDER BY t.name",
-        )?;
-        let tag_iter = stmt.query_map(params![media_id], |row| {
-            Ok(Tag { id: row.get(0)?, name: row.get(1)?, source: row.get(2)?, confidence: row.get(3)?, item_count: None })
-        })?;
-        for tag in tag_iter { results.push(tag?); }
-    }
+    for tag in tag_iter { results.push(tag?); }
     Ok(results)
 }
 
@@ -1706,31 +1692,20 @@ pub fn media_tag_add_with_source(
     confidence: Option<f64>,
     source: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    media_tag_add_internal(app, media_id, None, tag_id, confidence, source)
-}
-
-pub fn media_tag_add_for_variant(
-    app: &AppHandle,
-    media_id: &str,
-    variant_id: &str,
-    tag_id: &str,
-    source: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    media_tag_add_internal(app, media_id, Some(variant_id), tag_id, None, source)
+    media_tag_add_internal(app, media_id, tag_id, confidence, source)
 }
 
 fn media_tag_add_internal(
     app: &AppHandle,
     media_id: &str,
-    variant_id: Option<&str>,
     tag_id: &str,
     confidence: Option<f64>,
     source: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     conn.execute(
-        "INSERT OR REPLACE INTO media_tags (media_id, variant_id, tag_id, confidence, source) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![media_id, variant_id, tag_id, confidence, source],
+        "INSERT OR REPLACE INTO media_tags (media_id, tag_id, confidence, source) VALUES (?1, ?2, ?3, ?4)",
+        params![media_id, tag_id, confidence, source],
     )?;
     let mid = media_id.to_string();
     drop(conn);
@@ -1772,27 +1747,19 @@ pub fn media_tag_remove(
     media_id: &str,
     tag_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    media_tag_remove_with_variant(app, media_id, None, tag_id)
+    media_tag_remove_for_media(app, media_id, tag_id)
 }
 
-pub fn media_tag_remove_with_variant(
+pub fn media_tag_remove_for_media(
     app: &AppHandle,
     media_id: &str,
-    variant_id: Option<&str>,
     tag_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    if let Some(vid) = variant_id {
-        conn.execute(
-            "DELETE FROM media_tags WHERE media_id = ?1 AND variant_id = ?2 AND tag_id = ?3",
-            params![media_id, vid, tag_id],
-        )?;
-    } else {
-        conn.execute(
-            "DELETE FROM media_tags WHERE media_id = ?1 AND variant_id IS NULL AND tag_id = ?2",
-            params![media_id, tag_id],
-        )?;
-    }
+    conn.execute(
+        "DELETE FROM media_tags WHERE media_id = ?1 AND tag_id = ?2",
+        params![media_id, tag_id],
+    )?;
     let mid = media_id.to_string();
     drop(conn);
     let _ = fts_sync(app, &mid);
@@ -2421,18 +2388,17 @@ pub fn caption_list_path(
 ) -> Result<Vec<Caption>, Box<dyn std::error::Error>> {
     let conn = Connection::open(db_path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, media_id, variant_id, text, source, created_at, updated_at
+        "SELECT id, media_id, text, source, created_at, updated_at
          FROM captions WHERE media_id = ?1 ORDER BY created_at DESC",
     )?;
     let caption_iter = stmt.query_map(params![media_id], |row| {
         Ok(Caption {
             id: row.get(0)?,
             media_id: row.get(1)?,
-            variant_id: row.get(2)?,
-            text: row.get(3)?,
-            source: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
+            text: row.get(2)?,
+            source: row.get(3)?,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
         })
     })?;
     let mut results = Vec::new();
@@ -2450,37 +2416,17 @@ pub fn caption_create(
     caption_create_with_source(app, media_id, text, None)
 }
 
-pub fn caption_create_for_variant(
-    app: &AppHandle,
-    media_id: &str,
-    variant_id: &str,
-    text: &str,
-    source: Option<&str>,
-) -> Result<Caption, Box<dyn std::error::Error>> {
-    caption_create_internal(app, media_id, text, source, Some(variant_id))
-}
-
 pub fn caption_create_with_source(
     app: &AppHandle,
     media_id: &str,
     text: &str,
     source: Option<&str>,
 ) -> Result<Caption, Box<dyn std::error::Error>> {
-    caption_create_internal(app, media_id, text, source, None)
-}
-
-fn caption_create_internal(
-    app: &AppHandle,
-    media_id: &str,
-    text: &str,
-    source: Option<&str>,
-    variant_id: Option<&str>,
-) -> Result<Caption, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let id = Ulid::new().to_string();
     conn.execute(
-        "INSERT INTO captions (id, media_id, variant_id, text, source) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![&id, media_id, variant_id, text, source],
+        "INSERT INTO captions (id, media_id, text, source) VALUES (?1, ?2, ?3, ?4)",
+        params![&id, media_id, text, source],
     )?;
     let mid = media_id.to_string();
     drop(conn);
@@ -2488,7 +2434,6 @@ fn caption_create_internal(
     Ok(Caption {
         id,
         media_id: media_id.to_string(),
-        variant_id: variant_id.map(|s| s.to_string()),
         text: text.to_string(),
         source: source.map(|s| s.to_string()),
         created_at: None,
@@ -2500,12 +2445,12 @@ pub fn caption_update(
     app: &AppHandle,
     id: &str,
     text: &str,
-) -> Result<(String, Option<String>), Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    let (mid, vid): (String, Option<String>) = conn.query_row(
-        "SELECT media_id, variant_id FROM captions WHERE id = ?1",
+    let mid: String = conn.query_row(
+        "SELECT media_id FROM captions WHERE id = ?1",
         params![id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| r.get(0),
     )?;
     conn.execute(
         "UPDATE captions SET text = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
@@ -2513,32 +2458,32 @@ pub fn caption_update(
     )?;
     drop(conn);
     let _ = fts_sync(app, &mid);
-    Ok((mid, vid))
+    Ok(mid)
 }
 
-pub fn caption_delete(app: &AppHandle, id: &str) -> Result<(String, Option<String>), Box<dyn std::error::Error>> {
+pub fn caption_delete(app: &AppHandle, id: &str) -> Result<String, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    let (mid, vid): (String, Option<String>) = conn.query_row(
-        "SELECT media_id, variant_id FROM captions WHERE id = ?1",
+    let mid: String = conn.query_row(
+        "SELECT media_id FROM captions WHERE id = ?1",
         params![id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| r.get(0),
     )?;
     conn.execute("DELETE FROM captions WHERE id = ?1", params![id])?;
     drop(conn);
     let _ = fts_sync(app, &mid);
-    Ok((mid, vid))
+    Ok(mid)
 }
 
-/// Look up (media_id, variant_id) for a caption without modifying it.
+/// Look up media_id for a caption without modifying it.
 pub fn caption_get_media_info(
     app: &AppHandle,
     id: &str,
-) -> Result<(String, Option<String>), Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     Ok(conn.query_row(
-        "SELECT media_id, variant_id FROM captions WHERE id = ?1",
+        "SELECT media_id FROM captions WHERE id = ?1",
         params![id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| r.get(0),
     )?)
 }
 
@@ -2549,31 +2494,19 @@ pub fn embedding_insert(
     media_id: &str,
     model: &str,
     content_type: &str,
-    variant_id: Option<&str>,
     vector: &[f32],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let bytes: Vec<u8> = vector.iter().flat_map(|v| v.to_le_bytes()).collect();
-    // Delete-then-insert to avoid issues with partial unique indexes and INSERT OR REPLACE
-    if let Some(vid) = variant_id {
-        conn.execute(
-            "DELETE FROM embeddings WHERE media_id=?1 AND model=?2 AND content_type=?3 AND variant_id=?4",
-            params![media_id, model, content_type, vid],
-        )?;
-        conn.execute(
-            "INSERT INTO embeddings (media_id, model, content_type, variant_id, vector) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![media_id, model, content_type, vid, bytes],
-        )?;
-    } else {
-        conn.execute(
-            "DELETE FROM embeddings WHERE media_id=?1 AND model=?2 AND content_type=?3 AND variant_id IS NULL",
-            params![media_id, model, content_type],
-        )?;
-        conn.execute(
-            "INSERT INTO embeddings (media_id, model, content_type, vector) VALUES (?1, ?2, ?3, ?4)",
-            params![media_id, model, content_type, bytes],
-        )?;
-    }
+    // Delete-then-insert to avoid unique constraint violations
+    conn.execute(
+        "DELETE FROM embeddings WHERE media_id=?1 AND model=?2 AND content_type=?3",
+        params![media_id, model, content_type],
+    )?;
+    conn.execute(
+        "INSERT INTO embeddings (media_id, model, content_type, vector) VALUES (?1, ?2, ?3, ?4)",
+        params![media_id, model, content_type, bytes],
+    )?;
     Ok(())
 }
 
@@ -2615,44 +2548,25 @@ pub fn embedding_clear_all(
 pub fn embedding_delete_for_media(
     app: &AppHandle,
     media_id: &str,
-    variant_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    if let Some(vid) = variant_id {
-        conn.execute(
-            "DELETE FROM embeddings WHERE media_id = ?1 AND variant_id = ?2",
-            params![media_id, vid],
-        )?;
-    } else {
-        conn.execute(
-            "DELETE FROM embeddings WHERE media_id = ?1 AND variant_id IS NULL",
-            params![media_id],
-        )?;
-    }
+    conn.execute(
+        "DELETE FROM embeddings WHERE media_id = ?1",
+        params![media_id],
+    )?;
     Ok(())
 }
 
 pub fn embedding_info_list(
     app: &AppHandle,
     media_id: &str,
-    variant_id: Option<&str>,
 ) -> Result<Vec<EmbeddingInfo>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    let (sql, vid_clause) = if variant_id.is_some() {
-        ("SELECT model, content_type, length(vector) / 4 as vec_len, created_at
-          FROM embeddings WHERE media_id = ?1 AND variant_id = ?2 ORDER BY content_type",
-         variant_id)
-    } else {
-        ("SELECT model, content_type, length(vector) / 4 as vec_len, created_at
-          FROM embeddings WHERE media_id = ?1 AND variant_id IS NULL ORDER BY content_type",
-         None)
-    };
-    let mut stmt = conn.prepare(sql)?;
-    let rows = if let Some(vid) = vid_clause {
-        stmt.query_map(params![media_id, vid], row_mapper)?
-    } else {
-        stmt.query_map(params![media_id], row_mapper)?
-    };
+    let mut stmt = conn.prepare(
+        "SELECT model, content_type, length(vector) / 4 as vec_len, created_at
+         FROM embeddings WHERE media_id = ?1 ORDER BY content_type",
+    )?;
+    let rows = stmt.query_map(params![media_id], row_mapper)?;
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
@@ -2678,23 +2592,22 @@ pub struct EmbeddingInfo {
 pub fn embedding_get_all_by_model(
     app: &AppHandle,
     model: &str,
-) -> Result<Vec<(String, Option<String>, String, Vec<f32>)>, Box<dyn std::error::Error>> {
+) -> Result<Vec<(String, String, Vec<f32>)>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT media_id, variant_id, content_type, vector FROM embeddings WHERE model = ?1 AND content_type = 'caption'",
+        "SELECT media_id, content_type, vector FROM embeddings WHERE model = ?1 AND content_type = 'caption'",
     )?;
     let iter = stmt.query_map(params![model], |row| {
         let media_id: String = row.get(0)?;
-        let variant_id: Option<String> = row.get(1)?;
-        let content_type: String = row.get(2)?;
-        let bytes: Vec<u8> = row.get(3)?;
+        let content_type: String = row.get(1)?;
+        let bytes: Vec<u8> = row.get(2)?;
         let mut vec = Vec::with_capacity(bytes.len() / 4);
         for chunk in bytes.chunks_exact(4) {
             let mut arr = [0u8; 4];
             arr.copy_from_slice(chunk);
             vec.push(f32::from_le_bytes(arr));
         }
-        Ok((media_id, variant_id, content_type, vec))
+        Ok((media_id, content_type, vec))
     })?;
     let mut results = Vec::new();
     for r in iter {

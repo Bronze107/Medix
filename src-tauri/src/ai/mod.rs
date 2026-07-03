@@ -21,13 +21,11 @@ pub enum AiTask {
     GenerateCaption {
         media_id: String,
         image_path: PathBuf,
-        variant_id: Option<String>,
     },
     GenerateVideoCaption {
         media_id: String,
         video_path: PathBuf,
         duration_secs: f64,
-        variant_id: Option<String>,
     },
 }
 
@@ -69,10 +67,9 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
                     AiTask::GenerateCaption {
                         media_id,
                         image_path,
-                        variant_id,
                     } => {
                         if let Err(e) =
-                            process_generate_caption(app.clone(), media_id, image_path, variant_id)
+                            process_generate_caption(app.clone(), media_id, image_path)
                                 .await
                         {
                             eprintln!("[ai] failed to process caption generation: {}", e);
@@ -84,14 +81,12 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
                         media_id,
                         video_path,
                         duration_secs,
-                        variant_id,
                     } => {
                         if let Err(e) = process_video_caption(
                             app.clone(),
                             media_id,
                             video_path,
                             duration_secs,
-                            variant_id,
                         )
                         .await
                         {
@@ -115,7 +110,6 @@ async fn process_generate_caption(
     app: AppHandle,
     media_id: String,
     image_path: PathBuf,
-    variant_id: Option<String>,
 ) -> Result<(), String> {
     let t_total = Instant::now();
     let ai_mode = crate::settings::get_ai_mode(&app);
@@ -274,22 +268,12 @@ async fn process_generate_caption(
 
         // Store EN caption
         let t_store_en = Instant::now();
-        if let Some(ref variant_id) = variant_id {
-            let _ = crate::db::caption_create_for_variant(
-                &app,
-                &media_id,
-                variant_id,
-                &result_en.caption,
-                Some("ai_en"),
-            );
-        } else {
-            let _ = crate::db::caption_create_with_source(
-                &app,
-                &media_id,
-                &result_en.caption,
-                Some("ai_en"),
-            );
-        }
+        let _ = crate::db::caption_create_with_source(
+            &app,
+            &media_id,
+            &result_en.caption,
+            Some("ai_en"),
+        );
         let store_en_ms = t_store_en.elapsed().as_millis();
         println!(
             "[ai] EN caption stored for {}: {}... ({} tags) | EN infer={}ms store={}ms",
@@ -316,22 +300,12 @@ async fn process_generate_caption(
             Ok(result_zh) => {
                 zh_infer_ms = t_zh.elapsed().as_millis();
                 let t_store_zh = Instant::now();
-                if let Some(ref variant_id) = variant_id {
-                    let _ = crate::db::caption_create_for_variant(
-                        &app,
-                        &media_id,
-                        variant_id,
-                        &result_zh.caption,
-                        Some("ai_zh"),
-                    );
-                } else {
-                    let _ = crate::db::caption_create_with_source(
-                        &app,
-                        &media_id,
-                        &result_zh.caption,
-                        Some("ai_zh"),
-                    );
-                }
+                let _ = crate::db::caption_create_with_source(
+                    &app,
+                    &media_id,
+                    &result_zh.caption,
+                    Some("ai_zh"),
+                );
                 let store_zh_ms = t_store_zh.elapsed().as_millis();
                 println!(
                     "[ai] ZH caption stored for {}: {}... | ZH infer={}ms store={}ms",
@@ -361,13 +335,7 @@ async fn process_generate_caption(
                     continue;
                 }
             };
-            if let Some(ref vid) = variant_id {
-                if let Err(e) =
-                    crate::db::media_tag_add_for_variant(&app, &media_id, vid, &tag_id, Some("ai"))
-                {
-                    eprintln!("[ai] failed to add variant tag '{}': {}", tag_name, e);
-                }
-            } else if let Err(e) = crate::db::media_tag_add_with_source(
+            if let Err(e) = crate::db::media_tag_add_with_source(
                 &app,
                 &media_id,
                 &tag_id,
@@ -382,8 +350,7 @@ async fn process_generate_caption(
         // Generate embedding for EN caption
         let t_emb = Instant::now();
         if !result_en.caption.is_empty() {
-            generate_caption_embedding(&app, &media_id, &result_en.caption, variant_id.as_deref())
-                .await;
+            generate_caption_embedding(&app, &media_id, &result_en.caption).await;
         }
         let emb_ms = t_emb.elapsed().as_millis();
 
@@ -405,19 +372,8 @@ async fn process_generate_caption(
 
     // Store caption with source='ai'
     let t_store = Instant::now();
-    if let Some(ref variant_id) = variant_id {
-        crate::db::caption_create_for_variant(
-            &app,
-            &media_id,
-            variant_id,
-            &result.caption,
-            Some("ai"),
-        )
+    crate::db::caption_create_with_source(&app, &media_id, &result.caption, Some("ai"))
         .map_err(|e| e.to_string())?;
-    } else {
-        crate::db::caption_create_with_source(&app, &media_id, &result.caption, Some("ai"))
-            .map_err(|e| e.to_string())?;
-    }
     let store_ms = t_store.elapsed().as_millis();
 
     // Tags
@@ -431,13 +387,7 @@ async fn process_generate_caption(
                 continue;
             }
         };
-        if let Some(ref vid) = variant_id {
-            if let Err(e) =
-                crate::db::media_tag_add_for_variant(&app, &media_id, vid, &tag_id, Some("ai"))
-            {
-                eprintln!("[ai] failed to add variant tag '{}': {}", tag_name, e);
-            }
-        } else if let Err(e) =
+        if let Err(e) =
             crate::db::media_tag_add_with_source(&app, &media_id, &tag_id, Some(0.9), Some("ai"))
         {
             eprintln!("[ai] failed to add tag '{}': {}", tag_name, e);
@@ -448,7 +398,7 @@ async fn process_generate_caption(
     // Embedding
     let t_emb = Instant::now();
     if !result.caption.is_empty() {
-        generate_caption_embedding(&app, &media_id, &result.caption, variant_id.as_deref()).await;
+        generate_caption_embedding(&app, &media_id, &result.caption).await;
     }
     let emb_ms = t_emb.elapsed().as_millis();
 
@@ -497,7 +447,6 @@ async fn process_video_caption(
     media_id: String,
     video_path: PathBuf,
     duration_secs: f64,
-    variant_id: Option<String>,
 ) -> Result<(), String> {
     // 1. Check AI mode
     let ai_mode = crate::settings::get_ai_mode(&app);
@@ -714,35 +663,14 @@ async fn process_video_caption(
     // 8. Store caption(s). Bilingual multi-frame stores EN + ZH separately.
     if is_bilingual && is_multi {
         // EN caption from the first multi-image call
-        store_video_caption(
-            &app,
-            &media_id,
-            variant_id.as_deref(),
-            &merged_caption,
-            "ai_en",
-        );
+        store_video_caption(&app, &media_id, &merged_caption, "ai_en");
         // ZH caption from the second multi-image call
         if let Some(ref zh) = zh_caption {
-            store_video_caption(&app, &media_id, variant_id.as_deref(), zh, "ai_zh");
+            store_video_caption(&app, &media_id, zh, "ai_zh");
         }
-    } else if is_bilingual {
-        // Single-frame bilingual: fall back to single "ai" caption
-        store_video_caption(
-            &app,
-            &media_id,
-            variant_id.as_deref(),
-            &merged_caption,
-            "ai",
-        );
     } else {
         // Single-language or single-frame: store as one caption
-        store_video_caption(
-            &app,
-            &media_id,
-            variant_id.as_deref(),
-            &merged_caption,
-            "ai",
-        );
+        store_video_caption(&app, &media_id, &merged_caption, "ai");
     }
 
     // 9. Store tags
@@ -756,13 +684,7 @@ async fn process_video_caption(
                     continue;
                 }
             };
-            if let Some(ref vid) = variant_id {
-                if let Err(e) =
-                    crate::db::media_tag_add_for_variant(&app, &media_id, vid, &tag_id, Some("ai"))
-                {
-                    eprintln!("[video_ai] failed to add variant tag '{}': {}", tag_name, e);
-                }
-            } else if let Err(e) = crate::db::media_tag_add_with_source(
+            if let Err(e) = crate::db::media_tag_add_with_source(
                 &app,
                 &media_id,
                 &tag_id,
@@ -776,7 +698,7 @@ async fn process_video_caption(
 
     // 10. Generate embedding
     if !merged_caption.is_empty() {
-        generate_caption_embedding(&app, &media_id, &merged_caption, variant_id.as_deref()).await;
+        generate_caption_embedding(&app, &media_id, &merged_caption).await;
     }
 
     // 11. Cleanup temp frames
@@ -862,21 +784,15 @@ fn dedup_join(items: &[String], separator: &str) -> String {
     result
 }
 
-/// Store a caption for either a variant or the original media.
+/// Store a caption for the given media.
 fn store_video_caption(
     app: &AppHandle,
     media_id: &str,
-    variant_id: Option<&str>,
     caption: &str,
     source: &str,
 ) {
-    let result = if let Some(vid) = variant_id {
-        crate::db::caption_create_for_variant(app, media_id, vid, caption, Some(source))
-            .map_err(|e| e.to_string())
-    } else {
-        crate::db::caption_create_with_source(app, media_id, caption, Some(source))
-            .map_err(|e| e.to_string())
-    };
+    let result = crate::db::caption_create_with_source(app, media_id, caption, Some(source))
+        .map_err(|e| e.to_string());
     match result {
         Ok(_) => {
             let preview: String = caption.chars().take(40).collect();
@@ -891,7 +807,6 @@ async fn generate_caption_embedding(
     app: &AppHandle,
     media_id: &str,
     caption: &str,
-    variant_id: Option<&str>,
 ) {
     let emb_model = crate::settings::get_embedding_model(app);
     if emb_model.is_empty() {
@@ -922,7 +837,6 @@ async fn generate_caption_embedding(
                 media_id,
                 &emb_model_short,
                 "caption",
-                variant_id,
                 &vector,
             ) {
                 eprintln!(

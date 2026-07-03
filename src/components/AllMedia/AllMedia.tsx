@@ -1351,20 +1351,15 @@ function AllMedia({ collectionId }: AllMediaProps) {
       {showExportDialog && (() => {
         const itemMap = new Map(items.map((it) => [it.id, it]));
         const mediaSet = new Set<string>();
-        const variantList: string[] = [];
         let hasOriginals = false;
         for (const id of selectedIds) {
           const item = itemMap.get(id);
-          if (item && item.parent_count > 0) {
-            variantList.push(item.id);
-          }
           if (item && item.parent_count === 0) hasOriginals = true;
           if (item) mediaSet.add(item.media_id);
         }
         return (
         <ExportDialog
           mediaIds={Array.from(mediaSet)}
-          variantIds={variantList.length > 0 ? variantList : undefined}
           hasOriginals={hasOriginals}
           totalCount={displayItems.length}
           onClose={() => setShowExportDialog(false)}
@@ -1542,7 +1537,6 @@ function AllMedia({ collectionId }: AllMediaProps) {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={(idx) => setLightboxIndex(idx)}
-          initialVariantId={null}
         />
       )}
 

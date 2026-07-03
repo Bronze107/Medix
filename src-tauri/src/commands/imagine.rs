@@ -89,101 +89,6 @@ pub async fn image_generate(
     Ok(results)
 }
 
-/// Edit an existing image (original or variant). Results are staged.
-#[command]
-pub async fn image_edit(
-    app: AppHandle,
-    media_id: String,
-    variant_id: Option<String>,
-    prompt: String,
-    aspect_ratio: Option<String>,
-    resolution: Option<String>,
-    n: Option<u32>,
-) -> Result<Vec<StagedImage>, String> {
-    let source_path = if let Some(ref vid) = variant_id {
-        // variant_id is now a lineage child media ID - look up its file in the library
-        resolve_media_path(&app, vid)?
-    } else {
-        resolve_media_path(&app, &media_id)?
-    };
-    let resolution = resolution.unwrap_or_else(|| "1k".to_string());
-
-    // Preprocess: resize if needed, keep original format
-    let img = image::open(&source_path).map_err(|e| e.to_string())?;
-    let max_dim: u32 = match resolution.as_str() {
-        "2k" => 2048,
-        _ => 1024,
-    };
-    let (w, h) = (img.width(), img.height());
-    let image_data_url = if w.max(h) > max_dim {
-        let ratio = max_dim as f64 / w.max(h) as f64;
-        let new_w = (w as f64 * ratio).round() as u32;
-        let new_h = (h as f64 * ratio).round() as u32;
-        let resized = img.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3);
-        image_to_data_url(&resized, &source_path)?
-    } else {
-        image_to_data_url(&img, &source_path)?
-    };
-
-    // Check request body size
-    let b64_len = image_data_url.len();
-    const MAX_BODY: usize = 10 * 1024 * 1024; // 10MB
-    if b64_len > MAX_BODY {
-        return Err(format!(
-            "Image too large after encoding ({}MB > 10MB limit). Try a lower resolution.",
-            b64_len / (1024 * 1024)
-        ));
-    }
-
-    let provider = imagine::create_provider(&app, None).map_err(|e| e.to_string())?;
-    let params = EditParams {
-        prompt: prompt.clone(),
-        image_data_url,
-        aspect_ratio: aspect_ratio.unwrap_or_else(|| "auto".to_string()),
-        resolution,
-        n: n.unwrap_or(1),
-    };
-
-    let images = provider.edit(&params).await.map_err(|e| {
-        let mut msg = e.to_string();
-        let mut src = e.source();
-        while let Some(s) = src {
-            msg.push_str(&format!("\n  caused by: {}", s));
-            src = s.source();
-        }
-        eprintln!("[imagine] edit error: {}", msg);
-        format!("编辑失败: {}", msg)
-    })?;
-
-    let staging = staging_dir(&app)?;
-    let mut results = Vec::new();
-
-    for img in &images {
-        let id = Ulid::new().to_string();
-        let ext = match img.mime_type.as_str() {
-            "image/jpeg" => "jpg",
-            "image/png" => "png",
-            "image/webp" => "webp",
-            _ => "png",
-        };
-        let temp_path = staging.join(format!("{}.{}", id, ext));
-        fs::write(&temp_path, &img.data).map_err(|e| e.to_string())?;
-
-        let decoded = image::open(&temp_path).map_err(|e| e.to_string())?;
-        let file_size = fs::metadata(&temp_path).map_err(|e| e.to_string())?.len() as i64;
-
-        results.push(StagedImage {
-            id,
-            path: temp_path.to_string_lossy().replace('\\', "/"),
-            width: decoded.width() as i32,
-            height: decoded.height() as i32,
-            file_size,
-        });
-    }
-
-    Ok(results)
-}
-
 /// Confirm import — move staged images into the library (generation) or variants (editing).
 #[command]
 pub async fn image_confirm_import(
@@ -360,7 +265,6 @@ pub async fn image_confirm_import(
                 let _ = queue.send(crate::ai::AiTask::GenerateCaption {
                     media_id: mid,
                     image_path: dest_clone,
-                    variant_id: None,
                 });
             });
 

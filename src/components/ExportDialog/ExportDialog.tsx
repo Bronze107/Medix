@@ -6,25 +6,16 @@ import type { ExportProgress } from "@/types/export";
 
 interface ExportDialogProps {
   mediaIds: string[];
-  /** If set, only export these specific variant IDs. */
-  variantIds?: string[];
   /** Whether the selection includes any originals. */
   hasOriginals?: boolean;
   totalCount: number;
   onClose: () => void;
 }
 
-const VARIANT_PRESETS = [
-  { name: "web_share", label: "Web分享 (JPEG 1080px)" },
-  { name: "print", label: "打印 (PNG 2048px)" },
-  { name: "dataset", label: "训练数据集 (JPEG 512px)" },
-];
-
 const EXPORT_PREFS_KEY = "medix.exportPrefs";
 interface ExportPrefs {
   captionMode: "all" | "manual" | "ai" | "latest";
   exportJSON: boolean;
-  variantPresets: string[];
   useZip: boolean;
   lastDir: string;
 }
@@ -33,15 +24,14 @@ function loadPrefs(): ExportPrefs {
     const raw = localStorage.getItem(EXPORT_PREFS_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { captionMode: "all", exportJSON: true, variantPresets: [], useZip: false, lastDir: "" };
+  return { captionMode: "all", exportJSON: true, useZip: false, lastDir: "" };
 }
 
-function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose }: ExportDialogProps) {
+function ExportDialog({ mediaIds, hasOriginals, totalCount, onClose }: ExportDialogProps) {
   const saved = loadPrefs();
   const [scope, setScope] = useState<"selected" | "current" | "all">("selected");
   const [captionMode, setCaptionMode] = useState<ExportPrefs["captionMode"]>(saved.captionMode);
   const [exportOriginal, setExportOriginal] = useState(hasOriginals !== false);
-  const [variantPresets, setVariantPresets] = useState<string[]>(saved.variantPresets);
   const [exportJSON, setExportJSON] = useState(saved.exportJSON);
   const [useZip, setUseZip] = useState(saved.useZip);
   const [outputDir, setOutputDir] = useState(saved.lastDir);
@@ -59,17 +49,11 @@ function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose 
     };
   }, []);
 
-  const togglePreset = (name: string) => {
-    setVariantPresets((prev) =>
-      prev.includes(name) ? prev.filter((p) => p !== name) : [...prev, name]
-    );
-  };
-
   const handleExport = async () => {
     if (!outputDir.trim()) return;
     // Persist preferences
     localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify({
-      captionMode, exportJSON, variantPresets, useZip, lastDir: outputDir,
+      captionMode, exportJSON, useZip, lastDir: outputDir,
     }));
     setExporting(true);
     setError(null);
@@ -83,8 +67,6 @@ function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose 
         caption_mode: captionMode,
         export_original: exportOriginal,
         export_json: exportJSON,
-        variant_presets: variantPresets,
-        variant_ids: variantIds,
         output_dir: outputDir,
         use_zip: useZip,
       });
@@ -196,7 +178,7 @@ function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose 
               </select>
             </div>
 
-            {/* Variants */}
+            {/* Options */}
             <div className="mb-4">
               <label className="mb-2 block text-xs text-[var(--color-text-muted)]">
                 包含
@@ -210,19 +192,6 @@ function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose 
                   />
                   原图
                 </label>
-                {VARIANT_PRESETS.map((p) => (
-                  <label
-                    key={p.name}
-                    className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={variantPresets.includes(p.name)}
-                      onChange={() => togglePreset(p.name)}
-                    />
-                    {p.label}
-                  </label>
-                ))}
                 <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
                   <input
                     type="checkbox"
@@ -298,7 +267,6 @@ function ExportDialog({ mediaIds, variantIds, hasOriginals, totalCount, onClose 
             {/* Summary */}
             <p className="mb-4 text-[10px] text-[var(--color-text-muted)]">
               将导出 {scopeIds} 张图片{captionMode !== "all" ? ` (${captionMode === "manual" ? "仅手动" : captionMode === "ai" ? "仅AI" : "仅最新 caption"})` : ""}
-              {variantPresets.length > 0 ? ` + ${variantPresets.length} 种变体` : ""}
               {useZip ? " → ZIP" : " → 目录"}
             </p>
 

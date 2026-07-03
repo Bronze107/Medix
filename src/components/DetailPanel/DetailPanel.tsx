@@ -20,9 +20,9 @@ import type { Tag } from "@/types/tag";
 import type { LineageGraph } from "@/types/lineage";
 import type { Caption } from "@/types/caption";
 import {
-  mediaTagsGetForVariant,
-  mediaTagAddForVariant,
-  mediaTagRemoveForVariant,
+  mediaTagsGet,
+  mediaTagAdd,
+  mediaTagRemove,
   mediaTagsClear,
   tagList,
   tagCreate,
@@ -203,7 +203,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
 
   const loadMediaTags = useCallback(async (mediaId: string) => {
     try {
-      const list = await mediaTagsGetForVariant(mediaId, null);
+      const list = await mediaTagsGet(mediaId);
       setTags(list);
     } catch (e) {
       console.error("Failed to load media tags:", e);
@@ -219,9 +219,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
     }
   }, []);
 
-  const loadEmbeddings = useCallback(async (mediaId: string, variantId?: string | null) => {
+  const loadEmbeddings = useCallback(async (mediaId: string) => {
     try {
-      const list = await embeddingInfo(mediaId, variantId ?? null);
+      const list = await embeddingInfo(mediaId);
       setEmbeddings(list);
     } catch (e) {
       console.error("Failed to load embeddings:", e);
@@ -236,7 +236,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
     if (media) {
       loadMediaTags(media.id);
       loadCaptions(media.id);
-      loadEmbeddings(media.id, null);
+      loadEmbeddings(media.id);
     } else {
       setTags([]);
       setCaptions([]);
@@ -259,7 +259,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
       if (media) {
         loadCaptions(media.id);
         loadMediaTags(media.id);
-        loadEmbeddings(media.id, null);
+        loadEmbeddings(media.id);
       }
     });
     return () => { unlisten.then((f) => f()); };
@@ -314,7 +314,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
     }
 
     try {
-      await mediaTagAddForVariant(media.id, null, tagId);
+      await mediaTagAdd(media.id, tagId);
       await loadMediaTags(media.id);
       setNewTagInput("");
       setShowSuggestions(false);
@@ -326,7 +326,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
   const handleRemoveTag = async (tagId: string) => {
     if (!media) return;
     try {
-      await mediaTagRemoveForVariant(media.id, null, tagId);
+      await mediaTagRemove(media.id, tagId);
       await loadMediaTags(media.id);
       showToast("已移除标签");
     } catch (e) {
@@ -354,7 +354,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
     const optimistic: Caption = {
       id: tempId,
       media_id: media.id,
-      variant_id: null,
       text,
       source: null,
       created_at: null,
@@ -424,7 +423,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
     const optimistic: Caption = {
       id: tempId,
       media_id: media.id,
-      variant_id: null,
       text,
       source: null,
       created_at: null,
@@ -546,7 +544,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
       {/* Tab dots */}
       <div className="mb-3 flex items-center justify-center gap-4 border-b border-[var(--color-border)] pb-2">
         {(["details", "captions", "tags"] as const).map((tab) => {
-          const label = tab === "details" ? "详情" : tab === "captions" ? `描述${(() => { const n = captions.filter(c => !c.variant_id).length; return n > 0 ? ` (${n})` : ""; })()}` : `标签${tags.length > 0 ? ` (${tags.length})` : ""}`;
+          const label = tab === "details" ? "详情" : tab === "captions" ? `描述${captions.length > 0 ? ` (${captions.length})` : ""}` : `标签${tags.length > 0 ? ` (${tags.length})` : ""}`;
           const active = activeTab === tab;
           return (
             <button
@@ -694,7 +692,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
                     <button
                       onClick={async () => {
                         try {
-                          await embeddingDelete(media.id, null);
+                          await embeddingDelete(media.id);
                           setEmbeddings([]);
                         } catch (err) {
                           console.error("Failed to delete embedding:", err);
@@ -810,13 +808,12 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
             {(() => {
-              const targetCaptions = captions.filter((c) => !c.variant_id);
-              if (targetCaptions.length === 0) {
+              if (captions.length === 0) {
                 return <p className="py-4 text-center text-xs text-[var(--color-text-muted)]">暂无描述</p>;
               }
               return (
               <div className="space-y-2">
-                {targetCaptions.map((c) => {
+                {captions.map((c) => {
                   const isAi = c.source === "ai" || c.source === "ai_en" || c.source === "ai_zh";
                   return (
                     <div
@@ -990,7 +987,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
                 }
                 await loadCaptions(media.id);
                 await loadMediaTags(media.id);
-                await loadEmbeddings(media.id, null);
+                await loadEmbeddings(media.id);
                 showToast("AI 标注完成");
               } catch (e) {
                 console.error("Failed to trigger AI annotation:", e);

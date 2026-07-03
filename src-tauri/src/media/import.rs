@@ -405,7 +405,6 @@ fn import_single_file(
     let _ = queue.send(crate::ai::AiTask::GenerateCaption {
         media_id: id.clone(),
         image_path: dest_path.clone(),
-        variant_id: None,
     });
     let ai_ms = t_ai.elapsed().as_millis();
 

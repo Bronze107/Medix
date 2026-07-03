@@ -9,22 +9,14 @@ interface LightboxProps {
   currentIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
-  initialVariantId?: string | null;
 }
 
 type CompareMode = "side-by-side" | "slider";
 
 // --- View state machine ---
 type ViewState =
-  | { type: "single"; activeId: string | null }              // null = original
+  | { type: "single"; activeId: string | null }
   | { type: "compare"; leftId: string | null; rightId: string | null; mode: CompareMode };
-
-function formatSize(bytes: number | null | undefined): string {
-  if (bytes == null) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1048576).toFixed(1)} MB`;
-}
 
 function FilmstripThumb({
   item,
@@ -81,102 +73,9 @@ function Filmstrip({
   );
 }
 
-// --- Variant thumbnail in right panel ---
-function VariantThumb({
-  label,
-  detail,
-  source,
-  mediaType,
-  isActive,
-  isCompareSelected,
-  filePath,
-  onClick,
-  onCtrlClick,
-}: {
-  label: string;
-  detail: string;
-  source: string | null;
-  mediaType: string | null;
-  isActive: boolean;
-  isCompareSelected: boolean;
-  filePath: string;
-  onClick: () => void;
-  onCtrlClick: () => void;
-}) {
-  const [loaded, setLoaded] = useState(false);
-  const src = convertFileSrc(filePath);
-  const isVideo = mediaType === "video";
-
-  return (
-    <button
-      onClick={(e) => {
-        if (e.ctrlKey || e.metaKey) {
-          onCtrlClick();
-        } else {
-          onClick();
-        }
-      }}
-      className={`group relative flex w-full items-start gap-2 rounded-lg p-2 text-left transition-colors ${
-        isActive
-          ? "bg-white/15 ring-1 ring-white/30"
-          : isCompareSelected
-          ? "bg-[var(--color-accent)]/15 ring-1 ring-[var(--color-accent)]/40"
-          : "hover:bg-white/8"
-      }`}
-    >
-      <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-white/5">
-        {isVideo ? (
-          <video
-            src={src}
-            className="h-full w-full object-cover"
-            onLoadedData={() => setLoaded(true)}
-            muted
-            playsInline
-          />
-        ) : (
-          <img
-            src={src}
-            alt=""
-            decoding="async"
-            className={`h-full w-full object-cover transition-all duration-300 ${
-              loaded ? "opacity-100" : "opacity-0"
-            }`}
-            onLoad={() => setLoaded(true)}
-            draggable={false}
-          />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className={`truncate text-[11px] font-medium ${
-          isActive ? "text-white" : "text-white/80"
-        }`}>
-          {label}
-        </p>
-        <p className="truncate text-[10px] text-white/45">{detail}</p>
-        {source && (
-          <span className={`mt-0.5 inline-block rounded px-1 py-px text-[9px] ${
-            source === "generated"
-              ? "bg-blue-400/20 text-blue-300/80"
-              : "bg-green-400/20 text-green-300/80"
-          }`}>
-            {source === "generated" ? "生成" : "导入"}
-          </span>
-        )}
-      </div>
-      {isCompareSelected && (
-        <span className="absolute right-2 top-1 text-[9px] text-[var(--color-accent)]">
-          {isActive ? "L" : "R"}
-        </span>
-      )}
-    </button>
-  );
-}
-
-function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }: LightboxProps) {
+function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
   const item = media[currentIndex];
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
-  const [rawOriginalPath, setRawOriginalPath] = useState<string | null>(null);
-  const [variants, setVariants] = useState<Array<{ id: string; file_path: string; width: number | null; height: number | null; file_size: number | null; label: string | null; preset_name: string | null; source: string | null; media_type: string | null; format: string; quality: number | null }>>([]);
   const [viewState, setViewState] = useState<ViewState>({ type: "single", activeId: null });
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -185,56 +84,36 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Load original + variants when item changes
+  // Load original when item changes
   useEffect(() => {
     setOriginalUrl(null);
-    setVariants([]);
     setScale(1);
     setOffset({ x: 0, y: 0 });
 
     if (!item) return;
     mediaGetPaths(item.id).then((paths) => {
       if (paths.original) {
-        setRawOriginalPath(paths.original);
         setOriginalUrl(convertFileSrc(paths.original));
       }
     });
-    setVariants([]);
     setViewState({ type: "single", activeId: null });
-  }, [item, initialVariantId]);
+  }, [item]);
 
-  // Helper: get file path for an id (null = original)
+  // Helper: get file path for the original image.
   const getFilePath = useCallback(
-    (id: string | null): string | null => {
-      if (id === null) return originalUrl;
-      const v = variants.find((v) => v.id === id);
-      return v ? convertFileSrc(v.file_path) : null;
+    (_id: string | null): string | null => {
+      if (_id === null) return originalUrl;
+      return null;
     },
-    [originalUrl, variants],
+    [originalUrl],
   );
 
-  // Helper: get variant display info for an id
-  const getVariantInfo = useCallback(
-    (id: string | null) => {
-      if (id === null) return { label: "原图", detail: item ? `${item.width ?? "?"}×${item.height ?? "?"}` : "", source: null, mediaType: item?.media_type ?? null };
-      const v = variants.find((v) => v.id === id);
-      if (!v) return { label: "未知", detail: "", source: null, mediaType: null };
-      const fmt = v.format.toUpperCase();
-      const dim = `${v.width ?? "?"}×${v.height ?? "?"}`;
-      const detail = `${fmt}${v.quality && v.format === "jpeg" ? `·Q${v.quality}` : ""} · ${dim} · ${formatSize(v.file_size)}`;
-      return { label: v.label || v.preset_name || "未命名变体", detail, source: v.source, mediaType: v.media_type };
-    },
-    [item, variants],
-  );
-
-  // Helper: get media type for a given id (null = original)
+  // Helper: get media type for the active item.
   const getActiveMediaType = useCallback(
-    (id: string | null): string => {
-      if (id === null) return item?.media_type ?? "image";
-      const v = variants.find((v) => v.id === id);
-      return v?.media_type ?? "image";
+    (_id: string | null): string => {
+      return item?.media_type ?? "image";
     },
-    [item, variants],
+    [item],
   );
 
   // Determine if we're in compare mode
@@ -285,29 +164,6 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
             onNavigate(currentIndex + 1);
           }
           break;
-        case "ArrowUp":
-        case "ArrowDown": {
-          e.preventDefault();
-          if (media.length === 0) break;
-          // Build ordered list: [null (original), ...variant ids]
-          const ids = [null as string | null, ...variants.map((v) => v.id)];
-          if (viewState.type === "compare") {
-            const curIdx = ids.indexOf(viewState.rightId);
-            const nextIdx = e.key === "ArrowUp"
-              ? Math.max(0, curIdx - 1)
-              : Math.min(ids.length - 1, curIdx + 1);
-            setViewState({ ...viewState, rightId: ids[nextIdx] });
-          } else {
-            const curIdx = ids.indexOf(viewState.activeId);
-            const nextIdx = e.key === "ArrowUp"
-              ? Math.max(0, curIdx - 1)
-              : Math.min(ids.length - 1, curIdx + 1);
-            setViewState({ type: "single", activeId: ids[nextIdx] });
-            setScale(1);
-            setOffset({ x: 0, y: 0 });
-          }
-          break;
-        }
         case "Tab":
           if (viewState.type === "compare") {
             e.preventDefault();
@@ -321,7 +177,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [currentIndex, media.length, onClose, onNavigate, viewState, variants]);
+  }, [currentIndex, media.length, onClose, onNavigate, viewState, activeId, getActiveMediaType]);
 
   // Mouse wheel zoom — cursor-relative (single view only)
   const handleWheel = useCallback(
@@ -399,49 +255,16 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
     window.addEventListener("mouseup", onUp);
   }, []);
 
-  // --- Variant click handlers ---
-  const handleVariantClick = useCallback(
-    (id: string | null) => {
-      if (viewState.type === "compare") {
-        // In compare mode, clicking replaces the right side
-        setViewState({ ...viewState, rightId: id });
-      } else {
-        // Single mode → preview this variant
-        setViewState({ type: "single", activeId: id });
-        setScale(1);
-        setOffset({ x: 0, y: 0 });
-      }
-    },
-    [viewState],
-  );
-
-  const handleVariantCtrlClick = useCallback(
-    (id: string | null) => {
-      // Ctrl+click: add to comparison
-      if (viewState.type === "compare") {
-        // Already comparing — replace right side
-        setViewState({ ...viewState, rightId: id });
-        return;
-      }
-      // Enter compare mode with current active + clicked variant
-      const left = viewState.activeId;
-      setViewState({ type: "compare", leftId: left, rightId: id, mode: "side-by-side" });
-    },
-    [viewState],
-  );
-
   if (!item) return null;
 
   const mainUrl = viewState.type === "single" ? getFilePath(viewState.activeId) : null;
-  const hasVariants = variants.length > 0;
 
   return (
     <div
       className="fixed inset-0 z-50 bg-black/95"
       onClick={() => {
         if (viewState.type === "compare") {
-          const lastActive = viewState.leftId !== null ? viewState.leftId : viewState.rightId;
-          setViewState({ type: "single", activeId: lastActive });
+          setViewState({ type: "single", activeId: null });
         } else {
           onClose();
         }
@@ -523,9 +346,6 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
 
         {/* Current item info */}
         <div className="flex items-center gap-2 text-xs text-white/50">
-          {viewState.type === "single" && (
-            <span>{getVariantInfo(activeId).label}</span>
-          )}
           <span>
             {item.width && item.height ? `${item.width} x ${item.height}` : ""}
           </span>
@@ -536,8 +356,6 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
       <div
         ref={containerRef}
         className={`absolute inset-0 ${
-          hasVariants ? "right-[172px]" : ""
-        } ${
           dragging ? "cursor-grabbing" : viewState.type === "single" && scale > 1 ? "cursor-grab" : "cursor-default"
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -557,7 +375,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
               <div className="flex h-full w-full">
                 <div className="flex-1 relative overflow-hidden border-r border-white/20">
                   <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
-                    {getVariantInfo(compareLeft ?? null).label}
+                    原图
                   </div>
                   {getActiveMediaType(compareLeft ?? null) === "video" ? (
                     <video src={getFilePath(compareLeft ?? null) ?? ""} controls className="absolute inset-0 w-full h-full object-contain" />
@@ -567,7 +385,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
                 </div>
                 <div className="flex-1 relative overflow-hidden">
                   <div className="pointer-events-none absolute left-0 right-0 top-2 z-10 text-center text-[10px] text-white/40">
-                    {getVariantInfo(compareRight ?? null).label}
+                    原图
                   </div>
                   {getActiveMediaType(compareRight ?? null) === "video" ? (
                     <video src={getFilePath(compareRight ?? null) ?? ""} controls className="absolute inset-0 w-full h-full object-contain" />
@@ -628,7 +446,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
               </div>
               <div className="pointer-events-none absolute bottom-4 left-0 right-0 text-center">
                 <span className="rounded bg-black/50 px-2 py-1 text-[10px] text-white/50">
-                  {getVariantInfo(compareLeft ?? null).label} ← → {getVariantInfo(compareRight ?? null).label}
+                  原图 ← → 原图
                 </span>
               </div>
               {item?.media_type === "video" && (
@@ -662,62 +480,6 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
         )}
       </div>
 
-      {/* ──── Right variant panel ──── */}
-      {hasVariants && (
-        <div
-          className="absolute bottom-0 right-0 top-0 z-20 w-[172px] border-l border-white/10 bg-black/60 backdrop-blur-sm"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex h-full flex-col">
-            <div className="border-b border-white/10 px-3 py-2.5">
-              <p className="text-[11px] font-medium text-white/60">变体</p>
-            </div>
-            <div className="flex-1 overflow-y-auto px-2 py-1.5 space-y-1">
-              {/* Original */}
-              <VariantThumb
-                label="原图"
-                detail={item ? `${item.width ?? "?"}×${item.height ?? "?"}` : ""}
-                source={null}
-                mediaType={item?.media_type ?? null}
-                isActive={viewState.type === "single" && viewState.activeId === null}
-                isCompareSelected={
-                  viewState.type === "compare" &&
-                  (viewState.leftId === null || viewState.rightId === null)
-                }
-                filePath={rawOriginalPath ?? ""}
-                onClick={() => handleVariantClick(null)}
-                onCtrlClick={() => handleVariantCtrlClick(null)}
-              />
-
-              {/* Variants */}
-              {variants.map((v) => {
-                const info = getVariantInfo(v.id);
-                return (
-                  <VariantThumb
-                    key={v.id}
-                    label={info.label}
-                    detail={info.detail}
-                    source={info.source}
-                    mediaType={info.mediaType}
-                    isActive={viewState.type === "single" && viewState.activeId === v.id}
-                    isCompareSelected={
-                      viewState.type === "compare" &&
-                      (viewState.leftId === v.id || viewState.rightId === v.id)
-                    }
-                    filePath={v.file_path}
-                    onClick={() => handleVariantClick(v.id)}
-                    onCtrlClick={() => handleVariantCtrlClick(v.id)}
-                  />
-                );
-              })}
-            </div>
-            <div className="border-t border-white/10 px-3 py-2">
-              <p className="text-[10px] text-white/30">Ctrl+点击 对比 · Tab 切换</p>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Filmstrip — only in single view, when not comparing */}
       {viewState.type !== "compare" && media.length > 1 && (
         <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/60 backdrop-blur-sm">
@@ -740,7 +502,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, initialVariantId }
           <button
             onClick={(e) => { e.stopPropagation(); if (currentIndex < media.length - 1) onNavigate(currentIndex + 1); }}
             disabled={currentIndex === media.length - 1}
-            className="absolute right-[188px] top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white/70 hover:bg-white/20 hover:text-white disabled:opacity-20"
+            className="absolute right-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white/70 hover:bg-white/20 hover:text-white disabled:opacity-20"
           >
             <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />

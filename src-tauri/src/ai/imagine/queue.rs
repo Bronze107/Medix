@@ -751,7 +751,6 @@ pub fn image_queue_import(
                 let _ = queue.send(crate::ai::AiTask::GenerateCaption {
                     media_id: mid,
                     image_path: dest_clone,
-                    variant_id: None,
                 });
             });
 

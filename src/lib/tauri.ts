@@ -164,29 +164,6 @@ export function mediaTagsIntersect(mediaIds: string[]): Promise<Tag[]> {
   return invoke("media_tags_intersect", { mediaIds });
 }
 
-export function mediaTagsGetForVariant(
-  mediaId: string,
-  variantId: string | null,
-): Promise<Tag[]> {
-  return invoke("media_tags_get_for_variant", { mediaId, variantId });
-}
-
-export function mediaTagAddForVariant(
-  mediaId: string,
-  variantId: string | null,
-  tagId: string,
-): Promise<void> {
-  return invoke("media_tag_add_for_variant", { mediaId, variantId, tagId });
-}
-
-export function mediaTagRemoveForVariant(
-  mediaId: string,
-  variantId: string | null,
-  tagId: string,
-): Promise<void> {
-  return invoke("media_tag_remove_for_variant", { mediaId, variantId, tagId });
-}
-
 // --- Collections ---
 
 export function collectionList(): Promise<Collection[]> {
@@ -269,14 +246,6 @@ export function captionCreate(mediaId: string, text: string): Promise<Caption> {
   return invoke("caption_create", { mediaId, text });
 }
 
-export function captionCreateForVariant(
-  mediaId: string,
-  variantId: string,
-  text: string,
-): Promise<Caption> {
-  return invoke("caption_create_for_variant", { mediaId, variantId, text });
-}
-
 export function captionUpdate(id: string, text: string): Promise<void> {
   return invoke("caption_update", { id, text });
 }
@@ -307,12 +276,12 @@ export function autoDetect(): Promise<AutoDetect> {
   return invoke("auto_detect");
 }
 
-export function embeddingInfo(mediaId: string, variantId?: string | null): Promise<EmbeddingInfo[]> {
-  return invoke("embedding_info", { mediaId, variantId: variantId ?? null });
+export function embeddingInfo(mediaId: string): Promise<EmbeddingInfo[]> {
+  return invoke("embedding_info", { mediaId });
 }
 
-export function embeddingDelete(mediaId: string, variantId?: string | null): Promise<void> {
-  return invoke("embedding_delete", { mediaId, variantId: variantId ?? null });
+export function embeddingDelete(mediaId: string): Promise<void> {
+  return invoke("embedding_delete", { mediaId });
 }
 
 export function embeddingClearAll(): Promise<string> {

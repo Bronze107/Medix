@@ -21,9 +21,6 @@ pub struct ExportOptions {
     pub caption_mode: String, // "all" / "manual" / "ai"
     pub export_original: bool,
     pub export_json: bool,
-    pub variant_presets: Vec<String>,
-    /// If set, only export these specific variant IDs (instead of all variants for each media).
-    pub variant_ids: Option<Vec<String>>,
     pub output_dir: String,
     pub use_zip: bool,
 }
