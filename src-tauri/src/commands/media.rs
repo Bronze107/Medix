@@ -1,6 +1,7 @@
 use tauri::{command, AppHandle, Emitter, Manager};
 
 use crate::db;
+use rusqlite::params;
 use crate::media::{import, Media, MediaImportResult};
 
 #[command]
@@ -154,6 +155,19 @@ pub fn media_get_paths(app: AppHandle, id: String) -> Result<MediaPaths, String>
                     found = Some(entry.path().to_string_lossy().replace('\\', "/"));
                     break;
                 }
+            }
+        }
+        // Fallback: check source_path in DB (derivative media may be in other directories)
+        if found.is_none() {
+            if let Ok(conn) = crate::db::get_conn(&app) {
+                found = conn
+                    .query_row(
+                        "SELECT source_path FROM media WHERE id = ?1",
+                        params![&id],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .ok()
+                    .map(|p| p.replace('\\', "/"));
             }
         }
         found
