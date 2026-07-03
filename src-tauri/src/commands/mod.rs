@@ -10,6 +10,7 @@ mod settings;
 mod tag;
 mod thumbnail;
 mod lineage;
+mod transform;
 
 pub use browse::*;
 pub use caption::*;
@@ -23,6 +24,7 @@ pub use settings::*;
 pub use tag::*;
 pub use thumbnail::*;
 pub use lineage::*;
+pub use transform::*;
 
 use tauri::command;
 

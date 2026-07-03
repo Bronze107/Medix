@@ -458,6 +458,35 @@ export async function mediaListRootsCount(): Promise<number> {
   return invoke("media_list_roots_count");
 }
 
+// --- Derivative Generation / Import ---
+
+export async function mediaGenerateDerivative(
+  sourceMediaId: string,
+  label: string,
+  format: string,
+  maxWidth?: number | null,
+  maxHeight?: number | null,
+  quality?: number,
+  resizeFilter?: string | null,
+): Promise<Media> {
+  return invoke("media_generate_derivative", {
+    sourceMediaId,
+    label,
+    format,
+    maxWidth: maxWidth ?? null,
+    maxHeight: maxHeight ?? null,
+    quality: quality ?? 85,
+    resizeFilter: resizeFilter ?? null,
+  });
+}
+
+export async function mediaImportDerivative(
+  sourceMediaId: string,
+  filePath: string,
+): Promise<Media> {
+  return invoke("media_import_derivative", { sourceMediaId, filePath });
+}
+
 // --- ComfyUI ---
 
 export function comfyuiWorkflowList(workflowType?: string): Promise<ComfyWorkflow[]> {
