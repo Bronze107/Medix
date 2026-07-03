@@ -675,7 +675,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
                   const g = await mediaLineageList(media.id);
                   setLineage(g);
                   // Notify parent to refresh media list
-                  window.dispatchEvent(new Event("variants-changed"));
+                  window.dispatchEvent(new Event("derivative-changed"));
                 } catch (e) {
                   console.error("Failed to generate derivative:", e);
                   showToast("生成失败: " + (e as Error).message);
@@ -734,7 +734,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
                   // Reload lineage
                   const g = await mediaLineageList(media.id);
                   setLineage(g);
-                  window.dispatchEvent(new Event("variants-changed"));
+                  window.dispatchEvent(new Event("derivative-changed"));
                 } catch (e) {
                   console.error("Failed to import derivative:", e);
                   showToast("导入失败: " + (e as Error).message);

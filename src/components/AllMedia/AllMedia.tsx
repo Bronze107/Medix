@@ -516,8 +516,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
     const handler = () => {
       loadMedia();
     };
-    window.addEventListener("variants-changed", handler);
-    return () => window.removeEventListener("variants-changed", handler);
+    window.addEventListener("derivative-changed", handler);
+    return () => window.removeEventListener("derivative-changed", handler);
   }, [loadMedia]);
 
   // After display-variant-change triggers reload, re-select item for the same media
