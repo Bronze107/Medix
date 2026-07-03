@@ -935,6 +935,13 @@ function AllMedia({ collectionId }: AllMediaProps) {
             }
           }}
           onDeleted={() => { selectItem(null); setDetailCollapsed(false); loadMedia(); }}
+          onNavigate={(mediaId: string) => {
+            const found = items.find((it) => it.media_id === mediaId);
+            if (found) {
+              selectItem(found);
+              if (detailCollapsed) setDetailCollapsed(false);
+            }
+          }}
         />
       </div>
 

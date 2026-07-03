@@ -112,6 +112,15 @@ function formatDate(dateStr: string | null): string {
   }
 }
 
+function relationLabel(type: string): string {
+  const map: Record<string, string> = {
+    edit: "AI 编辑",
+    generate: "生成",
+    import: "导入",
+  };
+  return map[type] ?? type;
+}
+
 function ThumbnailPreview({ media }: { media: Media }) {
   const [loaded, setLoaded] = useState(false);
   const thumbUrl = useThumbnail(media.id);
@@ -159,6 +168,35 @@ function ThumbnailPreview({ media }: { media: Media }) {
   );
 }
 
+function LineageThumb({ mediaId }: { mediaId: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const thumbUrl = useThumbnail(mediaId);
+
+  if (!thumbUrl) {
+    return (
+      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)]">
+        <svg className="h-5 w-5 text-[var(--color-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 0 0 2.25-2.25V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-[var(--color-bg-tertiary)] ring-1 ring-[var(--color-border-light)] transition-shadow group-hover:ring-[var(--color-accent)]/50 group-hover:shadow-md">
+      <img
+        src={thumbUrl}
+        alt=""
+        className={`h-full w-full object-cover transition-all duration-300 ${
+          loaded ? "scale-100 opacity-100" : "opacity-0 scale-95"
+        }`}
+        draggable={false}
+        onLoad={() => setLoaded(true)}
+      />
+    </div>
+  );
+}
+
 function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate }: DetailPanelProps) {
   const [activeTab, setActiveTab] = useState<"details" | "captions" | "tags">("details");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -178,7 +216,6 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
 
   // Derivative generation state
   const [derivativeMode, setDerivativeMode] = useState<"generate" | "import">("generate");
-  const [derivativeLabel, setDerivativeLabel] = useState("");
   const [derivativeFormat, setDerivativeFormat] = useState("jpeg");
   const [derivativeMaxWidth, setDerivativeMaxWidth] = useState<number | undefined>();
   const [derivativeMaxHeight, setDerivativeMaxHeight] = useState<number | undefined>();
@@ -186,6 +223,8 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
   const [derivativeFilter, setDerivativeFilter] = useState("triangle");
   const [derivativeImportPaths, setDerivativeImportPaths] = useState<string[]>([]);
   const [derivativeGenerating, setDerivativeGenerating] = useState(false);
+  const [derivativeExpanded, setDerivativeExpanded] = useState(false);
+  const [derivativePreset, setDerivativePreset] = useState<string | null>(null);
 
   // Captions state
   const [captions, setCaptions] = useState<Caption[]>([]);
@@ -504,249 +543,323 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
 
       <ThumbnailPreview media={media} />
 
-      {/* Lineage chain */}
+      {/* Lineage tree */}
       {(lineage.parents.length > 0 || lineage.children.length > 0) && (
-        <div className="px-4 py-3 -mx-4 border-y border-[var(--color-border)] mb-3">
-          <h4 className="text-[11px] font-medium text-[var(--color-text-muted)] mb-2">衍生关系</h4>
-
-          {/* Parents */}
-          {lineage.parents.length > 0 && (
-            <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-              <span className="text-[10px] text-[var(--color-text-muted)] shrink-0">
-                来源 ({lineage.parents.length})
-              </span>
-              {lineage.parents.map((p) => (
-                <button
-                  key={p.media_id}
-                  onClick={() => {
-                    if (onNavigate) onNavigate(p.media_id);
-                    else window.dispatchEvent(new CustomEvent("navigate-to-media", { detail: p.media_id }));
-                  }}
-                  className="max-w-[120px] truncate rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-                  title={p.media_id}
-                >
-                  {p.media_id.slice(0, 8)}...
-                </button>
-              ))}
+        <div className="mb-3 border-b border-[var(--color-border)] pb-3">
+          <h4 className="mb-2 text-[11px] font-medium text-[var(--color-text-muted)]">衍生关系</h4>
+          <div className="flex flex-col items-center gap-0.5">
+            {/* Parents */}
+            {lineage.parents.length > 0 && (
+              <>
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {lineage.parents.map((p) => (
+                    <button
+                      key={p.media_id}
+                      onClick={() => {
+                        if (onNavigate) onNavigate(p.media_id);
+                        else window.dispatchEvent(new CustomEvent("navigate-to-media", { detail: p.media_id }));
+                      }}
+                      className="group flex flex-col items-center gap-0.5"
+                    >
+                      <LineageThumb mediaId={p.media_id} />
+                      <span className="text-[10px] text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)] transition-colors">
+                        {relationLabel(p.relation_type)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <svg className="h-3 w-3 text-[var(--color-border)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </>
+            )}
+            {/* Current indicator */}
+            <div className="flex items-center gap-1.5 rounded-full border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] px-3 py-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
+              <span className="text-[10px] font-medium text-[var(--color-accent)]">当前</span>
             </div>
-          )}
-
-          {/* Children */}
-          {lineage.children.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] text-[var(--color-text-muted)] shrink-0">
-                衍生 ({lineage.children.length})
-              </span>
-              {lineage.children.map((c) => (
-                <button
-                  key={c.media_id}
-                  onClick={() => {
-                    if (onNavigate) onNavigate(c.media_id);
-                    else window.dispatchEvent(new CustomEvent("navigate-to-media", { detail: c.media_id }));
-                  }}
-                  className="max-w-[120px] truncate rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-                  title={c.media_id}
-                >
-                  {c.media_id.slice(0, 8)}...
-                </button>
-              ))}
-            </div>
-          )}
+            {/* Children */}
+            {lineage.children.length > 0 && (
+              <>
+                <svg className="h-3 w-3 text-[var(--color-border)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {lineage.children.map((c) => (
+                    <button
+                      key={c.media_id}
+                      onClick={() => {
+                        if (onNavigate) onNavigate(c.media_id);
+                        else window.dispatchEvent(new CustomEvent("navigate-to-media", { detail: c.media_id }));
+                      }}
+                      className="group flex flex-col items-center gap-0.5"
+                    >
+                      <LineageThumb mediaId={c.media_id} />
+                      <span className="text-[10px] text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)] transition-colors">
+                        {relationLabel(c.relation_type)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Derivative generation / import form */}
-      <div className="-mx-4 mb-2 border-y border-[var(--color-border)] px-4 py-2">
-        <div className="mb-2 flex items-center gap-2">
-          <h4 className="text-[11px] font-medium text-[var(--color-text-muted)]">衍生图</h4>
-          <div className="ml-auto flex gap-1">
-            <button
-              onClick={() => setDerivativeMode("generate")}
-              className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
-                derivativeMode === "generate"
-                  ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
-                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-              }`}
-            >
-              生成
-            </button>
-            <button
-              onClick={() => setDerivativeMode("import")}
-              className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
-                derivativeMode === "import"
-                  ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
-                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-              }`}
-            >
-              导入
-            </button>
-          </div>
-        </div>
+      {/* Derivative section — collapsible */}
+      <div className="mb-2 border-b border-[var(--color-border)] pb-2">
+        <button
+          onClick={() => setDerivativeExpanded(!derivativeExpanded)}
+          className="flex w-full items-center gap-1.5 rounded py-1 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors"
+        >
+          <svg className={`h-3 w-3 transition-transform duration-200 ${derivativeExpanded ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+          <span className="font-medium">衍生图</span>
+          {lineage.children.length > 0 && (
+            <span className="text-[10px] text-[var(--color-text-muted)]">({lineage.children.length})</span>
+          )}
+        </button>
 
-        {derivativeMode === "generate" ? (
-          <div className="space-y-2">
-            <input
-              type="text"
-              value={derivativeLabel}
-              onChange={(e) => setDerivativeLabel(e.target.value)}
-              placeholder="名称（可选）"
-              className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
-            />
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">格式</label>
-                <select
-                  value={derivativeFormat}
-                  onChange={(e) => setDerivativeFormat(e.target.value)}
-                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
-                >
-                  <option value="jpeg">JPEG</option>
-                  <option value="png">PNG</option>
-                </select>
-              </div>
-              <div className="flex-1">
-                <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">滤镜</label>
-                <select
-                  value={derivativeFilter}
-                  onChange={(e) => setDerivativeFilter(e.target.value)}
-                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
-                >
-                  <option value="triangle">Triangle</option>
-                  <option value="nearest">Nearest</option>
-                  <option value="catmullrom">CatmullRom</option>
-                  <option value="gaussian">Gaussian</option>
-                  <option value="lanczos3">Lanczos3</option>
-                </select>
-              </div>
+        {derivativeExpanded && (
+          <div className="animate-scale-in space-y-2 pt-1">
+            {/* Mode toggle */}
+            <div className="flex gap-1">
+              <button
+                onClick={() => setDerivativeMode("generate")}
+                className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+                  derivativeMode === "generate"
+                    ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                }`}
+              >
+                生成
+              </button>
+              <button
+                onClick={() => setDerivativeMode("import")}
+                className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+                  derivativeMode === "import"
+                    ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                    : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                }`}
+              >
+                导入
+              </button>
             </div>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">最大宽度</label>
-                <input
-                  type="number"
-                  value={derivativeMaxWidth ?? ""}
-                  onChange={(e) => setDerivativeMaxWidth(e.target.value ? Number(e.target.value) : undefined)}
-                  placeholder="自动"
-                  min={1}
-                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">最大高度</label>
-                <input
-                  type="number"
-                  value={derivativeMaxHeight ?? ""}
-                  onChange={(e) => setDerivativeMaxHeight(e.target.value ? Number(e.target.value) : undefined)}
-                  placeholder="自动"
-                  min={1}
-                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">
-                质量: {derivativeQuality}
-              </label>
-              <input
-                type="range"
-                min={1}
-                max={100}
-                value={derivativeQuality}
-                onChange={(e) => setDerivativeQuality(Number(e.target.value))}
-                className="w-full accent-[var(--color-accent)]"
-              />
-            </div>
-            <button
-              onClick={async () => {
-                if (!media || derivativeGenerating) return;
-                setDerivativeGenerating(true);
-                try {
-                  const result = await mediaGenerateDerivative(
-                    media.id,
-                    derivativeLabel,
-                    derivativeFormat,
-                    derivativeMaxWidth,
-                    derivativeMaxHeight,
-                    derivativeQuality,
-                    derivativeFilter || null,
-                  );
-                  showToast(`衍生图已生成: ${result.id.slice(0, 8)}...`);
-                  // Reload lineage
-                  const g = await mediaLineageList(media.id);
-                  setLineage(g);
-                  // Notify parent to refresh media list
-                  window.dispatchEvent(new Event("derivative-changed"));
-                } catch (e) {
-                  console.error("Failed to generate derivative:", e);
-                  showToast("生成失败: " + (e as Error).message);
-                } finally {
-                  setDerivativeGenerating(false);
-                }
-              }}
-              disabled={derivativeGenerating}
-              className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)] active:scale-[0.97] disabled:opacity-50"
-            >
-              {derivativeGenerating ? "生成中..." : "生成衍生图"}
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <button
-              onClick={async () => {
-                try {
-                  const selected = await open({
-                    multiple: true,
-                    filters: [{
-                      name: "图片",
-                      extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"],
-                    }],
-                  });
-                  if (selected) {
-                    setDerivativeImportPaths(Array.isArray(selected) ? selected : [selected]);
-                  }
-                } catch (e) {
-                  console.error("File picker error:", e);
-                }
-              }}
-              className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] active:scale-[0.97]"
-            >
-              选择文件...
-            </button>
-            {derivativeImportPaths.length > 0 && (
-              <div className="max-h-24 overflow-auto rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-1.5">
-                {derivativeImportPaths.map((p, i) => (
-                  <div key={i} className="truncate text-[10px] text-[var(--color-text-muted)]">
-                    {p.split(/[/\\]/).pop()}
+
+            {derivativeMode === "generate" ? (
+              <>
+                {/* Size presets */}
+                <div>
+                  <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">尺寸</label>
+                  <div className="flex gap-1">
+                    {[
+                      { label: "1/2", w: media.width ? Math.round(media.width / 2) : undefined, h: media.height ? Math.round(media.height / 2) : undefined },
+                      { label: "1/4", w: media.width ? Math.round(media.width / 4) : undefined, h: media.height ? Math.round(media.height / 4) : undefined },
+                      { label: "256", w: 256, h: 256 },
+                    ].map((p) => (
+                      <button
+                        key={p.label}
+                        onClick={() => {
+                          setDerivativeMaxWidth(p.w);
+                          setDerivativeMaxHeight(p.h);
+                          setDerivativePreset(p.label);
+                        }}
+                        className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+                          derivativePreset === p.label
+                            ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                            : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => {
+                        setDerivativeMaxWidth(undefined);
+                        setDerivativeMaxHeight(undefined);
+                        setDerivativePreset("custom");
+                      }}
+                      className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+                        derivativePreset === "custom"
+                          ? "bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
+                          : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
+                      }`}
+                    >
+                      自定义
+                    </button>
                   </div>
-                ))}
+                </div>
+
+                {/* Format + Filter */}
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">格式</label>
+                    <select
+                      value={derivativeFormat}
+                      onChange={(e) => setDerivativeFormat(e.target.value)}
+                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+                    >
+                      <option value="jpeg">JPEG</option>
+                      <option value="png">PNG</option>
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">滤镜</label>
+                    <select
+                      value={derivativeFilter}
+                      onChange={(e) => setDerivativeFilter(e.target.value)}
+                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+                    >
+                      <option value="triangle">Triangle</option>
+                      <option value="nearest">Nearest</option>
+                      <option value="catmullrom">CatmullRom</option>
+                      <option value="gaussian">Gaussian</option>
+                      <option value="lanczos3">Lanczos3</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Custom dimensions */}
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">最大宽度</label>
+                    <input
+                      type="number"
+                      value={derivativeMaxWidth ?? ""}
+                      onChange={(e) => {
+                        setDerivativeMaxWidth(e.target.value ? Number(e.target.value) : undefined);
+                        setDerivativePreset("custom");
+                      }}
+                      placeholder="自动"
+                      min={1}
+                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">最大高度</label>
+                    <input
+                      type="number"
+                      value={derivativeMaxHeight ?? ""}
+                      onChange={(e) => {
+                        setDerivativeMaxHeight(e.target.value ? Number(e.target.value) : undefined);
+                        setDerivativePreset("custom");
+                      }}
+                      placeholder="自动"
+                      min={1}
+                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-[11px] text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)]"
+                    />
+                  </div>
+                </div>
+
+                {/* Quality (JPEG only) */}
+                {derivativeFormat === "jpeg" && (
+                  <div>
+                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">
+                      质量: {derivativeQuality}
+                    </label>
+                    <input
+                      type="range"
+                      min={1}
+                      max={100}
+                      value={derivativeQuality}
+                      onChange={(e) => setDerivativeQuality(Number(e.target.value))}
+                      className="w-full accent-[var(--color-accent)]"
+                    />
+                  </div>
+                )}
+
+                <button
+                  onClick={async () => {
+                    if (!media || derivativeGenerating) return;
+                    setDerivativeGenerating(true);
+                    try {
+                      const result = await mediaGenerateDerivative(
+                        media.id,
+                        "",
+                        derivativeFormat,
+                        derivativeMaxWidth,
+                        derivativeMaxHeight,
+                        derivativeQuality,
+                        derivativeFilter || null,
+                      );
+                      showToast(`衍生图已生成: ${result.id.slice(0, 8)}...`);
+                      const g = await mediaLineageList(media.id);
+                      setLineage(g);
+                      window.dispatchEvent(new Event("derivative-changed"));
+                    } catch (e) {
+                      console.error("Failed to generate derivative:", e);
+                      showToast("生成失败: " + (e as Error).message);
+                    } finally {
+                      setDerivativeGenerating(false);
+                    }
+                  }}
+                  disabled={derivativeGenerating}
+                  className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)] active:scale-[0.97] disabled:opacity-50"
+                >
+                  {derivativeGenerating ? "生成中..." : "生成衍生图"}
+                </button>
+              </>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const selected = await open({
+                        multiple: true,
+                        filters: [{
+                          name: "图片",
+                          extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"],
+                        }],
+                      });
+                      if (selected) {
+                        setDerivativeImportPaths(Array.isArray(selected) ? selected : [selected]);
+                      }
+                    } catch (e) {
+                      console.error("File picker error:", e);
+                    }
+                  }}
+                  className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] active:scale-[0.97]"
+                >
+                  选择文件...
+                </button>
+                {derivativeImportPaths.length > 0 && (
+                  <div className="max-h-24 overflow-auto rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-1.5">
+                    {derivativeImportPaths.map((p, i) => (
+                      <div key={i} className="truncate text-[10px] text-[var(--color-text-muted)]">
+                        {p.split(/[/\\]/).pop()}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={async () => {
+                    if (!media || derivativeImportPaths.length === 0 || derivativeGenerating) return;
+                    setDerivativeGenerating(true);
+                    try {
+                      for (const fp of derivativeImportPaths) {
+                        const result = await mediaImportDerivative(media.id, fp);
+                        showToast(`已导入: ${result.id.slice(0, 8)}...`);
+                      }
+                      setDerivativeImportPaths([]);
+                      const g = await mediaLineageList(media.id);
+                      setLineage(g);
+                      window.dispatchEvent(new Event("derivative-changed"));
+                    } catch (e) {
+                      console.error("Failed to import derivative:", e);
+                      showToast("导入失败: " + (e as Error).message);
+                    } finally {
+                      setDerivativeGenerating(false);
+                    }
+                  }}
+                  disabled={derivativeImportPaths.length === 0 || derivativeGenerating}
+                  className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)] active:scale-[0.97] disabled:opacity-50"
+                >
+                  {derivativeGenerating ? "导入中..." : `导入 (${derivativeImportPaths.length})`}
+                </button>
               </div>
             )}
-            <button
-              onClick={async () => {
-                if (!media || derivativeImportPaths.length === 0 || derivativeGenerating) return;
-                setDerivativeGenerating(true);
-                try {
-                  for (const fp of derivativeImportPaths) {
-                    const result = await mediaImportDerivative(media.id, fp);
-                    showToast(`已导入: ${result.id.slice(0, 8)}...`);
-                  }
-                  setDerivativeImportPaths([]);
-                  // Reload lineage
-                  const g = await mediaLineageList(media.id);
-                  setLineage(g);
-                  window.dispatchEvent(new Event("derivative-changed"));
-                } catch (e) {
-                  console.error("Failed to import derivative:", e);
-                  showToast("导入失败: " + (e as Error).message);
-                } finally {
-                  setDerivativeGenerating(false);
-                }
-              }}
-              disabled={derivativeImportPaths.length === 0 || derivativeGenerating}
-              className="w-full rounded bg-[var(--color-accent)] px-2 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-[var(--color-accent-hover)] active:scale-[0.97] disabled:opacity-50"
-            >
-              {derivativeGenerating ? "导入中..." : `导入 (${derivativeImportPaths.length})`}
-            </button>
           </div>
         )}
       </div>
