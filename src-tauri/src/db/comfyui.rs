@@ -21,6 +21,9 @@ pub struct WorkflowParam {
     pub default_value: String,
     pub field_type: String,
     pub order_index: usize,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub step: Option<f64>,
 }
 
 pub fn comfyui_workflow_list(

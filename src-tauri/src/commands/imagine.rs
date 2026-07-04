@@ -43,6 +43,7 @@ pub async fn image_generate(
 
     let params = GenerateParams {
         prompt: prompt.clone(),
+        workflow_values: std::collections::HashMap::new(),
         aspect_ratio: aspect_ratio.unwrap_or_else(|| "auto".to_string()),
         resolution: resolution.unwrap_or_else(|| "1k".to_string()),
         n: n.unwrap_or(1),

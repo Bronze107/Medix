@@ -3,6 +3,8 @@ pub mod queue;
 pub mod workflow;
 pub mod xai;
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use serde::Serialize;
 use tauri::AppHandle;
@@ -27,6 +29,7 @@ pub enum ImagineError {
 
 pub struct GenerateParams {
     pub prompt: String,
+    pub workflow_values: HashMap<String, String>,
     pub aspect_ratio: String, // "auto" | "1:1" | "16:9" | ...
     pub resolution: String,   // "1k" | "2k"
     pub n: u32,
@@ -34,6 +37,7 @@ pub struct GenerateParams {
 
 pub struct EditParams {
     pub prompt: String,
+    pub workflow_values: HashMap<String, String>,
     pub image_data_url: String, // base64 data URL
     pub aspect_ratio: String,
     pub resolution: String,

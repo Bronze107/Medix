@@ -296,10 +296,10 @@ impl ImageProvider for ComfyuiProvider {
         params: &GenerateParams,
     ) -> Result<Vec<GeneratedImage>, ImagineError> {
         eprintln!(
-            "[comfyui] generate: prompt={}, aspect_ratio={}, resolution={}, n={}",
-            params.prompt, params.aspect_ratio, params.resolution, params.n
+            "[comfyui] generate: prompt={}, workflow_values={:?}, aspect_ratio={}, resolution={}, n={}",
+            params.prompt, params.workflow_values, params.aspect_ratio, params.resolution, params.n
         );
-        let mut values = HashMap::new();
+        let mut values = params.workflow_values.clone();
         values.insert("prompt".to_string(), params.prompt.clone());
         let result = self.submit_and_wait(values).await;
         match &result {
@@ -393,7 +393,7 @@ impl ImageProvider for ComfyuiProvider {
             uploaded_filename
         );
 
-        let mut values = HashMap::new();
+        let mut values = params.workflow_values.clone();
         values.insert("prompt".to_string(), params.prompt.clone());
         // Single-image upload: maps to the first #input_image param in the workflow.
         // Future: support multi-image upload by iterating over params.source_media_ids

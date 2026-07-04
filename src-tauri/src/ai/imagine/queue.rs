@@ -23,6 +23,7 @@ pub enum ImageTask {
     Generate {
         task_id: String,
         prompt: String,
+        workflow_values: HashMap<String, String>,
         aspect_ratio: String,
         resolution: String,
         n: u32,
@@ -32,6 +33,7 @@ pub enum ImageTask {
         task_id: String,
         source_media_ids: Vec<String>,
         prompt: String,
+        workflow_values: HashMap<String, String>,
         aspect_ratio: String,
         resolution: String,
         n: u32,
@@ -191,6 +193,7 @@ async fn process_task(
         ImageTask::Generate {
             task_id,
             prompt,
+            workflow_values,
             aspect_ratio,
             resolution,
             n,
@@ -198,6 +201,7 @@ async fn process_task(
         } => {
             let params = GenerateParams {
                 prompt: prompt.clone(),
+                workflow_values,
                 aspect_ratio,
                 resolution,
                 n,
@@ -208,6 +212,7 @@ async fn process_task(
             task_id,
             source_media_ids,
             prompt,
+            workflow_values,
             aspect_ratio,
             resolution,
             n,
@@ -250,6 +255,7 @@ async fn process_task(
             };
             let params = EditParams {
                 prompt: prompt.clone(),
+                workflow_values,
                 image_data_url,
                 aspect_ratio,
                 resolution,
@@ -416,6 +422,7 @@ fn image_to_data_url(img: &image::DynamicImage, source_path: &str) -> Result<Str
 pub fn image_queue_submit_generate(
     app: AppHandle,
     prompt: String,
+    workflow_values: Option<HashMap<String, String>>,
     aspect_ratio: Option<String>,
     resolution: Option<String>,
     n: Option<u32>,
@@ -426,6 +433,7 @@ pub fn image_queue_submit_generate(
     let task = ImageTask::Generate {
         task_id: task_id.clone(),
         prompt: prompt.trim().to_string(),
+        workflow_values: workflow_values.unwrap_or_default(),
         aspect_ratio: aspect_ratio.unwrap_or_else(|| "auto".to_string()),
         resolution: resolution.unwrap_or_else(|| "1k".to_string()),
         n: n.unwrap_or(1),
@@ -452,6 +460,7 @@ pub fn image_queue_submit_edit(
     app: AppHandle,
     source_media_ids: Vec<String>,
     prompt: String,
+    workflow_values: Option<HashMap<String, String>>,
     aspect_ratio: Option<String>,
     resolution: Option<String>,
     n: Option<u32>,
@@ -463,6 +472,7 @@ pub fn image_queue_submit_edit(
         task_id: task_id.clone(),
         source_media_ids: source_media_ids.clone(),
         prompt: prompt.trim().to_string(),
+        workflow_values: workflow_values.unwrap_or_default(),
         aspect_ratio: aspect_ratio.unwrap_or_else(|| "auto".to_string()),
         resolution: resolution.unwrap_or_else(|| "1k".to_string()),
         n: n.unwrap_or(1),

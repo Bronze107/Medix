@@ -384,17 +384,19 @@ export interface ImageTaskInfo {
 
 export function imageQueueSubmitGenerate(
   prompt: string,
+  workflowValues?: Record<string, string>,
   aspectRatio?: string,
   resolution?: string,
   n?: number,
   workflowId?: string | null,
 ): Promise<string> {
-  return invoke("image_queue_submit_generate", { prompt, aspectRatio, resolution, n, workflowId: workflowId ?? null });
+  return invoke("image_queue_submit_generate", { prompt, workflowValues: workflowValues ?? null, aspectRatio, resolution, n, workflowId: workflowId ?? null });
 }
 
 export async function imageQueueSubmitEdit(
   sourceMediaIds: string[],
   prompt: string,
+  workflowValues?: Record<string, string>,
   aspectRatio?: string,
   resolution?: string,
   n?: number,
@@ -403,6 +405,7 @@ export async function imageQueueSubmitEdit(
   return invoke("image_queue_submit_edit", {
     sourceMediaIds,
     prompt,
+    workflowValues: workflowValues ?? null,
     aspectRatio: aspectRatio || "auto",
     resolution: resolution || "1k",
     n: n || 1,

@@ -10,6 +10,7 @@ import {
 import { usePromptHistory } from "@/hooks/usePromptHistory";
 import { showToast } from "@/components/Toast/Toast";
 import type { ComfyWorkflow, WorkflowParam } from "@/types/comfyui";
+import { ComfyUIWorkflowForm, ComfyUIWorkflowParams } from "@/components/shared/ComfyUIForm";
 
 interface Props {
   mediaId: string;
@@ -29,13 +30,16 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
 
   // ComfyUI state
   const [provider, setProvider] = useState<string>("");
+  const [providerLoading, setProviderLoading] = useState(true);
   const [workflows, setWorkflows] = useState<ComfyWorkflow[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
   const [workflowParams, setWorkflowParams] = useState<WorkflowParam[]>([]);
+  const [workflowParamsLoading, setWorkflowParamsLoading] = useState(false);
+  const [workflowParamsError, setWorkflowParamsError] = useState<string | null>(null);
   const [workflowValues, setWorkflowValues] = useState<Record<string, string>>({});
 
   const isComfy = provider === "comfyui";
-  const comfyReady = !isComfy || (isComfy && selectedWorkflowId && workflows.length > 0);
+  const comfyReady = !isComfy || (isComfy && selectedWorkflowId && workflows.length > 0 && !providerLoading);
 
   const editMediaIds = sourceMediaIds ?? [mediaId];
 
@@ -54,12 +58,19 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
           }
         }).catch(() => {});
       }
-    }).catch(() => {});
+      setProviderLoading(false);
+    }).catch(() => {
+      setProviderLoading(false);
+    });
   }, []);
 
   // Load workflow params when selection changes
   useEffect(() => {
+    setWorkflowParams([]);
+    setWorkflowValues({});
+    setWorkflowParamsError(null);
     if (!selectedWorkflowId) return;
+    setWorkflowParamsLoading(true);
     comfyuiWorkflowGet(selectedWorkflowId).then((detail) => {
       setWorkflowParams(detail.params);
       const init: Record<string, string> = {};
@@ -67,7 +78,14 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
         init[p.param_name] = p.default_value;
       }
       setWorkflowValues(init);
-    }).catch(console.error);
+      setWorkflowParamsError(null);
+    }).catch((e) => {
+      setWorkflowParamsError("加载工作流参数失败: " + (e?.message || e));
+      setWorkflowParams([]);
+      setWorkflowValues({});
+    }).finally(() => {
+      setWorkflowParamsLoading(false);
+    });
   }, [selectedWorkflowId]);
 
   const handleSubmit = async () => {
@@ -82,6 +100,7 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
       await imageQueueSubmitEdit(
         editMediaIds,
         isComfy ? (workflowValues.prompt || prompt.trim()) : prompt.trim(),
+        isComfy ? workflowValues : undefined,
         aspectRatio,
         resolution,
         n,
@@ -148,41 +167,27 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
               {/* Input area */}
               <div className="flex-1 min-w-0 space-y-3">
                 {/* ComfyUI mode: workflow selector + dynamic params */}
-                {isComfy && workflows.length > 0 && (
-                  <div>
-                    <label className="mb-1 block text-xs text-[var(--color-text-secondary)]">
-                      工作流
-                    </label>
-                    <select
-                      value={selectedWorkflowId}
-                      onChange={(e) => setSelectedWorkflowId(e.target.value)}
-                      className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
-                    >
-                      {workflows.map((w) => (
-                        <option key={w.id} value={w.id}>{w.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {isComfy && workflows.length === 0 && (
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    暂无图生图工作流。请先到 <strong>设置 → ComfyUI 配置</strong> 中保存 workflow。
-                  </p>
-                )}
-
-                {isComfy
-                  ? workflowParams.map((p) => (
-                      <div key={p.node_id + p.param_name}>
-                        <label className="mb-1 block text-xs text-[var(--color-text-secondary)]">
-                          #{p.param_name}
-                        </label>
-                        {renderDynamicField(p, workflowValues, setWorkflowValues)}
-                      </div>
-                    ))
-                  : (
-                    /* Non-ComfyUI mode: prompt + settings */
-                    <>
+                {isComfy ? (
+                  <>
+                    <ComfyUIWorkflowForm
+                      workflows={workflows}
+                      selectedWorkflowId={selectedWorkflowId}
+                      onWorkflowChange={setSelectedWorkflowId}
+                      loading={workflowParamsLoading}
+                      error={workflowParamsError}
+                      emptyMessage={'暂无图生图工作流。请先到 <strong>设置 → ComfyUI 配置</strong> 中保存 workflow。'}
+                    />
+                    {workflowParams.length > 0 && !workflowParamsLoading && !workflowParamsError && (
+                      <ComfyUIWorkflowParams
+                        params={workflowParams}
+                        values={workflowValues}
+                        setValues={setWorkflowValues}
+                      />
+                    )}
+                  </>
+                ) : (
+                  /* Non-ComfyUI mode: prompt + settings */
+                  <>
                       <div>
                         <label className="mb-1 block text-xs text-[var(--color-text-secondary)]">
                           编辑指令
@@ -285,71 +290,6 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
       </div>
     </>
   );
-}
-
-function renderDynamicField(
-  p: WorkflowParam,
-  values: Record<string, string>,
-  setValues: (fn: (prev: Record<string, string>) => Record<string, string>) => void,
-) {
-  switch (p.field_type) {
-    case "multiline":
-      return (
-        <textarea
-          value={values[p.param_name] ?? ""}
-          onChange={(e) => setValues(v => ({ ...v, [p.param_name]: e.target.value }))}
-          rows={3}
-          className="w-full resize-none rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
-        />
-      );
-    case "seed":
-      return (
-        <div className="flex gap-2">
-          <input
-            type="number"
-            value={values[p.param_name] ?? ""}
-            onChange={(e) => setValues(v => ({ ...v, [p.param_name]: e.target.value }))}
-            className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
-          />
-          <button
-            onClick={() => setValues(v => ({ ...v, [p.param_name]: "-1" }))}
-            className="shrink-0 rounded border border-[var(--color-border-light)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] active:scale-[0.97]"
-          >
-            🎲
-          </button>
-        </div>
-      );
-    case "slider":
-      return (
-        <div className="flex items-center gap-2">
-          <input
-            type="range"
-            min={1}
-            max={p.param_name === "steps" ? 100 : p.param_name === "cfg" ? 30 : 100}
-            step={p.param_name === "cfg" ? 0.5 : 1}
-            value={parseFloat(values[p.param_name] || "1")}
-            onChange={(e) => setValues(v => ({ ...v, [p.param_name]: e.target.value }))}
-            className="flex-1"
-          />
-          <span className="w-10 text-right text-xs text-[var(--color-text-secondary)]">{values[p.param_name]}</span>
-        </div>
-      );
-    case "image_selector":
-      return (
-        <div className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-muted)]">
-          当前选中的图片（自动绑定原图）
-        </div>
-      );
-    default:
-      return (
-        <input
-          type={p.field_type === "number" ? "number" : "text"}
-          value={values[p.param_name] ?? ""}
-          onChange={(e) => setValues(v => ({ ...v, [p.param_name]: e.target.value }))}
-          className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
-        />
-      );
-  }
 }
 
 export default ImagineDialog;

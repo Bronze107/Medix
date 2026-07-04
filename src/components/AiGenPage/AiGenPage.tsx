@@ -14,6 +14,7 @@ import {
 import { usePromptHistory } from "@/hooks/usePromptHistory";
 import type { ImageTaskInfo } from "@/lib/tauri";
 import type { ComfyWorkflow, WorkflowParam } from "@/types/comfyui";
+import { ComfyUIWorkflowForm, ComfyUIWorkflowParams } from "@/components/shared/ComfyUIForm";
 
 const ASPECT_RATIOS = ["auto", "1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "1:2", "2:1"];
 const RESOLUTIONS = ["1k", "2k"];
@@ -163,9 +164,12 @@ function AiGenPage() {
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [provider, setProvider] = useState<string>("");
+  const [providerLoading, setProviderLoading] = useState(true);
   const [workflows, setWorkflows] = useState<ComfyWorkflow[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
   const [workflowParams, setWorkflowParams] = useState<WorkflowParam[]>([]);
+  const [workflowParamsLoading, setWorkflowParamsLoading] = useState(false);
+  const [workflowParamsError, setWorkflowParamsError] = useState<string | null>(null);
   const [workflowValues, setWorkflowValues] = useState<Record<string, string>>({});
   const { items: history, record, clear } = usePromptHistory("generate");
 
@@ -185,12 +189,19 @@ function AiGenPage() {
       if (p === "comfyui") {
         comfyuiWorkflowList("generate").then(setWorkflows).catch(() => {});
       }
-    }).catch(() => {});
+      setProviderLoading(false);
+    }).catch(() => {
+      setProviderLoading(false);
+    });
   }, []);
 
   // Load workflow params when selection changes
   useEffect(() => {
+    setWorkflowParams([]);
+    setWorkflowValues({});
+    setWorkflowParamsError(null);
     if (!selectedWorkflowId) return;
+    setWorkflowParamsLoading(true);
     comfyuiWorkflowGet(selectedWorkflowId).then((detail) => {
       setWorkflowParams(detail.params);
       const init: Record<string, string> = {};
@@ -198,7 +209,14 @@ function AiGenPage() {
         init[p.param_name] = p.default_value;
       }
       setWorkflowValues(init);
-    }).catch(console.error);
+      setWorkflowParamsError(null);
+    }).catch((e) => {
+      setWorkflowParamsError("加载工作流参数失败: " + (e?.message || e));
+      setWorkflowParams([]);
+      setWorkflowValues({});
+    }).finally(() => {
+      setWorkflowParamsLoading(false);
+    });
   }, [selectedWorkflowId]);
 
   // Auto-select first workflow
@@ -219,7 +237,7 @@ function AiGenPage() {
   }, [loadTasks]);
 
   const isComfy = provider === "comfyui";
-  const comfyReady = !isComfy || (isComfy && selectedWorkflowId);
+  const comfyReady = !isComfy || (isComfy && selectedWorkflowId && !providerLoading);
 
   const handleSubmit = async () => {
     const finalPrompt = isComfy ? (workflowValues.prompt || prompt.trim()) : prompt.trim();
@@ -229,6 +247,7 @@ function AiGenPage() {
     try {
       await imageQueueSubmitGenerate(
         finalPrompt,
+        isComfy ? workflowValues : undefined,
         aspectRatio,
         resolution,
         n,
@@ -322,78 +341,23 @@ function AiGenPage() {
             )}
 
             {/* ComfyUI workflow selector + dynamic params */}
-            {provider === "comfyui" && (
+            {isComfy && (
               <>
-                {workflows.length > 0 ? (
-                  <>
-                    <div>
-                      <label className="mb-1 block text-xs text-[var(--color-text-muted)]">工作流</label>
-                      <select
-                        value={selectedWorkflowId}
-                        onChange={(e) => setSelectedWorkflowId(e.target.value)}
-                        className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
-                      >
-                        {workflows.map((w) => (
-                          <option key={w.id} value={w.id}>{w.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-xs text-[var(--color-text-muted)] py-3">
-                    暂无文生图工作流。请先到 <strong>设置 → ComfyUI 配置</strong> 中保存一个 workflow JSON（类型选"文生图"）。
-                  </p>
+                <ComfyUIWorkflowForm
+                  workflows={workflows}
+                  selectedWorkflowId={selectedWorkflowId}
+                  onWorkflowChange={setSelectedWorkflowId}
+                  loading={workflowParamsLoading}
+                  error={workflowParamsError}
+                  emptyMessage={'暂无文生图工作流。请先到 <strong>设置 → ComfyUI 配置</strong> 中保存一个 workflow JSON（类型选"文生图"）。'}
+                />
+                {workflowParams.length > 0 && !workflowParamsLoading && !workflowParamsError && (
+                  <ComfyUIWorkflowParams
+                    params={workflowParams}
+                    values={workflowValues}
+                    setValues={setWorkflowValues}
+                  />
                 )}
-                {workflowParams.map((p) => (
-                  <div key={p.node_id + p.param_name}>
-                    <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-                      #{p.param_name}
-                    </label>
-                    {p.field_type === "multiline" ? (
-                      <textarea
-                        value={workflowValues[p.param_name] ?? ""}
-                        onChange={(e) => setWorkflowValues(v => ({...v, [p.param_name]: e.target.value}))}
-                        rows={4}
-                        className="w-full resize-none rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
-                      />
-                    ) : p.field_type === "seed" ? (
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          value={workflowValues[p.param_name] ?? ""}
-                          onChange={(e) => setWorkflowValues(v => ({...v, [p.param_name]: e.target.value}))}
-                          className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
-                        />
-                        <button
-                          onClick={() => setWorkflowValues(v => ({...v, [p.param_name]: "-1"}))}
-                          className="shrink-0 rounded border border-[var(--color-border-light)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] active:scale-[0.97]"
-                        >
-                          🎲
-                        </button>
-                      </div>
-                    ) : p.field_type === "slider" ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="range"
-                          min={1}
-                          max={p.param_name === "steps" ? 100 : p.param_name === "cfg" ? 30 : 100}
-                          step={p.param_name === "cfg" ? 0.5 : 1}
-                          value={parseFloat(workflowValues[p.param_name] || "1")}
-                          onChange={(e) => setWorkflowValues(v => ({...v, [p.param_name]: e.target.value}))}
-                          className="flex-1"
-                        />
-                        <span className="w-10 text-right text-xs text-[var(--color-text-secondary)]">{workflowValues[p.param_name]}</span>
-                      </div>
-                    ) : (
-                      <input
-                        type={p.field_type === "number" ? "number" : "text"}
-                        value={workflowValues[p.param_name] ?? ""}
-                        onChange={(e) => setWorkflowValues(v => ({...v, [p.param_name]: e.target.value}))}
-                        className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
-                      />
-                    )}
-                  </div>
-                ))}
               </>
             )}
 
@@ -444,9 +408,11 @@ function AiGenPage() {
             >
               {submitting
                 ? "提交中..."
-                : !comfyReady
-                  ? "请先在设置中保存工作流"
-                  : "加入队列"}
+                : !comfyReady && isComfy && providerLoading
+                  ? "加载中..."
+                  : !comfyReady
+                    ? "请先在设置中保存工作流"
+                    : "加入队列"}
             </button>
 
             {hasActive && (

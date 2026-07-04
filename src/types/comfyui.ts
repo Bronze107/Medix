@@ -14,6 +14,9 @@ export interface WorkflowParam {
   default_value: string;
   field_type: "text" | "multiline" | "number" | "slider" | "seed" | "image_selector";
   order_index: number;
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
 }
 
 export interface ComfyWorkflowDetail extends ComfyWorkflow {
