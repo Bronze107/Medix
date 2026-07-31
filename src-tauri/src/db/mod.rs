@@ -1068,6 +1068,154 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
         }
     }
 
+    // 0032_robust_variant_fk_cleanup
+    // 0031 used pragma_foreign_key_list for detection, but with
+    // SQLITE_DEFAULT_FOREIGN_KEYS=1 the pragma query itself can fail with
+    // "no such table: variants" when the referenced table is gone.
+    // .unwrap_or(false) silently swallows this, skipping the fix.
+    // 0032 uses pragma_table_info (safe, no FK validation) with FK OFF as a
+    // safeguard, and unconditionally drops any remaining variant FKs.
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0032_robust_variant_fk_cleanup'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            // Disable FK enforcement BEFORE any detection queries, so even if
+            // pragma_table_info or the table-recreate steps touch FK metadata,
+            // SQLite won't validate that the parent table exists.
+            conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+
+            // Check which tables still have variant_id columns
+            let media_tags_has_variant: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM pragma_table_info('media_tags') WHERE name='variant_id'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+            let captions_has_variant: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM pragma_table_info('captions') WHERE name='variant_id'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+            let embeddings_has_variant: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM pragma_table_info('embeddings') WHERE name='variant_id'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+            let media_has_display_variant: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) > 0 FROM pragma_table_info('media') WHERE name='display_variant_id'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
+
+            // media_tags: drop variant_id column entirely
+            if media_tags_has_variant {
+                let _ = conn.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS media_tags_new_0032 (
+                         media_id TEXT NOT NULL,
+                         tag_id TEXT NOT NULL,
+                         confidence REAL,
+                         source TEXT,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         PRIMARY KEY (media_id, tag_id),
+                         FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE,
+                         FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+                     );
+                     INSERT OR IGNORE INTO media_tags_new_0032
+                         SELECT media_id, tag_id, confidence, source, created_at FROM media_tags;
+                     DROP TABLE IF EXISTS media_tags;
+                     ALTER TABLE media_tags_new_0032 RENAME TO media_tags;
+                     CREATE INDEX IF NOT EXISTS idx_media_tags_media ON media_tags(media_id);
+                     CREATE INDEX IF NOT EXISTS idx_media_tags_tag ON media_tags(tag_id);",
+                );
+            }
+
+            // captions: drop variant_id column entirely
+            if captions_has_variant {
+                let _ = conn.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS captions_new_0032 (
+                         id TEXT PRIMARY KEY,
+                         media_id TEXT NOT NULL,
+                         text TEXT NOT NULL,
+                         source TEXT,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+                     );
+                     INSERT OR IGNORE INTO captions_new_0032
+                         SELECT id, media_id, text, source, created_at, updated_at FROM captions;
+                     DROP TABLE IF EXISTS captions;
+                     ALTER TABLE captions_new_0032 RENAME TO captions;
+                     CREATE INDEX IF NOT EXISTS idx_captions_media ON captions(media_id);",
+                );
+            }
+
+            // embeddings: drop variant_id column entirely
+            if embeddings_has_variant {
+                let _ = conn.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS embeddings_new_0032 (
+                         media_id TEXT NOT NULL,
+                         model TEXT NOT NULL,
+                         content_type TEXT NOT NULL,
+                         vector BLOB NOT NULL,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+                     );
+                     INSERT OR IGNORE INTO embeddings_new_0032
+                         SELECT media_id, model, content_type, vector, created_at FROM embeddings;
+                     DROP TABLE IF EXISTS embeddings;
+                     ALTER TABLE embeddings_new_0032 RENAME TO embeddings;
+                     CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_unique ON embeddings(media_id, model, content_type);
+                     CREATE INDEX IF NOT EXISTS idx_embeddings_media ON embeddings(media_id);
+                     CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);",
+                );
+            }
+
+            // media: keep display_variant_id column but drop FK constraint
+            if media_has_display_variant {
+                let _ = conn.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS media_new_0032 (
+                         id TEXT PRIMARY KEY, source_path TEXT, phash BLOB,
+                         width INTEGER, height INTEGER, file_size INTEGER,
+                         created_at TIMESTAMP, modified_at TIMESTAMP,
+                         imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         source_url TEXT, page_url TEXT, source TEXT,
+                         deleted_at TEXT, sha256 TEXT,
+                         display_variant_id TEXT, lqip TEXT,
+                         media_type TEXT DEFAULT 'image',
+                         duration REAL, video_codec TEXT, video_fps REAL
+                     );
+                     INSERT OR IGNORE INTO media_new_0032 SELECT * FROM media;
+                     DROP TABLE IF EXISTS media;
+                     ALTER TABLE media_new_0032 RENAME TO media;
+                     CREATE INDEX IF NOT EXISTS idx_media_imported_at ON media(imported_at);
+                     CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at);
+                     CREATE INDEX IF NOT EXISTS idx_media_type ON media(media_type);
+                     CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
+                     CREATE INDEX IF NOT EXISTS idx_media_deleted_at ON media(deleted_at);
+                     CREATE INDEX IF NOT EXISTS idx_media_deleted_imported ON media(deleted_at, imported_at);",
+                );
+            }
+
+            conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0032_robust_variant_fk_cleanup');",
+            )?;
+        }
+    }
+
     Ok(())
 }
 
