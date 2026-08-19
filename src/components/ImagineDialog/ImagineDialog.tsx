@@ -40,6 +40,12 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
 
   const isComfy = provider === "comfyui";
   const comfyReady = !isComfy || (isComfy && selectedWorkflowId && workflows.length > 0 && !providerLoading);
+  const comfyPrompt = (() => {
+    const p = workflowParams.find(
+      (x) => x.field_type === "multiline" || x.field_type === "text",
+    );
+    return p ? workflowValues[p.param_name] ?? p.default_value ?? "" : "";
+  })();
 
   const editMediaIds = sourceMediaIds ?? [mediaId];
 
@@ -99,14 +105,14 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
     try {
       await imageQueueSubmitEdit(
         editMediaIds,
-        isComfy ? (workflowValues.prompt || prompt.trim()) : prompt.trim(),
+        isComfy ? comfyPrompt : prompt.trim(),
         isComfy ? workflowValues : undefined,
         aspectRatio,
         resolution,
         n,
         isComfy ? selectedWorkflowId : null,
       );
-      record(prompt, aspectRatio, resolution);
+      record(isComfy ? comfyPrompt : prompt, aspectRatio, resolution);
       showToast("已加入队列");
       onClose();
     } catch (e) {
@@ -175,7 +181,7 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
                       onWorkflowChange={setSelectedWorkflowId}
                       loading={workflowParamsLoading}
                       error={workflowParamsError}
-                      emptyMessage={'暂无图生图工作流。请先到 <strong>设置 → ComfyUI 配置</strong> 中保存 workflow。'}
+                      emptyMessage={'暂无图生图工作流。请在 ComfyUI 中搭建 <strong>App 模式</strong>工作流（含 extra.linearData），再到 <strong>设置 → ComfyUI 配置</strong> 中粘贴保存。'}
                     />
                     {workflowParams.length > 0 && !workflowParamsLoading && !workflowParamsError && (
                       <ComfyUIWorkflowParams

@@ -2,428 +2,291 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-struct ParsedTitle {
-    param_name: String,
-    default_value: String,
-    field_type: String,
-    min: Option<f64>,
-    max: Option<f64>,
-    step: Option<f64>,
-}
+use crate::db::comfyui::WorkflowParam;
 
+/// ComfyUI 工作流解析与转换。
+///
+/// 参数暴露遵循官方 App 模式：工作流 JSON 的 `extra.linearData.inputs` 声明
+/// 需要暴露给用户的参数（二元组 `[nodeId, widgetName]`，或 widgetId 含 `:` 的
+/// `nodeId:widgetName` / `graphId:nodeId:widgetName` 形式）。
 pub struct WorkflowManager;
 
 impl WorkflowManager {
-    /// Determine workflow format and return (node_id, node_value) pairs.
-    fn node_entries(root: &Value) -> Option<Vec<(String, &Value)>> {
-        // API format: root is a flat object with node IDs as keys
-        // e.g. {"1": {"class_type": "LoadImage", "_meta": {...}}, "2": {...}}
-        if let Some(obj) = root.as_object() {
-            let has_api_node = obj.values().any(|v| {
-                v.get("class_type").is_some() || v.get("_meta").is_some()
-            });
-            if has_api_node && !obj.contains_key("nodes") {
-                return Some(
-                    obj.iter()
-                        .filter(|(k, _)| k.parse::<u64>().is_ok()) // numeric keys are nodes
-                        .map(|(k, v)| (k.clone(), v))
-                        .collect(),
-                );
-            }
+    // --- 参数解析 ---
+
+    fn linear_data_inputs(root: &Value) -> Result<&Vec<Value>, String> {
+        let inputs = root["extra"]["linearData"]["inputs"]
+            .as_array()
+            .ok_or(
+                "该工作流不是 App 模式工作流：缺少 extra.linearData.inputs。\
+                 请在 ComfyUI 中用 App 模式配置好暴露参数后，导出画布保存的标准 workflow JSON。",
+            )?;
+        if inputs.is_empty() {
+            return Err("App 模式工作流未暴露任何参数（extra.linearData.inputs 为空）".into());
         }
-        // Standard format: {"nodes": [...], "links": [...], ...}
-        if let Some(arr) = root["nodes"].as_array() {
-            return Some(
-                arr.iter()
-                    .map(|v| {
-                        let id = v["id"]
-                            .as_str()
-                            .map(|s| s.to_string())
-                            .or_else(|| v["id"].as_number().map(|n| n.to_string()))
-                            .unwrap_or_else(|| String::new());
-                        (id, v)
-                    })
-                    .collect(),
+        Ok(inputs)
+    }
+
+    /// 解析 `extra.linearData.inputs`，返回暴露的参数列表。
+    pub fn parse_params(workflow_json: &str) -> Result<Vec<WorkflowParam>, String> {
+        let root: Value = serde_json::from_str(workflow_json)
+            .map_err(|e| format!("无效的工作流 JSON：{}", e))?;
+        if !root["nodes"].is_array() {
+            return Err(
+                "请粘贴 ComfyUI 画布保存的标准工作流 JSON（含 nodes 数组），而不是 Export (API) 格式"
+                    .to_string(),
             );
+        }
+        let nodes = root["nodes"].as_array().unwrap();
+        let inputs = Self::linear_data_inputs(&root)?;
+
+        let mut params = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (i, entry) in inputs.iter().enumerate() {
+            let (node_id, widget_name) = Self::parse_widget_id(entry)?;
+            let node = nodes
+                .iter()
+                .find(|n| Self::node_id_str(n) == node_id)
+                .ok_or_else(|| format!("linearData 引用的节点 {} 不存在于工作流中", node_id))?;
+
+            let default_value = Self::widget_default_value(node, &widget_name)
+                .ok_or_else(|| format!("节点 {} 上不存在 widget '{}'", node_id, widget_name))?;
+
+            let param_name = format!("{}:{}", node_id, widget_name);
+            if !seen.insert(param_name.clone()) {
+                return Err(format!("重复的暴露参数：{}", param_name));
+            }
+
+            params.push(WorkflowParam {
+                node_id: node_id.clone(),
+                widget_name: widget_name.clone(),
+                param_name,
+                label: widget_name.clone(),
+                default_value,
+                field_type: Self::infer_field_type(node, &widget_name),
+                order_index: i,
+                min: None,
+                max: None,
+                step: None,
+                options: Vec::new(),
+                multiline: false,
+            });
+        }
+        Ok(params)
+    }
+
+    /// 读取 `extra.linearData.outputs` 作为结果节点 ID 列表。
+    pub fn result_node_ids(workflow_json: &str) -> Vec<String> {
+        let root: Value = match serde_json::from_str(workflow_json) {
+            Ok(v) => v,
+            Err(_) => return Vec::new(),
+        };
+        root["extra"]["linearData"]["outputs"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default()
+    }
+
+    /// 解析 linearData 元素 → (node_id, widget_name)。
+    /// 兼容 `["26","value"]`、`["26:value"]`、`["graph:26:value"]`。
+    fn parse_widget_id(entry: &Value) -> Result<(String, String), String> {
+        let arr = entry.as_array().ok_or("linearData.inputs 元素必须是数组")?;
+        let first = arr
+            .first()
+            .and_then(|v| v.as_str())
+            .ok_or("linearData.inputs 元素的第一个字段必须是 widgetId 字符串")?;
+        let parts: Vec<&str> = first.split(':').collect();
+        if parts.len() >= 2 {
+            let node_id = Self::percent_decode(parts[parts.len() - 2]);
+            let widget_name = Self::percent_decode(parts[parts.len() - 1]);
+            Ok((node_id, widget_name))
+        } else {
+            let widget_name = arr
+                .get(1)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    format!("widgetId '{}' 未包含 widget 名，且元素缺少第二个字段", first)
+                })?;
+            Ok((Self::percent_decode(first), Self::percent_decode(widget_name)))
+        }
+    }
+
+    fn percent_decode(s: &str) -> String {
+        if !s.contains('%') {
+            return s.to_string();
+        }
+        let bytes = s.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' && i + 2 < bytes.len() {
+                if let (Some(h), Some(l)) = (Self::hex(bytes[i + 1]), Self::hex(bytes[i + 2])) {
+                    out.push(h * 16 + l);
+                    i += 3;
+                    continue;
+                }
+            }
+            out.push(bytes[i]);
+            i += 1;
+        }
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    fn hex(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            b'A'..=b'F' => Some(b - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    fn node_id_str(node: &Value) -> String {
+        node["id"]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| node["id"].as_number().map(|n| n.to_string()))
+            .unwrap_or_default()
+    }
+
+    /// 计算 widget 在 widgets_values 中的下标（按 node.inputs 中 widget 条目位置计数）。
+    fn widget_position(node: &Value, widget_name: &str) -> Option<usize> {
+        let inputs = node["inputs"].as_array()?;
+        let mut widx = 0usize;
+        for entry in inputs {
+            if entry["widget"].is_object() {
+                let wname = entry["widget"]["name"].as_str().unwrap_or("");
+                let name = entry["name"].as_str().unwrap_or("");
+                if (!wname.is_empty() && wname == widget_name) || name == widget_name {
+                    return Some(widx);
+                }
+                widx += 1;
+            }
         }
         None
     }
 
-    /// Parse workflow JSON, extracting #param metadata from node titles
-    /// AND from input labels (standard format only).
-    /// Supports both ComfyUI API format (object keyed by node ID) and
-    /// standard export format ({"nodes": [...]}).
-    pub fn parse_params(
-        workflow_json: &str,
-    ) -> Result<Vec<crate::db::comfyui::WorkflowParam>, String> {
-        let root: Value =
-            serde_json::from_str(workflow_json).map_err(|e| format!("Invalid workflow JSON: {}", e))?;
-
-        let entries = Self::node_entries(&root)
-            .ok_or("Workflow JSON has no recognizable nodes")?;
-
-        let mut params = Vec::new();
-        let mut seen_names = std::collections::HashSet::new();
-
-        for (node_id, node) in &entries {
-            // 1. Parse #param from node title (existing behavior)
-            let title = node["_meta"]["title"]
-                .as_str()
-                .or_else(|| node["title"].as_str())
-                .unwrap_or("");
-
-            if title.starts_with('#') {
-                let raw = &title[1..];
-                let parsed = Self::parse_title(raw, node);
-
-                if !seen_names.insert(parsed.param_name.clone()) {
-                    return Err(format!("Duplicate param name: #{}", parsed.param_name));
-                }
-
-                params.push(crate::db::comfyui::WorkflowParam {
-                    node_id: node_id.clone(),
-                    param_name: parsed.param_name.clone(),
-                    widget_name: Self::detect_widget_name(node, &parsed.field_type),
-                    default_value: parsed.default_value,
-                    field_type: parsed.field_type,
-                    order_index: params.len(),
-                    min: parsed.min,
-                    max: parsed.max,
-                    step: parsed.step,
-                });
-            }
-
-            // 2. Parse #param from input labels (standard format)
-            if let Some(inputs) = node["inputs"].as_array() {
-                for input in inputs {
-                    let label = input["label"].as_str().unwrap_or("");
-                    if !label.starts_with('#') {
-                        continue;
-                    }
-                    let raw = &label[1..];
-                    let parsed = Self::parse_title(raw, node);
-                    // If no explicit :type, infer from the input's type field
-                    let field_type = if raw.contains(':') {
-                        parsed.field_type
-                    } else {
-                        Self::field_type_from_input(input)
-                    };
-
-                    if !seen_names.insert(parsed.param_name.clone()) {
-                        return Err(format!("Duplicate param name: #{}", parsed.param_name));
-                    }
-
-                    let widget_name = input["widget"]["name"]
-                        .as_str()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| input["name"].as_str().unwrap_or("").to_string());
-
-                    // Find default value from widgets_values at the widget's index
-                    let widget_idx = Self::find_widget_index(node, &widget_name);
-                    let default_value = if !parsed.default_value.is_empty() {
-                        parsed.default_value
-                    } else {
-                        Self::widget_value_at(node, widget_idx)
-                    };
-
-                    params.push(crate::db::comfyui::WorkflowParam {
-                        node_id: node_id.clone(),
-                        param_name: parsed.param_name.clone(),
-                        widget_name,
-                        default_value,
-                        field_type,
-                        order_index: params.len(),
-                        min: parsed.min,
-                        max: parsed.max,
-                        step: parsed.step,
-                    });
-                }
-            }
+    fn widget_value_at(node: &Value, idx: usize) -> Option<String> {
+        let wv = node["widgets_values"].as_array()?;
+        let val = wv.get(idx)?;
+        if let Some(s) = val.as_str() {
+            return Some(s.to_string());
         }
-
-        if params.is_empty() {
-            return Err("No #param nodes found in workflow JSON".to_string());
+        if let Some(n) = val.as_f64() {
+            return Some(n.to_string());
         }
-
-        Ok(params)
+        if let Some(b) = val.as_bool() {
+            return Some(b.to_string());
+        }
+        None
     }
 
-    /// Map a ComfyUI input type to our field_type.
-    fn field_type_from_input(input: &Value) -> String {
-        let input_type = input["type"].as_str().unwrap_or("");
-        let widget_name = input["widget"]["name"].as_str().unwrap_or("");
-        match input_type {
-            "INT" => {
-                if widget_name == "seed" { "seed" } else { "number" }
+    /// 读取 widget 当前值：新格式优先 widgets_values_named（按名取值），
+    /// 旧格式回退到按 node.inputs 位置消费 widgets_values。
+    fn widget_default_value(node: &Value, widget_name: &str) -> Option<String> {
+        if let Some(named) = node["widgets_values_named"].as_object() {
+            if let Some(v) = named.get(widget_name) {
+                return Some(Self::value_to_string(v));
             }
-            "FLOAT" => "slider",
-            "STRING" => "multiline",
-            "IMAGE" => "image_selector",
-            _ => "text",
         }
-        .to_string()
+        let idx = Self::widget_position(node, widget_name)?;
+        Self::widget_value_at(node, idx)
     }
 
-    /// Find the index of a widget in widgets_values by its name.
-    /// For standard-format nodes, widgets_values is ordered; we use heuristics
-    /// based on the node type and widget name.
-    fn find_widget_index(node: &Value, widget_name: &str) -> usize {
-        // Try to find the widget index by scanning inputs array
-        // for entries with a matching widget.name and counting
-        // preceding widget-bearing inputs.
-        if let Some(inputs) = node["inputs"].as_array() {
-            let mut widget_pos = 0usize;
-            for input in inputs {
-                let is_widget = input["widget"].is_object() || input["name"].as_str().map_or(false, |n| {
-                    n == "seed" || n == "steps" || n == "cfg" || n == "denoise"
-                });
-                let w_name = input["widget"]["name"]
-                    .as_str()
-                    .or_else(|| input["name"].as_str())
-                    .unwrap_or("");
-                if w_name == widget_name {
-                    return widget_pos;
-                }
-                if is_widget {
-                    widget_pos += 1;
-                }
+    /// 判断 widget 名是否是节点的真实 API 输入。
+    /// 依据 object_info 中该输入的类型：combo/INT/FLOAT/STRING/BOOLEAN 为 widget 输入；
+    /// IMAGEUPLOAD（上传按钮）与未声明的 control_after_generate 等前端专属 widget 排除。
+    fn is_real_api_input(object_info: &Value, class_type: &str, name: &str) -> bool {
+        if let Some(info) = object_info.get(class_type) {
+            let spec = info["input"]["required"]
+                .get(name)
+                .or_else(|| info["input"]["optional"].get(name));
+            let Some(t) = spec.and_then(|s| s.as_array()).and_then(|a| a.first()) else {
+                return false;
+            };
+            if t.is_array() {
+                return true; // combo
             }
-        }
-        // Fallback: use known mappings
-        match widget_name {
-            "seed" => 0,
-            "steps" => 2,
-            "cfg" => 3,
-            "denoise" => 6,
-            _ => 0,
-        }
-    }
-
-    /// Read a single value from widgets_values at the given index.
-    fn widget_value_at(node: &Value, idx: usize) -> String {
-        if let Some(wv) = node["widgets_values"].as_array() {
-            if let Some(val) = wv.get(idx) {
-                if let Some(s) = val.as_str() {
-                    return s.to_string();
-                }
-                if let Some(n) = val.as_f64() {
-                    return n.to_string();
-                }
-            }
-        }
-        String::new()
-    }
-
-    fn parse_title(raw: &str, node: &Value) -> ParsedTitle {
-        // Split on ':' and locate the type keyword from the right.
-        // Syntax: #param=default:type[:min:max:step]
-        let parts: Vec<&str> = raw.split(':').collect();
-
-        let type_idx = parts.iter().rposition(|p| {
-            matches!(
-                *p,
-                "text" | "multiline" | "number" | "slider" | "seed" | "image_selector"
-            )
-        });
-
-        let (field_type, min, max, step, preamble) = if let Some(idx) = type_idx {
-            let ft = parts[idx].to_string();
-            let min = parts.get(idx + 1).and_then(|s| s.parse().ok());
-            let max = parts.get(idx + 2).and_then(|s| s.parse().ok());
-            let step_val = parts.get(idx + 3).and_then(|s| s.parse().ok());
-            let preamble = parts[..idx].join(":");
-            // If preamble is empty, the type keyword was the only word —
-            // treat it as the param_name instead, and infer type from node/input.
-            if preamble.is_empty() {
-                (Self::infer_from_node(node), min, max, step_val, ft)
-            } else {
-                (ft, min, max, step_val, preamble)
-            }
+            t.as_str() != Some("IMAGEUPLOAD")
         } else {
-            (Self::infer_from_node(node), None, None, None, raw.to_string())
-        };
-
-        let (param_name, default_value) = if let Some(eq) = preamble.find('=') {
-            (preamble[..eq].to_string(), preamble[eq + 1..].to_string())
-        } else {
-            (preamble, Self::default_from_node(node))
-        };
-
-        ParsedTitle {
-            param_name,
-            default_value,
-            field_type,
-            min,
-            max,
-            step,
+            !matches!(name, "upload" | "control_after_generate")
         }
     }
 
-    fn infer_from_node(node: &Value) -> String {
-        let class_type = node["class_type"]
-            .as_str()
-            .or_else(|| node["type"].as_str())
-            .unwrap_or("");
-        Self::infer_field_type(class_type)
-    }
-
-    /// Extract default value from a node: first try widgets_values, then inputs.
-    fn default_from_node(node: &Value) -> String {
-        // widgets_values (standard format)
-        if let Some(val) = node["widgets_values"]
+    /// 离线推断字段类型（enrich 会基于 /object_info 进一步精化）。
+    fn infer_field_type(node: &Value, widget_name: &str) -> String {
+        let class_type = node["type"].as_str().unwrap_or("");
+        if class_type == "LoadImage" && widget_name == "image" {
+            return "image_selector".into();
+        }
+        // 新格式：widgets_values_named 存在，node.inputs 无 widget 条目，按值类型推断。
+        if node["widgets_values_named"].is_object() {
+            if let Some(v) = node["widgets_values_named"].get(widget_name) {
+                if v.as_f64().is_some() {
+                    return if widget_name == "seed" {
+                        "seed".to_string()
+                    } else {
+                        "number".to_string()
+                    };
+                }
+                if v.as_bool().is_some() {
+                    return "boolean".to_string();
+                }
+            }
+            return "text".to_string();
+        }
+        let entry_type = node["inputs"]
             .as_array()
-            .and_then(|wv| wv.first())
-        {
-            if let Some(s) = val.as_str() {
-                return s.to_string();
-            }
-            if let Some(n) = val.as_f64() {
-                return n.to_string();
-            }
-        }
-        // inputs (API format) — iterate keys in sorted order for determinism
-        if let Some(inputs) = node["inputs"].as_object() {
-            let mut keys: Vec<&String> = inputs.keys().collect();
-            keys.sort();
-            for k in keys {
-                match &inputs[k] {
-                    Value::String(s) if !s.is_empty() => return s.clone(),
-                    Value::Number(n) => return n.to_string(),
-                    _ => {}
+            .and_then(|arr| {
+                arr.iter().find(|e| {
+                    let w = e["widget"]["name"].as_str().unwrap_or("");
+                    let n = e["name"].as_str().unwrap_or("");
+                    (!w.is_empty() && w == widget_name) || (w.is_empty() && n == widget_name)
+                })
+            })
+            .and_then(|e| e["type"].as_str())
+            .unwrap_or("");
+        match entry_type {
+            "INT" => {
+                if widget_name == "seed" {
+                    "seed".to_string()
+                } else {
+                    "number".to_string()
                 }
             }
-        }
-        String::new()
-    }
-
-    fn infer_field_type(class_type: &str) -> String {
-        match class_type {
-            "CLIPTextEncode" | "PrimitiveStringMultiline" => "multiline".into(),
-            "KSampler" | "KSamplerAdvanced" => "slider".into(),
-            "LoadImage" => "image_selector".into(),
-            _ => "text".into(),
-        }
-    }
-
-    fn detect_widget_name(node: &Value, field_type: &str) -> String {
-        if let Some(inputs) = node["inputs"].as_object() {
-            match field_type {
-                "multiline" | "text" => {
-                    if inputs.contains_key("text") {
-                        return "text".into();
-                    }
+            "FLOAT" => "slider".to_string(),
+            "STRING" => {
+                if class_type == "CLIPTextEncode" {
+                    "multiline".to_string()
+                } else {
+                    "text".to_string()
                 }
-                "seed" | "slider" | "number" => {
-                    if inputs.contains_key("seed") {
-                        return "seed".into();
-                    }
-                    if inputs.contains_key("steps") {
-                        return "steps".into();
-                    }
-                    if inputs.contains_key("cfg") {
-                        return "cfg".into();
-                    }
-                    if inputs.contains_key("denoise") {
-                        return "denoise".into();
-                    }
-                }
-                "image_selector" => {
-                    if inputs.contains_key("image") {
-                        return "image".into();
-                    }
-                }
-                _ => {}
             }
-        }
-        String::new()
-    }
-
-    fn widget_index_for_param(param_name: &str) -> usize {
-        match param_name {
-            "steps" => 1,
-            "cfg" => 2,
-            "denoise" => 3,
-            _ => 0,
+            "BOOLEAN" => "boolean".to_string(),
+            "COMBO" => "combo".to_string(),
+            _ => "text".to_string(),
         }
     }
 
-    fn input_key_for_param(param_name: &str) -> &str {
-        match param_name {
-            "prompt" | "positive_prompt" => "text",
-            "negative_prompt" => "text",
-            _ if param_name.starts_with("input_image") => "image",
-            _ => param_name,
-        }
-    }
+    // --- 标准 → API 格式转换 ---
 
-    fn get_title(node: &Value) -> String {
-        node["_meta"]["title"]
-            .as_str()
-            .or_else(|| node["title"].as_str())
-            .unwrap_or("")
-            .to_string()
-    }
-
-    fn param_name_from_title(title: &str) -> Option<&str> {
-        if !title.starts_with('#') {
-            return None;
-        }
-        let raw = &title[1..];
-        Some(
-            raw.split('=')
-                .next()
-                .unwrap_or(raw)
-                .split(':')
-                .next()
-                .unwrap_or(raw),
-        )
-    }
-
-    /// Inject form values into workflow JSON nodes with matching #param titles,
-    /// then convert from standard format to ComfyUI API format if needed.
-    /// The /prompt endpoint requires API format: flat object keyed by node ID.
-    pub fn inject(
+    /// 将标准画布工作流转换为 `/prompt` 所需的 API 格式。
+    ///
+    /// 转换完全由图结构驱动：node.inputs 中 link 输入经 root.links 解析为
+    /// `[from_node, from_slot]`；widget 输入按 node.inputs 位置顺序消费
+    /// widgets_values（丢弃 IMAGEUPLOAD 等前端专属 widget 与尾部多余值，
+    /// 如 KSampler 的 control_after_generate）。object_info 仅用于兜底填充
+    /// 旧格式中未出现在 node.inputs 里的必需 widget 输入。
+    pub fn standard_to_api(
         workflow_json: &str,
-        values: &HashMap<String, String>,
-    ) -> Result<String, String> {
-        let mut root: Value = serde_json::from_str(workflow_json)
-            .map_err(|e| format!("Invalid workflow JSON: {}", e))?;
+        object_info: &Value,
+    ) -> Result<Value, String> {
+        let root: Value = serde_json::from_str(workflow_json)
+            .map_err(|e| format!("无效的工作流 JSON：{}", e))?;
+        let nodes = root["nodes"]
+            .as_array()
+            .ok_or("标准工作流需包含 nodes 数组")?;
 
-        let is_standard = root["nodes"].is_array();
-
-        if is_standard {
-            // Standard format: inject into nodes array, then convert to API format
-            if let Some(nodes) = root["nodes"].as_array_mut() {
-                for node in nodes.iter_mut() {
-                    Self::inject_into_node(node, values);
-                }
-            }
-            root = Self::standard_to_api(&root);
-        } else if root.is_object() {
-            // API format — iterate over numeric-key entries
-            let keys: Vec<String> = root
-                .as_object()
-                .unwrap()
-                .keys()
-                .filter(|k| k.parse::<u64>().is_ok())
-                .cloned()
-                .collect();
-            for key in keys {
-                if let Some(node) = root.get_mut(&key) {
-                    Self::inject_into_node(node, values);
-                }
-            }
-        }
-
-        serde_json::to_string(&root).map_err(|e| e.to_string())
-    }
-
-    /// Convert a standard-format workflow ({"nodes": [...], "links": [...]})
-    /// to ComfyUI API format ({"1": {"class_type": "...", "inputs": {...}}, ...}).
-    fn standard_to_api(root: &Value) -> Value {
-        let mut api = serde_json::Map::new();
-
-        // Build a link lookup: link_id -> (from_node, from_slot)
         let mut link_map: HashMap<u64, (u64, u64)> = HashMap::new();
         if let Some(links) = root["links"].as_array() {
             for link in links {
@@ -439,172 +302,264 @@ impl WorkflowManager {
             }
         }
 
-        if let Some(nodes) = root["nodes"].as_array() {
-            for node in nodes {
-                let id = node["id"].to_string();
-                if id.is_empty() {
-                    continue;
-                }
-                let class_type = node["type"].as_str().unwrap_or("");
-                let title = node["title"].as_str().unwrap_or("");
+        let mut api = serde_json::Map::new();
+        for node in nodes {
+            let id = Self::node_id_str(node);
+            if id.is_empty() {
+                continue;
+            }
+            let class_type = node["type"].as_str().unwrap_or("");
+            let mut inputs = serde_json::Map::new();
+            let wv: Vec<Value> = node["widgets_values"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let mut widx = 0usize;
 
-                let mut api_node = serde_json::json!({
-                    "class_type": class_type,
-                    "inputs": {},
-                });
-                if !title.is_empty() {
-                    api_node["_meta"] = serde_json::json!({"title": title});
-                }
-
-                // Copy widgets_values
-                if let Some(wv) = node.get("widgets_values") {
-                    api_node["widgets_values"] = wv.clone();
-                }
-
-                // Convert inputs from array to object
-                let mut inputs_obj = serde_json::Map::new();
-                if let Some(inputs_arr) = node["inputs"].as_array() {
-                    for input in inputs_arr {
-                        let name = input["name"].as_str().unwrap_or("");
-                        if name.is_empty() {
-                            continue;
-                        }
-                        if let Some(link_id) = input["link"].as_u64() {
-                            // Linked input → [from_node, from_slot]
-                            if let Some((from_node, from_slot)) = link_map.get(&link_id) {
-                                inputs_obj.insert(
-                                    name.to_string(),
-                                    serde_json::json!([from_node.to_string(), from_slot]),
-                                );
-                            }
-                        } else if let Some(widget_name) = input["widget"]["name"].as_str() {
-                            // Widget input → value from widgets_values
-                            let idx = Self::find_widget_index(node, widget_name);
-                            if let Some(wv) = node["widgets_values"].as_array() {
-                                if let Some(val) = wv.get(idx) {
-                                    inputs_obj.insert(name.to_string(), val.clone());
-                                }
-                            }
-                        } else if input["widget"].is_null() && input["link"].is_null() {
-                            // Optional input with no link and no widget — pass null
-                            inputs_obj.insert(name.to_string(), serde_json::Value::Null);
-                        }
-                    }
-                }
-
-                // Fill remaining widget inputs not present in std inputs array
-                // (e.g. KSampler's steps/cfg/denoise, EmptyLatentImage's batch_size)
-                for (input_name, widget_idx) in Self::widget_inputs_for(class_type) {
-                    if inputs_obj.contains_key(*input_name) {
+            let has_named = node["widgets_values_named"].is_object();
+            if let Some(entries) = node["inputs"].as_array() {
+                for entry in entries {
+                    let name = entry["name"].as_str().unwrap_or("");
+                    if name.is_empty() {
                         continue;
                     }
-                    if let Some(wv) = node["widgets_values"].as_array() {
-                        if let Some(val) = wv.get(*widget_idx) {
-                            inputs_obj.insert(input_name.to_string(), val.clone());
+                    if let Some(link_id) = entry["link"].as_u64() {
+                        if let Some((fnode, fslot)) = link_map.get(&link_id) {
+                            inputs.insert(
+                                name.to_string(),
+                                serde_json::json!([fnode.to_string(), fslot]),
+                            );
+                        }
+                    }
+                    // 旧格式：widget 输入按位置消费 widgets_values（跳过 IMAGEUPLOAD 等前端专属）。
+                    if !has_named && entry["widget"].is_object() {
+                        if widx < wv.len() {
+                            let is_upload = entry["type"].as_str() == Some("IMAGEUPLOAD");
+                            if !is_upload && entry["link"].is_null() && !inputs.contains_key(name) {
+                                inputs.insert(name.to_string(), wv[widx].clone());
+                            }
+                            widx += 1;
                         }
                     }
                 }
-
-                api_node["inputs"] = serde_json::Value::Object(inputs_obj);
-                api.insert(id, api_node);
             }
-        }
 
-        serde_json::Value::Object(api)
-    }
-
-    /// Return the (input_name, widget_index) pairs for widgets that must
-    /// appear in the API-format inputs object for a given node type.
-    /// These fill gaps where the standard format omits widget-only inputs
-    /// (e.g. KSampler's steps/cfg/denoise aren't in the std inputs array).
-    fn widget_inputs_for(class_type: &str) -> &'static [(&'static str, usize)] {
-        match class_type {
-            "CheckpointLoaderSimple" => &[("ckpt_name", 0)],
-            "CLIPTextEncode" => &[("text", 0)],
-            "KSampler" | "KSamplerAdvanced" => &[
-                ("seed", 0),
-                ("steps", 2),
-                ("cfg", 3),
-                ("sampler_name", 4),
-                ("scheduler", 5),
-                ("denoise", 6),
-            ],
-            "EmptyLatentImage" => &[("width", 0), ("height", 1), ("batch_size", 2)],
-            "SaveImage" => &[("filename_prefix", 0)],
-            "PrimitiveStringMultiline" => &[("value", 0)],
-            "PrimitiveInt" => &[("value", 0)],
-            _ => &[],
-        }
-    }
-
-    fn inject_into_node(node: &mut Value, values: &HashMap<String, String>) {
-        // 1. Match by node title (existing behavior)
-        let title = Self::get_title(node);
-        if let Some(param_name) = Self::param_name_from_title(&title) {
-            if let Some(value) = values.get(param_name) {
-                Self::inject_value(node, param_name, value);
-            }
-        }
-
-        // 2. Match by input labels (standard format)
-        if let Some(inputs) = node["inputs"].as_array() {
-            // Collect matches first; borrowck won't let us mutate node while iterating inputs
-            let mut matches: Vec<(String, usize)> = Vec::new();
-            for input in inputs.iter() {
-                let label = input["label"].as_str().unwrap_or("");
-                if let Some(param_name) = Self::param_name_from_title(label) {
-                    if let Some(value) = values.get(param_name) {
-                        let wname = input["widget"]["name"]
-                            .as_str()
-                            .or_else(|| input["name"].as_str())
-                            .unwrap_or("");
-                        let idx = Self::find_widget_index(node, wname);
-                        matches.push((value.clone(), idx));
+            // 新格式：widget 值存于 widgets_values_named，按名插入真实 API 输入。
+            if has_named {
+                if let Some(named) = node["widgets_values_named"].as_object() {
+                    for (name, val) in named {
+                        if inputs.contains_key(name) {
+                            continue;
+                        }
+                        if Self::is_real_api_input(object_info, class_type, name) {
+                            inputs.insert(name.clone(), val.clone());
+                        }
                     }
                 }
             }
-            for (value, idx) in &matches {
-                Self::inject_widget_value(node, *idx, value);
+
+            // 兜底：未出现的必需 widget 输入，用 object_info 默认值补齐。
+            Self::fill_missing_required(&mut inputs, object_info, class_type);
+
+            let mut api_node = serde_json::Map::new();
+            api_node.insert("class_type".into(), Value::String(class_type.into()));
+            api_node.insert("inputs".into(), Value::Object(inputs));
+            api.insert(id, Value::Object(api_node));
+        }
+
+        Ok(Value::Object(api))
+    }
+
+    fn fill_missing_required(
+        inputs: &mut serde_json::Map<String, Value>,
+        object_info: &Value,
+        class_type: &str,
+    ) {
+        let Some(info) = object_info.get(class_type) else { return };
+        let ordered = info["input_order"]["required"].as_array();
+        let Some(ordered) = ordered else { return };
+        for name in ordered.iter().filter_map(|v| v.as_str()) {
+            if inputs.contains_key(name) {
+                continue;
+            }
+            if let Some(def) = Self::widget_default(object_info, class_type, name) {
+                inputs.insert(name.to_string(), def);
             }
         }
     }
 
-    fn inject_value(node: &mut Value, param_name: &str, value: &str) {
-        // widgets_values (standard format)
-        let idx = Self::widget_index_for_param(param_name);
-        Self::inject_widget_value(node, idx, value);
-
-        // inputs as object (API format)
-        if let Some(inputs) = node["inputs"].as_object_mut() {
-            let input_key = Self::input_key_for_param(param_name);
-            if inputs.contains_key(input_key) {
-                if let Ok(n) = value.parse::<f64>() {
-                    inputs.insert(
-                        input_key.to_string(),
-                        serde_json::Value::Number(
-                            serde_json::Number::from_f64(n)
-                                .unwrap_or(serde_json::Number::from(0)),
-                        ),
-                    );
-                } else {
-                    inputs.insert(input_key.to_string(), serde_json::Value::String(value.to_string()));
-                }
+    /// 从 object_info 读取 widget 输入的默认值；非 widget 类型返回 None。
+    fn widget_default(object_info: &Value, class_type: &str, name: &str) -> Option<Value> {
+        let info = object_info.get(class_type)?;
+        let spec = info["input"]["required"]
+            .get(name)
+            .or_else(|| info["input"]["optional"].get(name))?;
+        let arr = spec.as_array()?;
+        let t = arr.first()?;
+        if t.is_array() {
+            // combo：默认取第一项
+            return t.as_array().and_then(|a| a.first()).cloned();
+        }
+        if let Some(opts) = arr.get(1).and_then(|o| o.as_object()) {
+            if let Some(d) = opts.get("default") {
+                return Some(d.clone());
             }
+        }
+        match t.as_str() {
+            Some("INT") => Some(Value::from(0)),
+            Some("FLOAT") => Some(Value::from(0.0)),
+            Some("STRING") => Some(Value::String(String::new())),
+            Some("BOOLEAN") => Some(Value::Bool(false)),
+            _ => None,
         }
     }
 
-    fn inject_widget_value(node: &mut Value, idx: usize, value: &str) {
-        if let Some(wv) = node["widgets_values"].as_array_mut() {
-            if wv.len() > idx {
-                if let Ok(n) = value.parse::<f64>() {
-                    wv[idx] = serde_json::Value::Number(
-                        serde_json::Number::from_f64(n)
-                            .unwrap_or(serde_json::Number::from(0)),
-                    );
-                } else {
-                    wv[idx] = serde_json::Value::String(value.to_string());
-                }
+    // --- 注入用户值 ---
+
+    /// 将前端表单值按 param_name（"nodeId:widgetName"）覆盖到 API prompt 对应节点。
+    pub fn inject(
+        api_prompt: &mut Value,
+        values: &HashMap<String, String>,
+        params: &[WorkflowParam],
+    ) {
+        for p in params {
+            // image_selector 参数由编辑上传流程绑定（上传的文件名），
+            // 不能被前端传入的默认值覆盖，否则会退回工作流保存的图片。
+            if p.field_type == "image_selector" {
+                continue;
             }
+            let Some(v) = values.get(&p.param_name) else { continue };
+            let Some(node) = api_prompt.get_mut(&p.node_id) else { continue };
+            let Some(inputs) = node.get_mut("inputs").and_then(|i| i.as_object_mut()) else {
+                continue;
+            };
+            let coerced = if Self::is_numeric_field(&p.field_type) {
+                v.parse::<f64>()
+                    .ok()
+                    .map(Value::from)
+                    .unwrap_or_else(|| Value::String(v.clone()))
+            } else {
+                Value::String(v.clone())
+            };
+            inputs.insert(p.widget_name.clone(), coerced);
+        }
+    }
+
+    fn is_numeric_field(field_type: &str) -> bool {
+        matches!(field_type, "number" | "slider" | "seed")
+    }
+
+    // --- /object_info 表单增强 ---
+
+    /// 基于 /object_info 精化每个参数的真实类型、范围、枚举与多行标记。
+    pub fn enrich_params(
+        params: &[WorkflowParam],
+        object_info: &Value,
+        workflow_json: &str,
+    ) -> Vec<WorkflowParam> {
+        let root: Value = match serde_json::from_str(workflow_json) {
+            Ok(v) => v,
+            Err(_) => return params.to_vec(),
+        };
+        let class_by_id: HashMap<String, String> = root["nodes"]
+            .as_array()
+            .map(|nodes| {
+                nodes
+                    .iter()
+                    .filter_map(|n| {
+                        let id = Self::node_id_str(n);
+                        let t = n["type"].as_str().unwrap_or("").to_string();
+                        if id.is_empty() || t.is_empty() {
+                            None
+                        } else {
+                            Some((id, t))
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        params
+            .iter()
+            .map(|p| {
+                let mut p = p.clone();
+                let Some(class_type) = class_by_id.get(&p.node_id) else { return p };
+                let Some(info) = object_info.get(class_type) else { return p };
+                let spec = info["input"]["required"]
+                    .get(&p.widget_name)
+                    .or_else(|| info["input"]["optional"].get(&p.widget_name));
+                let Some(spec) = spec.and_then(|s| s.as_array()) else { return p };
+                let Some(t) = spec.first() else { return p };
+
+                if t.is_array() {
+                    // combo 枚举
+                    if class_type == "LoadImage" && p.widget_name == "image" {
+                        p.field_type = "image_selector".into();
+                    } else {
+                        p.field_type = "combo".into();
+                        p.options = t
+                            .as_array()
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                    }
+                } else if let Some(ts) = t.as_str() {
+                    match ts {
+                        "INT" => {
+                            p.field_type = if p.widget_name == "seed" {
+                                "seed".to_string()
+                            } else {
+                                "number".to_string()
+                            };
+                        }
+                        "FLOAT" => p.field_type = "slider".into(),
+                        "STRING" => p.field_type = "text".into(),
+                        "BOOLEAN" => p.field_type = "boolean".into(),
+                        _ => {}
+                    }
+                    if let Some(opts) = spec.get(1).and_then(|o| o.as_object()) {
+                        if let Some(d) = opts.get("default") {
+                            if p.default_value.is_empty() {
+                                p.default_value = Self::value_to_string(d);
+                            }
+                        }
+                        if let Some(mn) = opts.get("min") {
+                            p.min = mn.as_f64();
+                        }
+                        if let Some(mx) = opts.get("max") {
+                            p.max = mx.as_f64();
+                        }
+                        if let Some(st) = opts.get("step") {
+                            p.step = st.as_f64();
+                        }
+                        if ts == "STRING" {
+                            p.multiline = opts
+                                .get("multiline")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
+                            if p.multiline {
+                                p.field_type = "multiline".into();
+                            }
+                        }
+                    }
+                }
+                p
+            })
+            .collect()
+    }
+
+    fn value_to_string(v: &Value) -> String {
+        if let Some(s) = v.as_str() {
+            s.to_string()
+        } else if let Some(n) = v.as_f64() {
+            n.to_string()
+        } else if let Some(b) = v.as_bool() {
+            b.to_string()
+        } else {
+            String::new()
         }
     }
 }
@@ -613,259 +568,388 @@ impl WorkflowManager {
 mod tests {
     use super::*;
 
-    fn make_standard_json(nodes: &str) -> String {
-        format!(r#"{{"nodes":{},"links":[],"groups":[]}}"#, nodes)
-    }
-
-    fn make_api_json(nodes: &str) -> String {
-        nodes.to_string()
-    }
-
-    // --- Standard format tests ---
-
-    #[test]
-    fn test_parse_params_basic() {
-        let json = make_standard_json(
-            r##"[{"id":"6","type":"CLIPTextEncode","title":"#prompt","widgets_values":["hello"]},{"id":"7","type":"KSampler","title":"#steps=20:slider","widgets_values":[20,7,1]}]"##,
-        );
-        let params = WorkflowManager::parse_params(&json).unwrap();
-        assert_eq!(params.len(), 2);
-        assert_eq!(params[0].param_name, "prompt");
-        assert_eq!(params[0].field_type, "multiline");
-        assert_eq!(params[0].default_value, "hello");
-        assert_eq!(params[1].param_name, "steps");
-        assert_eq!(params[1].field_type, "slider");
-        assert_eq!(params[1].default_value, "20");
-    }
-
-    #[test]
-    fn test_parse_rejects_no_hash_nodes() {
-        let json = make_standard_json(
-            r#"[{"id":"1","type":"CheckpointLoaderSimple","title":"Load Checkpoint"}]"#,
-        );
-        assert!(WorkflowManager::parse_params(&json).is_err());
-    }
+    const APP_WORKFLOW: &str = r##"{
+        "last_node_id": 33,
+        "nodes": [
+            {"id": 26, "type": "PrimitiveFloat", "inputs": [
+                {"name": "value", "type": "FLOAT", "widget": {"name": "value"}, "link": null}
+            ], "widgets_values": [0.2]},
+            {"id": 28, "type": "LoadImage", "inputs": [
+                {"name": "image", "type": "COMBO", "widget": {"name": "image"}, "link": null},
+                {"name": "upload", "type": "IMAGEUPLOAD", "widget": {"name": "upload"}, "link": null}
+            ], "widgets_values": ["adorn_preview_V2.png", "image"]},
+            {"id": 33, "type": "SaveImage", "inputs": [
+                {"name": "images", "type": "IMAGE", "link": 45},
+                {"name": "filename_prefix", "type": "STRING", "widget": {"name": "filename_prefix"}, "link": null}
+            ], "widgets_values": ["ComfyUI"]}
+        ],
+        "links": [[45, 27, 0, 33, 0, "IMAGE"]],
+        "extra": {
+            "linearData": {
+                "inputs": [["26", "value"], ["28", "image"], ["33", "filename_prefix"]],
+                "outputs": ["33"]
+            }
+        },
+        "version": 0.4
+    }"##;
 
     #[test]
-    fn test_parse_duplicate_param_names() {
-        let json = make_standard_json(
-            r##"[{"id":"6","type":"CLIPTextEncode","title":"#prompt"},{"id":"8","type":"CLIPTextEncode","title":"#prompt"}]"##,
-        );
-        assert!(WorkflowManager::parse_params(&json).is_err());
-    }
-
-    #[test]
-    fn test_inject_params() {
-        let json = make_standard_json(
-            r##"[{"id":"6","type":"CLIPTextEncode","title":"#prompt","widgets_values":[""]},{"id":"7","type":"KSampler","title":"#steps=20","widgets_values":[20,7,1],"inputs":{"seed":0,"steps":20,"cfg":7,"denoise":1}}]"##,
-        );
-        let mut values = HashMap::new();
-        values.insert("prompt".to_string(), "a cat".to_string());
-        values.insert("steps".to_string(), "30".to_string());
-        let modified = WorkflowManager::inject(&json, &values).unwrap();
-        assert!(modified.contains("a cat"));
-        assert!(modified.contains("30"));
+    fn test_parse_params_app_mode() {
+        let params = WorkflowManager::parse_params(APP_WORKFLOW).unwrap();
+        assert_eq!(params.len(), 3);
+        assert_eq!(params[0].param_name, "26:value");
+        assert_eq!(params[0].widget_name, "value");
+        assert_eq!(params[0].node_id, "26");
+        assert_eq!(params[0].field_type, "slider");
+        assert_eq!(params[0].default_value, "0.2");
+        assert_eq!(params[1].param_name, "28:image");
+        assert_eq!(params[1].field_type, "image_selector");
+        assert_eq!(params[1].default_value, "adorn_preview_V2.png");
+        assert_eq!(params[2].param_name, "33:filename_prefix");
+        assert_eq!(params[2].default_value, "ComfyUI");
     }
 
     #[test]
-    fn test_parse_seed_with_default() {
-        let json = make_standard_json(
-            r##"[{"id":"3","type":"KSampler","title":"#seed=-1:seed","widgets_values":[42,20,7,1]}]"##,
-        );
-        let params = WorkflowManager::parse_params(&json).unwrap();
-        assert_eq!(params[0].field_type, "seed");
-        assert_eq!(params[0].default_value, "-1");
+    fn test_result_node_ids() {
+        assert_eq!(WorkflowManager::result_node_ids(APP_WORKFLOW), vec!["33"]);
     }
 
     #[test]
-    fn test_parse_invalid_json() {
-        assert!(WorkflowManager::parse_params("not json").is_err());
-    }
-
-    #[test]
-    fn test_parse_missing_nodes() {
-        assert!(WorkflowManager::parse_params(r#"{"stuff":[]}"#).is_err());
-    }
-
-    #[test]
-    fn test_inject_preserves_other_nodes() {
-        let json = make_standard_json(
-            r##"[{"id":"1","type":"CheckpointLoader","title":"Load","widgets_values":["sd_xl.safetensors"]},{"id":"2","type":"CLIPTextEncode","title":"#prompt","widgets_values":[""]}]"##,
-        );
-        let mut values = HashMap::new();
-        values.insert("prompt".into(), "test prompt".into());
-        let result = WorkflowManager::inject(&json, &values).unwrap();
-        assert!(result.contains("sd_xl.safetensors"));
-        assert!(result.contains("test prompt"));
-    }
-
-    // --- API format tests (ComfyUI /prompt endpoint format) ---
-
-    #[test]
-    fn test_parse_api_format() {
-        let json = r##"{
-            "1": {"class_type": "CLIPTextEncode", "_meta": {"title": "#prompt=hello"}},
-            "2": {"class_type": "KSampler", "_meta": {"title": "#steps=20:slider"}}
-        }"##;
-        let params = WorkflowManager::parse_params(json).unwrap();
-        assert_eq!(params.len(), 2);
-        assert_eq!(params[0].param_name, "prompt");
-        assert_eq!(params[0].node_id, "1");
-        assert_eq!(params[0].default_value, "hello");
-        assert_eq!(params[1].param_name, "steps");
-        assert_eq!(params[1].node_id, "2");
-        assert_eq!(params[1].field_type, "slider");
-    }
-
-    #[test]
-    fn test_parse_api_format_loadimage() {
-        let json = r##"{
-            "1": {"class_type": "LoadImage", "_meta": {"title": "#input_image"}, "inputs": {"image": "preview.png"}},
-            "2": {"class_type": "SaveImage", "_meta": {"title": "保存图像"}, "inputs": {"images": ["1", 0]}}
-        }"##;
-        let params = WorkflowManager::parse_params(json).unwrap();
-        assert_eq!(params.len(), 1);
-        assert_eq!(params[0].param_name, "input_image");
-        assert_eq!(params[0].field_type, "image_selector");
-        assert_eq!(params[0].default_value, "preview.png");
-    }
-
-    #[test]
-    fn test_inject_api_format() {
-        let json = r##"{
-            "1": {"class_type": "LoadImage", "_meta": {"title": "#input_image"}, "inputs": {"image": "preview.png"}},
-            "2": {"class_type": "ImageInvert", "_meta": {"title": "反转图像"}, "inputs": {"image": ["1", 0]}},
-            "3": {"class_type": "SaveImage", "_meta": {"title": "保存图像"}, "inputs": {"images": ["2", 0]}}
-        }"##;
-        let mut values = HashMap::new();
-        values.insert("input_image".to_string(), "uploaded_comfy.png".to_string());
-        let result = WorkflowManager::inject(json, &values).unwrap();
-        assert!(result.contains("uploaded_comfy.png"));
-        // Unchanged node should still have its original data
-        assert!(result.contains("反转图像"));
-        assert!(result.contains("保存图像"));
-    }
-
-    #[test]
-    fn test_api_format_rejects_no_hash() {
-        let json = r##"{
-            "1": {"class_type": "ImageInvert", "_meta": {"title": "反转图像"}}
-        }"##;
+    fn test_parse_rejects_non_app_workflow() {
+        let json = r#"{"nodes":[{"id":"1","type":"CLIPTextEncode","widgets_values":[""]}],"links":[]}"#;
         assert!(WorkflowManager::parse_params(json).is_err());
     }
 
     #[test]
-    fn test_numeric_node_id_standard_format() {
-        let json = r##"{"nodes":[{"id":5,"type":"CLIPTextEncode","title":"#prompt","widgets_values":["hello"]}],"links":[],"groups":[]}"##;
-        let params = WorkflowManager::parse_params(&json).unwrap();
-        assert_eq!(params.len(), 1);
-        assert_eq!(params[0].param_name, "prompt");
-        assert_eq!(params[0].node_id, "5");
+    fn test_parse_rejects_api_format() {
+        let json = r#"{"1":{"class_type":"CLIPTextEncode","inputs":{"text":""}}}"#;
+        assert!(WorkflowManager::parse_params(json).is_err());
     }
 
     #[test]
-    fn test_parse_slider_with_ranges() {
-        let json = make_standard_json(
-            r##"[{"id":"7","type":"KSampler","title":"#steps=20:slider:1:150:1","widgets_values":[20,7,1]}]"##,
-        );
-        let params = WorkflowManager::parse_params(&json).unwrap();
-        assert_eq!(params[0].param_name, "steps");
-        assert_eq!(params[0].field_type, "slider");
-        assert_eq!(params[0].default_value, "20");
-        assert_eq!(params[0].min, Some(1.0));
-        assert_eq!(params[0].max, Some(150.0));
-        assert_eq!(params[0].step, Some(1.0));
+    fn test_parse_rejects_invalid_json() {
+        assert!(WorkflowManager::parse_params("not json").is_err());
     }
 
     #[test]
-    fn test_parse_slider_no_ranges() {
-        let json = make_standard_json(
-            r##"[{"id":"7","type":"KSampler","title":"#cfg=7:slider","widgets_values":[20,7,1]}]"##,
-        );
-        let params = WorkflowManager::parse_params(&json).unwrap();
-        assert_eq!(params[0].param_name, "cfg");
-        assert_eq!(params[0].field_type, "slider");
-        assert_eq!(params[0].min, None);
-        assert_eq!(params[0].max, None);
-        assert_eq!(params[0].step, None);
-    }
-
-    #[test]
-    fn test_parse_param_with_colon_in_default() {
-        // Default value contains a colon — should still parse correctly
-        let json = make_standard_json(
-            r##"[{"id":"6","type":"CLIPTextEncode","title":"#prompt=hello:world:text","widgets_values":["hello:world"]}]"##,
-        );
-        let params = WorkflowManager::parse_params(&json).unwrap();
-        assert_eq!(params[0].param_name, "prompt");
-        assert_eq!(params[0].field_type, "text");
-        assert_eq!(params[0].default_value, "hello:world");
-    }
-
-    // --- Input label tests ---
-
-    #[test]
-    fn test_parse_input_label_params() {
-        let json = r##"{"nodes":[
-            {"id":9,"type":"PrimitiveStringMultiline","title":"#prompt","widgets_values":[""],"inputs":[],"outputs":[{"name":"STRING","type":"STRING","links":[11]}]},
-            {"id":2,"type":"KSampler","title":"#k_sampler","widgets_values":[971980639743353,"randomize",1,1,"euler","simple",1],"inputs":[{"name":"model","type":"MODEL","link":1},{"name":"positive","type":"CONDITIONING","link":6},{"name":"negative","type":"CONDITIONING","link":13},{"name":"latent_image","type":"LATENT","link":10},{"label":"#seed","name":"seed","type":"INT","widget":{"name":"seed"},"link":null}]}
-        ],"links":[],"groups":[]}"##;
+    fn test_parse_widget_id_with_colon() {
+        let json = r#"{"nodes":[
+            {"id":26,"type":"PrimitiveFloat","inputs":[{"name":"value","type":"FLOAT","widget":{"name":"value"},"link":null}],"widgets_values":[0.2]}
+        ],"links":[],"extra":{"linearData":{"inputs":[["26:value"]],"outputs":[]}}}"#;
         let params = WorkflowManager::parse_params(json).unwrap();
-        // prompt from node title + k_sampler from node title + seed from input label
-        assert_eq!(params.len(), 3);
-        // prompt (title-based, param #1)
-        assert_eq!(params[0].param_name, "prompt");
-        assert_eq!(params[0].field_type, "multiline");
-        assert_eq!(params[0].node_id, "9");
-        // k_sampler (title-based, param #2)
-        assert_eq!(params[1].param_name, "k_sampler");
-        assert_eq!(params[1].node_id, "2");
-        // seed (input-label-based, param #3)
-        assert_eq!(params[2].param_name, "seed");
-        assert_eq!(params[2].field_type, "seed");
-        assert_eq!(params[2].node_id, "2");
-        assert_eq!(params[2].widget_name, "seed");
-        assert_eq!(params[2].default_value, "971980639743353");
+        assert_eq!(params[0].node_id, "26");
+        assert_eq!(params[0].widget_name, "value");
     }
 
     #[test]
-    fn test_inject_input_label_params() {
-        let json = r##"{"nodes":[
-            {"id":2,"type":"KSampler","title":"Sampler","widgets_values":[42,"randomize",20,7,"euler","simple",1],"inputs":[{"name":"model","type":"MODEL","link":1},{"label":"#seed","name":"seed","type":"INT","widget":{"name":"seed"},"link":null}]}
-        ],"links":[],"groups":[]}"##;
+    fn test_parse_widget_id_graph_prefix() {
+        let json = r#"{"nodes":[
+            {"id":26,"type":"PrimitiveFloat","inputs":[{"name":"value","type":"FLOAT","widget":{"name":"value"},"link":null}],"widgets_values":[0.2]}
+        ],"links":[],"extra":{"linearData":{"inputs":[["graph:26:value"]],"outputs":[]}}}"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        assert_eq!(params[0].node_id, "26");
+        assert_eq!(params[0].widget_name, "value");
+    }
+
+    #[test]
+    fn test_parse_unknown_node() {
+        let json = r#"{"nodes":[
+            {"id":26,"type":"PrimitiveFloat","inputs":[{"name":"value","type":"FLOAT","widget":{"name":"value"},"link":null}],"widgets_values":[0.2]}
+        ],"links":[],"extra":{"linearData":{"inputs":[["999","value"]],"outputs":[]}}}"#;
+        assert!(WorkflowManager::parse_params(json).is_err());
+    }
+
+    #[test]
+    fn test_parse_bad_widget() {
+        let json = r#"{"nodes":[
+            {"id":26,"type":"PrimitiveFloat","inputs":[{"name":"value","type":"FLOAT","widget":{"name":"value"},"link":null}],"widgets_values":[0.2]}
+        ],"links":[],"extra":{"linearData":{"inputs":[["26","nonexistent"]],"outputs":[]}}}"#;
+        assert!(WorkflowManager::parse_params(json).is_err());
+    }
+
+    #[test]
+    fn test_parse_duplicate_param() {
+        let json = r#"{"nodes":[
+            {"id":26,"type":"PrimitiveFloat","inputs":[{"name":"value","type":"FLOAT","widget":{"name":"value"},"link":null}],"widgets_values":[0.2]}
+        ],"links":[],"extra":{"linearData":{"inputs":[["26","value"],["26:value"]],"outputs":[]}}}"#;
+        assert!(WorkflowManager::parse_params(json).is_err());
+    }
+
+    #[test]
+    fn test_parse_params_new_format_named_widgets() {
+        // frontendVersion 1.49+: node.inputs 不再包含 widget，值存于 widgets_values_named。
+        let json = r#"{
+            "nodes": [
+                {"id": 3, "type": "LoadImage", "inputs": [], "widgets_values": ["adorn_preview_V2.png", "image"],
+                 "widgets_values_named": {"image": "adorn_preview_V2.png", "upload": "image"}},
+                {"id": 2, "type": "SaveImage", "inputs": [{"name": "images", "type": "IMAGE", "link": 1}],
+                 "widgets_values": ["ComfyUI"], "widgets_values_named": {"filename_prefix": "ComfyUI"}}
+            ],
+            "links": [[1, 1, 0, 2, 0, "IMAGE"]],
+            "extra": {"linearData": {"inputs": [["2dd1d505-7bae-42ea-b543-a0331c28beda:3:image", "image"]], "outputs": ["2"]}}
+        }"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].node_id, "3");
+        assert_eq!(params[0].widget_name, "image");
+        assert_eq!(params[0].param_name, "3:image");
+        assert_eq!(params[0].field_type, "image_selector");
+        assert_eq!(params[0].default_value, "adorn_preview_V2.png");
+    }
+
+    #[test]
+    fn test_parse_params_new_format_missing_widget() {
+        let json = r#"{"nodes":[
+            {"id":3,"type":"LoadImage","inputs":[],"widgets_values":["a.png","image"],"widgets_values_named":{"image":"a.png","upload":"image"}}
+        ],"links":[],"extra":{"linearData":{"inputs":[["3","nonexistent"]],"outputs":[]}}}"#;
+        assert!(WorkflowManager::parse_params(json).is_err());
+    }
+
+    #[test]
+    fn test_standard_to_api_new_format_named_widgets() {
+        let json = r#"{
+            "nodes": [
+                {"id": 3, "type": "LoadImage", "inputs": [], "widgets_values": ["adorn_preview_V2.png", "image"],
+                 "widgets_values_named": {"image": "adorn_preview_V2.png", "upload": "image"}},
+                {"id": 1, "type": "ImageInvert", "inputs": [{"name": "image", "type": "IMAGE", "link": 2}]},
+                {"id": 2, "type": "SaveImage", "inputs": [{"name": "images", "type": "IMAGE", "link": 1}],
+                 "widgets_values": ["ComfyUI"], "widgets_values_named": {"filename_prefix": "ComfyUI"}}
+            ],
+            "links": [[1, 1, 0, 2, 0, "IMAGE"], [2, 3, 0, 1, 0, "IMAGE"]],
+            "extra": {"linearData": {"inputs": [["3", "image"]], "outputs": ["2"]}}
+        }"#;
+        let obj = serde_json::json!({
+            "LoadImage": {"input": {"required": {"image": ["COMBO", [["a.png","b.png"]]], "upload": ["IMAGEUPLOAD"]}}, "input_order": {"required": ["image","upload"], "optional": []}},
+            "ImageInvert": {"input": {"required": {"image": ["IMAGE"]}}, "input_order": {"required": ["image"], "optional": []}},
+            "SaveImage": {"input": {"required": {"images": ["IMAGE"], "filename_prefix": ["STRING", {"default": "ComfyUI"}]}}, "input_order": {"required": ["images","filename_prefix"], "optional": []}}
+        });
+        let api = WorkflowManager::standard_to_api(json, &obj).unwrap();
+        // LoadImage: image 来自 named，upload 前端专属被排除
+        assert_eq!(api["3"]["inputs"]["image"], "adorn_preview_V2.png");
+        assert!(api["3"]["inputs"].get("upload").is_none());
+        // ImageInvert: 链接解析
+        assert_eq!(api["1"]["inputs"]["image"], serde_json::json!(["3", 0]));
+        // SaveImage: 链接 + named widget
+        assert_eq!(api["2"]["inputs"]["images"], serde_json::json!(["1", 0]));
+        assert_eq!(api["2"]["inputs"]["filename_prefix"], "ComfyUI");
+    }
+
+    #[test]
+    fn test_parse_numeric_node_id() {
+        // 画布中 node id 为数字，linearData 为字符串，须按字符串比对
+        let json = r#"{"nodes":[
+            {"id":28,"type":"LoadImage","inputs":[{"name":"image","type":"COMBO","widget":{"name":"image"},"link":null},{"name":"upload","type":"IMAGEUPLOAD","widget":{"name":"upload"},"link":null}],"widgets_values":["p.png","image"]}
+        ],"links":[],"extra":{"linearData":{"inputs":[["28","image"]],"outputs":[]}}}"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        assert_eq!(params[0].node_id, "28");
+        assert_eq!(params[0].default_value, "p.png");
+    }
+
+    // --- standard_to_api ---
+
+    const OBJ_INFO: &str = r##"{
+        "LoadImage": {"input": {"required": {"image": ["COMBO", [["a.png","b.png"]]], "upload": ["IMAGEUPLOAD"]}}, "input_order": {"required": ["image","upload"], "optional": []}},
+        "ImageInvert": {"input": {"required": {"image": ["IMAGE"]}}, "input_order": {"required": ["image"], "optional": []}},
+        "SaveImage": {"input": {"required": {"images": ["IMAGE"], "filename_prefix": ["STRING", {"default": "ComfyUI"}]}}, "input_order": {"required": ["images","filename_prefix"], "optional": []}},
+        "KSampler": {"input": {"required": {"model": ["MODEL"], "seed": ["INT", {"default": 0}], "steps": ["INT", {"default": 20}], "cfg": ["FLOAT", {"default": 8.0}], "sampler_name": [["euler","ddim"]], "scheduler": [["normal","karras"]], "positive": ["CONDITIONING"], "negative": ["CONDITIONING"], "latent_image": ["LATENT"], "denoise": ["FLOAT", {"default": 1.0}]}}, "input_order": {"required": ["model","seed","steps","cfg","sampler_name","scheduler","positive","negative","latent_image","denoise"], "optional": []}}
+    }"##;
+
+    fn obj_info() -> Value {
+        serde_json::from_str(OBJ_INFO).unwrap()
+    }
+
+    #[test]
+    fn test_standard_to_api_basic() {
+        let graph = r#"{
+            "nodes": [
+                {"id":1,"type":"LoadImage","inputs":[
+                    {"name":"image","type":"COMBO","widget":{"name":"image"},"link":null},
+                    {"name":"upload","type":"IMAGEUPLOAD","widget":{"name":"upload"},"link":null}
+                ],"widgets_values":["preview.png","image"],"outputs":[{"name":"IMAGE","type":"IMAGE","links":[1]}]},
+                {"id":2,"type":"ImageInvert","inputs":[{"name":"image","type":"IMAGE","link":1}],"widgets_values":[],"outputs":[{"name":"IMAGE","type":"IMAGE","links":[2]}]},
+                {"id":3,"type":"SaveImage","inputs":[
+                    {"name":"images","type":"IMAGE","link":2},
+                    {"name":"filename_prefix","type":"STRING","widget":{"name":"filename_prefix"},"link":null}
+                ],"widgets_values":["out"],"outputs":[]}
+            ],
+            "links":[[1,1,0,2,0,"IMAGE"],[2,2,0,3,0,"IMAGE"]],
+            "extra":{"linearData":{"inputs":[["1","image"],["3","filename_prefix"]],"outputs":["3"]}}
+        }"#;
+        let api = WorkflowManager::standard_to_api(graph, &obj_info()).unwrap();
+        let v = api.as_object().unwrap();
+        // LoadImage: upload (IMAGEUPLOAD) 不入 API
+        assert_eq!(v["1"]["class_type"], "LoadImage");
+        assert_eq!(v["1"]["inputs"]["image"], "preview.png");
+        assert!(v["1"]["inputs"].get("upload").is_none());
+        // ImageInvert: 链接解析为 [from_node, from_slot]
+        assert_eq!(v["2"]["inputs"]["image"], serde_json::json!(["1", 0]));
+        // SaveImage
+        assert_eq!(v["3"]["inputs"]["images"], serde_json::json!(["2", 0]));
+        assert_eq!(v["3"]["inputs"]["filename_prefix"], "out");
+    }
+
+    #[test]
+    fn test_standard_to_api_drops_control_after_generate() {
+        // RandomNoise: widgets_values 尾部为 control_after_generate（前端专属），应丢弃。
+        let graph = r#"{
+            "nodes": [
+                {"id":5,"type":"RandomNoise","inputs":[
+                    {"name":"noise_seed","type":"INT","widget":{"name":"noise_seed"},"link":null}
+                ],"widgets_values":[123,"randomize"],"outputs":[{"name":"NOISE","type":"NOISE","links":[]}]}
+            ],
+            "links":[],
+            "extra":{"linearData":{"inputs":[["5","noise_seed"]],"outputs":[]}}
+        }"#;
+        let api = WorkflowManager::standard_to_api(graph, &serde_json::json!({})).unwrap();
+        // 无 object_info 时，noise_seed 按 widget 值写入；control_after_generate 不在 node.inputs，天然丢弃。
+        assert_eq!(api["5"]["inputs"]["noise_seed"], 123);
+        assert!(api["5"]["inputs"].get("control_after_generate").is_none());
+    }
+
+    #[test]
+    fn test_standard_to_api_fills_legacy_ksampler() {
+        // 旧格式 KSampler：steps/cfg 等不在 node.inputs，仅 seed 暴露为 widget。
+        let graph = r#"{
+            "nodes": [
+                {"id":2,"type":"KSampler","inputs":[
+                    {"name":"model","type":"MODEL","link":1},
+                    {"name":"positive","type":"CONDITIONING","link":2},
+                    {"name":"negative","type":"CONDITIONING","link":3},
+                    {"name":"latent_image","type":"LATENT","link":4},
+                    {"name":"seed","type":"INT","widget":{"name":"seed"},"link":null}
+                ],"widgets_values":[42,"randomize"],"outputs":[]}
+            ],
+            "links":[[1,1,0,2,0,"MODEL"],[2,1,1,2,1,"CONDITIONING"],[3,1,2,2,2,"CONDITIONING"],[4,1,3,2,3,"LATENT"]],
+            "extra":{"linearData":{"inputs":[["2","seed"]],"outputs":[]}}
+        }"#;
+        let api = WorkflowManager::standard_to_api(graph, &obj_info()).unwrap();
+        let ins = &api["2"]["inputs"];
+        assert_eq!(ins["seed"], 42);
+        // control_after_generate 值 (wv[1]) 被丢弃，不污染 steps
+        assert_eq!(ins["steps"], 20); // object_info 默认
+        assert_eq!(ins["cfg"], 8.0);
+        assert_eq!(ins["denoise"], 1.0);
+        assert_eq!(ins["sampler_name"], "euler");
+        assert_eq!(ins["scheduler"], "normal");
+        assert_eq!(ins["model"], serde_json::json!(["1", 0]));
+    }
+
+    // --- inject ---
+
+    #[test]
+    fn test_inject_values() {
+        let mut api = serde_json::json!({
+            "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["4", 1]}},
+            "8": {"class_type": "KSampler", "inputs": {"seed": 0, "steps": 20, "model": ["4", 0]}}
+        });
+        let params = vec![
+            WorkflowParam {
+                node_id: "6".into(),
+                widget_name: "text".into(),
+                param_name: "6:text".into(),
+                label: "text".into(),
+                default_value: "".into(),
+                field_type: "multiline".into(),
+                order_index: 0,
+                min: None, max: None, step: None,
+                options: vec![], multiline: true,
+            },
+            WorkflowParam {
+                node_id: "8".into(),
+                widget_name: "seed".into(),
+                param_name: "8:seed".into(),
+                label: "seed".into(),
+                default_value: "0".into(),
+                field_type: "seed".into(),
+                order_index: 1,
+                min: None, max: None, step: None,
+                options: vec![], multiline: false,
+            },
+            WorkflowParam {
+                node_id: "8".into(),
+                widget_name: "steps".into(),
+                param_name: "8:steps".into(),
+                label: "steps".into(),
+                default_value: "20".into(),
+                field_type: "number".into(),
+                order_index: 2,
+                min: None, max: None, step: None,
+                options: vec![], multiline: false,
+            },
+        ];
         let mut values = HashMap::new();
-        values.insert("seed".to_string(), "999".to_string());
-        let result = WorkflowManager::inject(json, &values).unwrap();
-        // The seed value in widgets_values[0] should be updated to 999
-        assert!(result.contains("999"));
+        values.insert("6:text".to_string(), "a cat".to_string());
+        values.insert("8:seed".to_string(), "-1".to_string());
+        values.insert("8:steps".to_string(), "30".to_string());
+
+        WorkflowManager::inject(&mut api, &values, &params);
+
+        assert_eq!(api["6"]["inputs"]["text"], "a cat");
+        assert_eq!(api["8"]["inputs"]["seed"].as_f64(), Some(-1.0));
+        assert_eq!(api["8"]["inputs"]["steps"].as_f64(), Some(30.0));
+        // 未注入的值保持不变
+        assert_eq!(api["8"]["inputs"]["model"], serde_json::json!(["4", 0]));
     }
 
     #[test]
-    fn test_parse_input_label_with_explicit_type() {
-        let json = r##"{"nodes":[
-            {"id":2,"type":"KSampler","title":"Sampler","widgets_values":[156680,"randomize",20,7,"euler","simple",1],"inputs":[{"name":"model","type":"MODEL","link":1},{"label":"#seed=-1:seed","name":"seed","type":"INT","widget":{"name":"seed"},"link":null}]}
-        ],"links":[],"groups":[]}"##;
-        let params = WorkflowManager::parse_params(json).unwrap();
-        assert_eq!(params.len(), 1);
-        assert_eq!(params[0].param_name, "seed");
-        assert_eq!(params[0].field_type, "seed");
-        assert_eq!(params[0].default_value, "-1");
+    fn test_inject_ignores_unknown_param() {
+        let mut api = serde_json::json!({"6":{"class_type":"CLIPTextEncode","inputs":{"text":""}}});
+        let params = vec![WorkflowParam {
+            node_id: "6".into(), widget_name: "text".into(), param_name: "6:text".into(),
+            label: "text".into(), default_value: "".into(), field_type: "text".into(),
+            order_index: 0, min: None, max: None, step: None, options: vec![], multiline: false,
+        }];
+        let mut values = HashMap::new();
+        values.insert("9:other".to_string(), "x".to_string()); // 不在 params 中
+        WorkflowManager::inject(&mut api, &values, &params);
+        assert_eq!(api["6"]["inputs"]["text"], "");
     }
 
     #[test]
-    fn test_parse_both_title_and_input_label() {
-        // A node with both title #param and input #param should yield both
-        let json = r##"{"nodes":[
-            {"id":2,"type":"KSampler","title":"#steps=20:slider","widgets_values":[42,"randomize",20,7,"euler","simple",1],"inputs":[{"label":"#seed","name":"seed","type":"INT","widget":{"name":"seed"},"link":null}]}
-        ],"links":[],"groups":[]}"##;
+    fn test_inject_skips_image_selector() {
+        // 编辑上传绑定后的 image_selector 值不能被前端默认值覆盖。
+        let mut api = serde_json::json!({
+            "28": {"class_type": "LoadImage", "inputs": {"image": "uploaded_xxx.png"}}
+        });
+        let params = vec![WorkflowParam {
+            node_id: "28".into(),
+            widget_name: "image".into(),
+            param_name: "28:image".into(),
+            label: "image".into(),
+            default_value: "saved_default.png".into(),
+            field_type: "image_selector".into(),
+            order_index: 0,
+            min: None,
+            max: None,
+            step: None,
+            options: vec![],
+            multiline: false,
+        }];
+        let mut values = HashMap::new();
+        values.insert("28:image".to_string(), "saved_default.png".to_string());
+        WorkflowManager::inject(&mut api, &values, &params);
+        assert_eq!(api["28"]["inputs"]["image"], "uploaded_xxx.png");
+    }
+
+    // --- enrich_params ---
+
+    #[test]
+    fn test_enrich_params() {
+        let obj = obj_info();
+        // 用 KSampler fixture 验证 INT→seed、combo→options、FLOAT→slider
+        let json = r#"{"nodes":[
+            {"id":2,"type":"KSampler","inputs":[
+                {"name":"seed","type":"INT","widget":{"name":"seed"},"link":null},
+                {"name":"sampler_name","type":"COMBO","widget":{"name":"sampler_name"},"link":null}
+            ],"widgets_values":[42,"euler"]},
+            {"id":9,"type":"PrimitiveStringMultiline","inputs":[{"name":"value","type":"STRING","widget":{"name":"value"},"link":null}],"widgets_values":[""]}
+        ],"links":[],"extra":{"linearData":{"inputs":[["2","seed"],["2","sampler_name"],["9","value"]],"outputs":[]}}}"#;
         let params = WorkflowManager::parse_params(json).unwrap();
-        assert_eq!(params.len(), 2);
-        assert_eq!(params[0].param_name, "steps");
-        assert_eq!(params[0].field_type, "slider");
-        assert_eq!(params[1].param_name, "seed");
-        assert_eq!(params[1].field_type, "seed");
-        // Both params belong to the same node
-        assert_eq!(params[0].node_id, "2");
-        assert_eq!(params[1].node_id, "2");
+        let enriched = WorkflowManager::enrich_params(&params, &obj, json);
+        assert_eq!(enriched[0].field_type, "seed");
+        assert_eq!(enriched[1].field_type, "combo");
+        assert_eq!(enriched[1].options, vec!["euler".to_string(), "ddim".to_string()]);
+        // STRING 节点不在 object_info（PrimitiveStringMultiline 未给出），保持 text
+        assert_eq!(enriched[2].field_type, "text");
     }
 }

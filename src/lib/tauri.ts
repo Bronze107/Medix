@@ -375,11 +375,12 @@ export interface ImageTaskInfo {
   task_id: string;
   task_type: string; // "generate" | "edit"
   prompt: string;
-  media_id: string | null;
+  source_media_ids: string[] | null;
   status: string; // "pending" | "running" | "done" | "failed"
   staged: StagedImage[];
   error: string | null;
   created_at: string;
+  progress: { value: number; max: number } | null;
 }
 
 export function imageQueueSubmitGenerate(
@@ -434,6 +435,10 @@ export function imageQueueDiscard(taskId: string): Promise<void> {
 
 export function imageQueueDismiss(taskId: string): Promise<void> {
   return invoke("image_queue_dismiss", { taskId });
+}
+
+export function imageQueueCancel(taskId: string): Promise<string> {
+  return invoke("image_queue_cancel", { taskId });
 }
 
 // --- Lineage ---

@@ -6,12 +6,12 @@ echo "=== ComfyUI Workflow CRUD Tests ==="
 
 setup_isolated_db "comfyui-test"
 
-# Create workflows via direct SQL
+# Create workflows via direct SQL (App-mode format with extra.linearData)
 exec_sql "INSERT INTO comfyui_workflows (id, name, workflow_type, workflow_json, created_at, updated_at)
-  VALUES ('01TEST', 'Test Generate', 'generate', '{\"nodes\":[{\"id\":\"1\",\"type\":\"CLIPTextEncode\",\"title\":\"#prompt\",\"widgets_values\":[\"\"]}]}', datetime('now'), datetime('now'))"
+  VALUES ('01TEST', 'Test Generate', 'generate', '{\"nodes\":[{\"id\":\"6\",\"type\":\"CLIPTextEncode\",\"inputs\":[{\"name\":\"clip\",\"type\":\"CLIP\",\"link\":1},{\"name\":\"text\",\"type\":\"STRING\",\"widget\":{\"name\":\"text\"},\"link\":null}],\"widgets_values\":[\"\"]}],\"links\":[],\"extra\":{\"linearData\":{\"inputs\":[[\"6\",\"text\"]],\"outputs\":[\"10\"]}}}', datetime('now'), datetime('now'))"
 
 exec_sql "INSERT INTO comfyui_workflows (id, name, workflow_type, workflow_json, created_at, updated_at)
-  VALUES ('02TEST', 'Test Edit', 'edit', '{\"nodes\":[{\"id\":\"1\",\"type\":\"LoadImage\",\"title\":\"#input_image\",\"widgets_values\":[\"\"]},{\"id\":\"2\",\"type\":\"CLIPTextEncode\",\"title\":\"#prompt\",\"widgets_values\":[\"\"]}]}', datetime('now'), datetime('now'))"
+  VALUES ('02TEST', 'Test Edit', 'edit', '{\"nodes\":[{\"id\":\"28\",\"type\":\"LoadImage\",\"inputs\":[{\"name\":\"image\",\"type\":\"COMBO\",\"widget\":{\"name\":\"image\"},\"link\":null}],\"widgets_values\":[\"preview.png\"]},{\"id\":\"6\",\"type\":\"CLIPTextEncode\",\"inputs\":[{\"name\":\"text\",\"type\":\"STRING\",\"widget\":{\"name\":\"text\"},\"link\":null}],\"widgets_values\":[\"\"]}],\"links\":[],\"extra\":{\"linearData\":{\"inputs\":[[\"28\",\"image\"],[\"6\",\"text\"]],\"outputs\":[\"33\"]}}}', datetime('now'), datetime('now'))"
 
 # List all
 count=$(q "SELECT COUNT(*) FROM comfyui_workflows")

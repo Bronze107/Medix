@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { LlamaServerStatus } from "@/types/ai";
 import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
+import { showToast } from "@/components/Toast/Toast";
 import {
   llamaServerStatus,
   llamaServerStop,
@@ -83,6 +84,14 @@ function Settings() {
   const [comfyuiWorkflows, setComfyuiWorkflows] = useState<ComfyWorkflow[]>([]);
   const [comfyuiTesting, setComfyuiTesting] = useState(false);
   const [comfyuiTestResult, setComfyuiTestResult] = useState<string | null>(null);
+  const [wfModalOpen, setWfModalOpen] = useState(false);
+  const [wfModalMode, setWfModalMode] = useState<"create" | "edit">("create");
+  const [wfModalWorkflowType, setWfModalWorkflowType] = useState<"generate" | "edit">("generate");
+  const [wfModalTargetId, setWfModalTargetId] = useState<string | null>(null);
+  const [wfModalName, setWfModalName] = useState("");
+  const [wfModalJson, setWfModalJson] = useState("");
+  const [wfModalSaving, setWfModalSaving] = useState(false);
+  const [wfModalError, setWfModalError] = useState<string | null>(null);
   const [globalProxy, setGlobalProxy] = useState("");
   const [proxyTesting, setProxyTesting] = useState(false);
   const [proxyTestResult, setProxyTestResult] = useState<string | null>(null);
@@ -188,6 +197,62 @@ function Settings() {
       loadWorkflows();
     }
   }, [imageApiProvider, loadWorkflows]);
+
+  const openWfCreate = (wfType: "generate" | "edit") => {
+    setWfModalMode("create");
+    setWfModalWorkflowType(wfType);
+    setWfModalTargetId(null);
+    setWfModalName("");
+    setWfModalJson("");
+    setWfModalError(null);
+    setWfModalOpen(true);
+  };
+
+  const openWfEdit = (wf: ComfyWorkflow) => {
+    setWfModalMode("edit");
+    setWfModalWorkflowType(wf.workflow_type as "generate" | "edit");
+    setWfModalTargetId(wf.id);
+    setWfModalName(wf.name);
+    setWfModalJson(wf.workflow_json);
+    setWfModalError(null);
+    setWfModalOpen(true);
+  };
+
+  const saveWf = async () => {
+    if (!wfModalName.trim()) {
+      setWfModalError("请填写工作流名称");
+      return;
+    }
+    if (!wfModalJson.trim()) {
+      setWfModalError("请粘贴工作流 JSON");
+      return;
+    }
+    setWfModalSaving(true);
+    setWfModalError(null);
+    try {
+      if (wfModalMode === "create") {
+        await comfyuiWorkflowCreate(wfModalName.trim(), wfModalWorkflowType, wfModalJson);
+      } else if (wfModalTargetId) {
+        await comfyuiWorkflowUpdate(wfModalTargetId, wfModalName.trim(), wfModalJson);
+      }
+      await loadWorkflows();
+      setWfModalOpen(false);
+    } catch (e) {
+      setWfModalError(String(e));
+    } finally {
+      setWfModalSaving(false);
+    }
+  };
+
+  const handleDeleteWf = async (wf: ComfyWorkflow) => {
+    try {
+      await comfyuiWorkflowDelete(wf.id);
+      showToast("已删除工作流");
+      await loadWorkflows();
+    } catch (e) {
+      showToast("删除失败: " + String(e), "error");
+    }
+  };
 
   const handleSave = async () => {
     try {
@@ -1060,18 +1125,13 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                       <span className="text-xs text-[var(--color-text-primary)]">{wf.name}</span>
                       <div className="flex gap-1">
                         <button
-                          onClick={() => {
-                            const name = window.prompt("工作流名称", wf.name);
-                            if (name) {
-                              comfyuiWorkflowUpdate(wf.id, name, wf.workflow_json).then(loadWorkflows);
-                            }
-                          }}
+                          onClick={() => openWfEdit(wf)}
                           className="rounded px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
                         >
                           编辑
                         </button>
                         <button
-                          onClick={() => comfyuiWorkflowDelete(wf.id).then(loadWorkflows)}
+                          onClick={() => handleDeleteWf(wf)}
                           className="rounded px-2 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)] transition-colors"
                         >
                           删除
@@ -1080,15 +1140,7 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                     </div>
                   ))}
                   <button
-                    onClick={() => {
-                      const name = window.prompt("工作流名称");
-                      const json = window.prompt("粘贴 ComfyUI workflow JSON (API format)");
-                      if (name && json) {
-                        comfyuiWorkflowCreate(name, wfType, json)
-                          .then(loadWorkflows)
-                          .catch((e) => alert("保存失败: " + String(e)));
-                      }
-                    }}
+                    onClick={() => openWfCreate(wfType)}
                     className="mt-1 text-[11px] text-[var(--color-accent)] hover:text-[var(--color-accent-hover)] transition-colors"
                   >
                     + 添加{wfType === "generate" ? "文生图" : "图生图"}工作流
@@ -1211,6 +1263,56 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
         </button>
         {saved && <span className="text-sm text-[var(--color-success)]">已保存</span>}
       </div>
+
+      {wfModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--color-bg-overlay)] animate-fade-in">
+          <div className="flex w-[640px] max-h-[85vh] flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-5 shadow-2xl animate-scale-in">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
+              {wfModalMode === "create" ? "添加工作流" : "编辑工作流"}
+            </h3>
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">名称</label>
+            <input
+              value={wfModalName}
+              onChange={(e) => setWfModalName(e.target.value)}
+              className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+            />
+            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+              Workflow JSON（App 模式，须含 extra.linearData）
+            </label>
+            <textarea
+              value={wfModalJson}
+              onChange={(e) => setWfModalJson(e.target.value)}
+              rows={14}
+              spellCheck={false}
+              placeholder={'粘贴 ComfyUI 画布保存的标准 workflow JSON（须含 "extra": { "linearData": { "inputs": [...] } }）'}
+              className="w-full flex-1 resize-none rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-2 font-mono text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+            />
+            <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
+              提示：在 ComfyUI 中以 App 模式配置要暴露的参数，再从画布导出/复制工作流 JSON 粘贴到此处。
+            </p>
+            {wfModalError && (
+              <div className="mt-2 rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-3 py-1.5 text-xs text-[var(--color-danger)]">
+                {wfModalError}
+              </div>
+            )}
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setWfModalOpen(false)}
+                className="rounded border border-[var(--color-border-light)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={saveWf}
+                disabled={wfModalSaving}
+                className="rounded bg-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 active:scale-[0.97]"
+              >
+                {wfModalSaving ? "保存中..." : "保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={showClearEmbConfirm}

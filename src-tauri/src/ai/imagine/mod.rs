@@ -23,6 +23,8 @@ pub enum ImagineError {
     Api(String),
     #[error("No image data in response")]
     EmptyResponse,
+    #[error("WebSocket error: {0}")]
+    WebSocket(String),
 }
 
 // --- Params ---
@@ -38,7 +40,8 @@ pub struct GenerateParams {
 pub struct EditParams {
     pub prompt: String,
     pub workflow_values: HashMap<String, String>,
-    pub image_data_url: String, // base64 data URL
+    /// 多张源图（已按目标分辨率重采样并编码为 base64 data URL）。
+    pub image_data_urls: Vec<String>,
     pub aspect_ratio: String,
     pub resolution: String,
     pub n: u32,
@@ -74,6 +77,7 @@ pub struct StagedImage {
 pub fn create_provider(
     app: &AppHandle,
     workflow_id: Option<&str>,
+    task_id: Option<&str>,
 ) -> Result<Box<dyn ImageProvider>, String> {
     let provider = settings::get_image_api_provider(app);
     match provider.as_str() {
@@ -94,19 +98,18 @@ pub fn create_provider(
             eprintln!("[comfyui] factory: loading workflow id={}", wf_id);
             let workflow = crate::db::comfyui::comfyui_workflow_get(app, wf_id)
                 .map_err(|e| format!("Workflow not found: {}", e))?;
-            eprintln!(
-                "[comfyui] factory: workflow loaded name={} json_len={}",
-                workflow.name,
-                workflow.workflow_json.len()
-            );
             let base_url = settings::get_comfyui_base_url(app);
             let timeout = settings::get_comfyui_timeout_secs(app);
             eprintln!(
-                "[comfyui] factory: base_url={} timeout={}s",
-                base_url, timeout
+                "[comfyui] factory: workflow={} base_url={} timeout={}s task_id={:?}",
+                workflow.name, base_url, timeout, task_id
             );
             Ok(Box::new(comfyui::ComfyuiProvider::new(
-                base_url, timeout, workflow,
+                base_url,
+                timeout,
+                workflow,
+                app.clone(),
+                task_id.unwrap_or_default().to_string(),
             )))
         }
         "" => Err("No image API provider configured".to_string()),

@@ -225,7 +225,9 @@ impl ImageProvider for XaiProvider {
         let req_body = ImageEditRequest {
             model: self.model.clone(),
             prompt: params.prompt.clone(),
-            image: EditImageInput { url: params.image_data_url.clone() },
+            image: EditImageInput {
+                url: params.image_data_urls.first().cloned().unwrap_or_default(),
+            },
             n: if params.n > 1 { Some(params.n) } else { None },
             aspect_ratio: if params.aspect_ratio == "auto" || params.aspect_ratio.is_empty() { None } else { Some(params.aspect_ratio.clone()) },
             resolution: Some(params.resolution.clone()),

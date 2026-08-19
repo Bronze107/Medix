@@ -2,426 +2,544 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
+use tauri::{AppHandle, Emitter, Manager};
 
+use super::queue::ImageQueue;
 use super::workflow::WorkflowManager;
 use super::{EditParams, GenerateParams, GeneratedImage, ImageProvider, ImagineError};
 use crate::db::comfyui::ComfyWorkflow;
+
+type ComfyWs = tokio_tungstenite::WebSocketStream<
+    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+>;
 
 pub struct ComfyuiProvider {
     base_url: String,
     timeout_secs: u64,
     workflow: ComfyWorkflow,
     client: reqwest::Client,
+    app: AppHandle,
+    task_id: String,
 }
 
 impl ComfyuiProvider {
-    pub fn new(base_url: String, timeout_secs: u64, workflow: ComfyWorkflow) -> Self {
+    pub fn new(
+        base_url: String,
+        timeout_secs: u64,
+        workflow: ComfyWorkflow,
+        app: AppHandle,
+        task_id: String,
+    ) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(300))
             .connect_timeout(Duration::from_secs(10))
             .build()
             .expect("failed to build ComfyUI HTTP client");
-        eprintln!(
-            "[comfyui] provider created: base_url={}, timeout={}s, workflow={} ({})",
-            base_url, timeout_secs, workflow.name, workflow.id
-        );
         Self {
             base_url,
             timeout_secs,
             workflow,
             client,
+            app,
+            task_id,
+        }
+    }
+
+    /// 拉取 /object_info（失败返回空对象，调用方容错处理）。
+    async fn fetch_object_info(&self) -> Value {
+        let url = format!("{}/object_info", self.base_url);
+        match self.client.get(&url).send().await {
+            Ok(resp) => resp.json::<Value>().await.unwrap_or(Value::Null),
+            Err(e) => {
+                eprintln!("[comfyui] fetch object_info FAILED: {}", e);
+                Value::Null
+            }
         }
     }
 
     async fn submit_and_wait(
         &self,
         values: HashMap<String, String>,
+        image_data_urls: Vec<String>,
     ) -> Result<Vec<GeneratedImage>, ImagineError> {
-        eprintln!(
-            "[comfyui] submit_and_wait start: values={:?}, workflow_name={}",
-            values, self.workflow.name
-        );
+        let params = WorkflowManager::parse_params(&self.workflow.workflow_json)
+            .map_err(ImagineError::Api)?;
+        let object_info = self.fetch_object_info().await;
 
-        let t_total = Instant::now();
+        let mut api_prompt =
+            WorkflowManager::standard_to_api(&self.workflow.workflow_json, &object_info)
+                .map_err(ImagineError::Api)?;
 
-        // 1. Inject params into workflow JSON
-        let t_inject = Instant::now();
-        eprintln!(
-            "[comfyui] raw workflow_json (first 300 chars): {}",
-            &self.workflow.workflow_json.chars().take(300).collect::<String>()
-        );
-        let workflow_json = WorkflowManager::inject(&self.workflow.workflow_json, &values)
-            .map_err(|e| {
-                eprintln!("[comfyui] inject FAILED: {}", e);
-                ImagineError::Api(e)
-            })?;
-        eprintln!(
-            "[comfyui] inject duration_ms={}, result (first 500 chars): {}",
-            t_inject.elapsed().as_millis(),
-            &workflow_json.chars().take(500).collect::<String>()
-        );
-
-        let workflow_value: Value = serde_json::from_str(&workflow_json)
-            .map_err(|e| {
-                eprintln!("[comfyui] parse injected json FAILED: {}", e);
-                ImagineError::Api(format!("Invalid injected workflow: {}", e))
-            })?;
-
-        let body = serde_json::json!({
-            "prompt": workflow_value,
-            "client_id": "medix"
-        });
-
-        // 2. POST /prompt
-        let submit_url = format!("{}/prompt", self.base_url);
-        eprintln!(
-            "[comfyui] POST {} body_size={} bytes",
-            submit_url,
-            serde_json::to_string(&body).unwrap_or_default().len()
-        );
-        let t_post = Instant::now();
-        let resp = self
-            .client
-            .post(&submit_url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_connect() {
-                    eprintln!("[comfyui] POST connect FAILED: {}", e);
-                    ImagineError::Api(format!("ComfyUI not running at {}", self.base_url))
-                } else {
-                    eprintln!("[comfyui] POST FAILED (non-connect): {} kind={:?}", e, e.status());
-                    ImagineError::Http(e)
+        // 编辑模式：上传所有源图，按序绑定到 image_selector 参数（LoadImage image widget）。
+        if !image_data_urls.is_empty() {
+            let mut filenames = Vec::new();
+            for url in &image_data_urls {
+                filenames.push(self.upload_image(url).await?);
+            }
+            let mut idx = 0usize;
+            for p in &params {
+                if p.field_type == "image_selector" && idx < filenames.len() {
+                    if let Some(node) = api_prompt.get_mut(&p.node_id) {
+                        if let Some(inputs) =
+                            node.get_mut("inputs").and_then(|i| i.as_object_mut())
+                        {
+                            inputs.insert(
+                                p.widget_name.clone(),
+                                Value::String(filenames[idx].clone()),
+                            );
+                        }
+                    }
+                    idx += 1;
                 }
-            })?;
-        eprintln!(
-            "[comfyui] POST response: HTTP {} duration_ms={}",
-            resp.status(),
-            t_post.elapsed().as_millis()
-        );
-
-        let t_parse = Instant::now();
-        let resp_text = resp.text().await.map_err(ImagineError::Http)?;
-        eprintln!(
-            "[comfyui] response body (first 500 chars): {}",
-            &resp_text.chars().take(500).collect::<String>()
-        );
-        let resp_json: Value = serde_json::from_str(&resp_text).map_err(|e| {
-            eprintln!(
-                "[comfyui] parse response FAILED: {} body={}",
-                e,
-                &resp_text.chars().take(200).collect::<String>()
-            );
-            ImagineError::Api(format!("Failed to parse ComfyUI response: {}", e))
-        })?;
-        eprintln!(
-            "[comfyui] response parse duration_ms={}",
-            t_parse.elapsed().as_millis()
-        );
-
-        // Check for error in response
-        if let Some(err) = resp_json["error"].as_str() {
-            eprintln!("[comfyui] server returned error: {}", err);
-            let node_errors = resp_json["node_errors"]
-                .as_object()
-                .map(|o| format!("{:?}", o))
-                .unwrap_or_default();
-            return Err(ImagineError::Api(format!(
-                "ComfyUI error: {} node_errors={}",
-                err, node_errors
-            )));
+            }
         }
 
-        let prompt_id = resp_json["prompt_id"]
+        WorkflowManager::inject(&mut api_prompt, &values, &params);
+
+        // 先建立 WebSocket，再提交，避免快速任务在 WS 连接前就完成而错过执行事件。
+        let ws = self.connect_ws().await;
+        let prompt_id = self.submit(&api_prompt).await?;
+
+        // 登记 prompt_id 供 image_queue_cancel 定向中断。
+        if let Some(q) = self.app.try_state::<ImageQueue>() {
+            q.set_prompt_id(&self.task_id, prompt_id.clone());
+        }
+
+        match ws {
+            Ok(mut stream) => match self.wait_ws(&mut stream, &prompt_id).await {
+                Ok(()) => {}
+                Err(ImagineError::WebSocket(msg)) => {
+                    eprintln!("[comfyui] ws lost ({}), falling back to polling", msg);
+                    self.wait_poll(&prompt_id).await?;
+                }
+                Err(e) => return Err(e),
+            },
+            Err(msg) => {
+                eprintln!("[comfyui] ws connect failed ({}), polling", msg);
+                self.wait_poll(&prompt_id).await?;
+            }
+        }
+
+        self.collect_images(&prompt_id).await
+    }
+
+    async fn connect_ws(&self) -> Result<ComfyWs, ImagineError> {
+        let ws_url = Self::ws_url(&self.base_url, &self.task_id);
+        tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map(|(ws, _)| ws)
+            .map_err(|e| ImagineError::WebSocket(e.to_string()))
+    }
+
+    async fn submit(&self, api_prompt: &Value) -> Result<String, ImagineError> {
+        let body = serde_json::json!({
+            "prompt": api_prompt,
+            "client_id": self.task_id,
+        });
+        let url = format!("{}/prompt", self.base_url);
+        let resp = self.client.post(&url).json(&body).send().await.map_err(|e| {
+            if e.is_connect() {
+                ImagineError::Api(format!("ComfyUI 未运行于 {}", self.base_url))
+            } else {
+                ImagineError::Http(e)
+            }
+        })?;
+        let status = resp.status();
+        let text = resp.text().await.map_err(ImagineError::Http)?;
+        let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+
+        if !status.is_success() || json["error"].is_object() || json["error"].is_string() {
+            return Err(ImagineError::Api(Self::format_prompt_error(&json, status.as_u16())));
+        }
+
+        json["prompt_id"]
             .as_str()
+            .map(String::from)
             .ok_or_else(|| {
-                eprintln!("[comfyui] no prompt_id in response: {:?}", resp_json);
-                ImagineError::Api("No prompt_id in ComfyUI response".into())
-            })?
-            .to_string();
+                ImagineError::Api(format!(
+                    "ComfyUI 响应缺少 prompt_id：{}",
+                    text.chars().take(200).collect::<String>()
+                ))
+            })
+    }
 
-        eprintln!("[comfyui] got prompt_id={}", prompt_id);
+    /// 修复：POST /prompt 失败时 `error` 是对象，需解析 type/message/details + node_errors。
+    fn format_prompt_error(json: &Value, status: u16) -> String {
+        let mut msg = format!("ComfyUI 校验失败 (HTTP {})：", status);
+        if let Some(err) = json["error"].as_object() {
+            let t = err["type"].as_str().unwrap_or("");
+            let m = err["message"].as_str().unwrap_or("");
+            let d = err["details"].as_str().unwrap_or("");
+            msg.push_str(&format!("{}: {} {}", t, m, d));
+        } else if let Some(s) = json["error"].as_str() {
+            msg.push_str(s);
+        } else {
+            msg.push_str("未知错误");
+        }
+        if let Some(ne) = json["node_errors"].as_object() {
+            if !ne.is_empty() {
+                msg.push_str(" | 节点错误: ");
+                let parts: Vec<String> = ne
+                    .iter()
+                    .map(|(nid, info)| {
+                        let errs = info["errors"]
+                            .as_array()
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|e| e["message"].as_str().map(String::from))
+                                    .collect::<Vec<String>>()
+                            })
+                            .unwrap_or_default();
+                        format!("节点 {}: {}", nid, errs.join("; "))
+                    })
+                    .collect();
+                msg.push_str(&parts.join(", "));
+            }
+        }
+        msg
+    }
 
-        // 3. Poll GET /history/{prompt_id}
-        let start = Instant::now();
-        let history_url = format!("{}/history/{}", self.base_url, prompt_id);
-        let mut poll_count = 0;
+    /// 通过 WebSocket 等待执行结果，实时透出进度。
+    async fn wait_ws(&self, ws: &mut ComfyWs, prompt_id: &str) -> Result<(), ImagineError> {
+        let deadline = Instant::now() + Duration::from_secs(self.timeout_secs);
         loop {
-            let elapsed = start.elapsed();
-            if elapsed > Duration::from_secs(self.timeout_secs) {
-                eprintln!(
-                    "[comfyui] TIMEOUT after {}s ({} polls, limit {}s)",
-                    elapsed.as_secs(),
-                    poll_count,
-                    self.timeout_secs
-                );
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                let _ = ws.close(None).await;
                 return Err(ImagineError::Api(format!(
-                    "Task timed out after {}s",
+                    "任务在 {}s 内未完成",
                     self.timeout_secs
                 )));
             }
+            let next = tokio::time::timeout(remaining, ws.next())
+                .await
+                .map_err(|_| {
+                    ImagineError::Api(format!("任务在 {}s 内未完成", self.timeout_secs))
+                })?;
+            let Some(frame) = next else { break };
+            let frame = frame.map_err(|e| ImagineError::WebSocket(e.to_string()))?;
 
-            poll_count += 1;
-            let t_poll = Instant::now();
-            let hist_resp = self
+            match frame {
+                tokio_tungstenite::tungstenite::protocol::Message::Text(text) => {
+                    let raw = String::from(text);
+                    let v: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+                    let ty = v["type"].as_str().unwrap_or("");
+                    let data = &v["data"];
+                    match ty {
+                        "progress" => {
+                            if data["prompt_id"].as_str() == Some(prompt_id) {
+                                let value = data["value"].as_u64().unwrap_or(0) as u32;
+                                let max = data["max"].as_u64().unwrap_or(0) as u32;
+                                self.emit_progress(value, max);
+                            }
+                        }
+                        "execution_success" => {
+                            if data["prompt_id"].as_str() == Some(prompt_id) {
+                                let _ = ws.close(None).await;
+                                return Ok(());
+                            }
+                        }
+                        "execution_error" => {
+                            if data["prompt_id"].as_str() == Some(prompt_id) {
+                                let msg = data["exception_message"]
+                                    .as_str()
+                                    .unwrap_or("未知错误")
+                                    .to_string();
+                                let _ = ws.close(None).await;
+                                return Err(ImagineError::Api(format!(
+                                    "ComfyUI 执行失败：{}",
+                                    msg
+                                )));
+                            }
+                        }
+                        "execution_interrupted" => {
+                            if data["prompt_id"].as_str() == Some(prompt_id) {
+                                let _ = ws.close(None).await;
+                                return Err(ImagineError::Api("任务已中断".into()));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                tokio_tungstenite::tungstenite::protocol::Message::Close(_) => break,
+                _ => {} // binary/ping/pong 忽略
+            }
+        }
+        Err(ImagineError::WebSocket("连接提前关闭".into()))
+    }
+
+    /// WS 连接失败时的兜底：轮询 history。
+    async fn wait_poll(&self, prompt_id: &str) -> Result<(), ImagineError> {
+        let start = Instant::now();
+        let history_url = format!("{}/history/{}", self.base_url, prompt_id);
+        loop {
+            if start.elapsed() > Duration::from_secs(self.timeout_secs) {
+                return Err(ImagineError::Api(format!(
+                    "任务在 {}s 内未完成",
+                    self.timeout_secs
+                )));
+            }
+            let resp = self
                 .client
                 .get(&history_url)
                 .send()
                 .await
                 .map_err(ImagineError::Http)?;
-            let hist_status = hist_resp.status();
-            let hist_text = hist_resp.text().await.map_err(ImagineError::Http)?;
-            eprintln!(
-                "[comfyui] poll #{}, HTTP {}, body_len={} duration_ms={}",
-                poll_count,
-                hist_status.as_u16(),
-                hist_text.len(),
-                t_poll.elapsed().as_millis()
-            );
-
-            let hist_json: Value = match serde_json::from_str(&hist_text) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!(
-                        "[comfyui] poll #{} parse FAILED: {} body={}",
-                        poll_count,
-                        e,
-                        &hist_text.chars().take(300).collect::<String>()
-                    );
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    continue;
-                }
-            };
-
-            // Check for completion: history[prompt_id].outputs exists
-            if let Some(outputs) = hist_json[&prompt_id]["outputs"].as_object() {
-                eprintln!(
-                    "[comfyui] DONE: poll #{} duration_ms={}, outputs keys={:?}",
-                    poll_count,
-                    start.elapsed().as_millis(),
-                    outputs.keys().collect::<Vec<_>>()
-                );
-
-                let mut images = Vec::new();
-                for (node_id, node_output) in outputs {
-                    if let Some(img_list) = node_output["images"].as_array() {
-                        eprintln!(
-                            "[comfyui] node {} has {} image(s)",
-                            node_id,
-                            img_list.len()
-                        );
-                        for (i, img_info) in img_list.iter().enumerate() {
-                            let filename = img_info["filename"].as_str().unwrap_or("");
-                            let subfolder = img_info["subfolder"].as_str().unwrap_or("");
-                            let img_type = img_info["type"].as_str().unwrap_or("output");
-
-                            let dl_url = format!(
-                                "{}/view?filename={}&subfolder={}&type={}",
-                                self.base_url, filename, subfolder, img_type
-                            );
-                            eprintln!(
-                                "[comfyui] downloading image {}/{}: {}",
-                                i + 1,
-                                img_list.len(),
-                                dl_url
-                            );
-
-                            let t_dl = Instant::now();
-                            let dl_resp = self
-                                .client
-                                .get(&dl_url)
-                                .send()
-                                .await
-                                .map_err(ImagineError::Http)?;
-                            let data = dl_resp.bytes().await.map_err(ImagineError::Http)?;
-                            eprintln!(
-                                "[comfyui] downloaded {} bytes duration_ms={}",
-                                data.len(),
-                                t_dl.elapsed().as_millis()
-                            );
-
-                            let mime_type =
-                                if filename.ends_with(".png") { "image/png" } else { "image/jpeg" };
-
-                            images.push(GeneratedImage {
-                                mime_type: mime_type.to_string(),
-                                data: data.to_vec(),
-                            });
+            let hist: Value = resp.json().await.map_err(ImagineError::Http)?;
+            if let Some(entry) = hist.get(prompt_id) {
+                if let Some(status) = entry["status"].as_object() {
+                    if status.get("completed").and_then(|v| v.as_bool()) == Some(true) {
+                        let status_str = status["status_str"].as_str().unwrap_or("");
+                        if status_str == "error" {
+                            let msg = Self::extract_history_error(entry);
+                            return Err(ImagineError::Api(format!(
+                                "ComfyUI 执行失败：{}",
+                                msg
+                            )));
                         }
-                    }
-                }
-
-                if images.is_empty() {
-                    eprintln!(
-                        "[comfyui] DONE but NO IMAGES in outputs: {:?}",
-                        serde_json::to_string(&outputs).unwrap_or_default()
-                    );
-                    return Err(ImagineError::EmptyResponse);
-                }
-                eprintln!(
-                    "[comfyui] total duration_ms={}, images={}",
-                    t_total.elapsed().as_millis(),
-                    images.len()
-                );
-                return Ok(images);
-            }
-
-            // Check for error/exception in history
-            if let Some(status_obj) = hist_json[&prompt_id]["status"].as_object() {
-                if let Some(status_str) = status_obj["status_str"].as_str() {
-                    if status_str == "error" {
-                        let messages = status_obj["messages"].as_array()
-                            .map(|a| a.iter().filter_map(|m| m.as_str()).collect::<Vec<_>>().join("; "))
-                            .unwrap_or_default();
-                        eprintln!("[comfyui] task FAILED: status=error messages={}", messages);
-                        return Err(ImagineError::Api(format!(
-                            "ComfyUI execution failed: {}", messages
-                        )));
+                        return Ok(());
                     }
                 }
             }
-
-            eprintln!("[comfyui] poll #{}: still running, sleeping 2s", poll_count);
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
-}
 
-#[async_trait]
-impl ImageProvider for ComfyuiProvider {
-    async fn generate(
-        &self,
-        params: &GenerateParams,
-    ) -> Result<Vec<GeneratedImage>, ImagineError> {
-        eprintln!(
-            "[comfyui] generate: prompt={}, workflow_values={:?}, aspect_ratio={}, resolution={}, n={}",
-            params.prompt, params.workflow_values, params.aspect_ratio, params.resolution, params.n
-        );
-        let mut values = params.workflow_values.clone();
-        values.insert("prompt".to_string(), params.prompt.clone());
-        let result = self.submit_and_wait(values).await;
-        match &result {
-            Ok(images) => eprintln!("[comfyui] generate SUCCESS: {} images", images.len()),
-            Err(e) => eprintln!("[comfyui] generate FAILED: {}", e),
+    /// 修复：history.status.messages 是 ["execution_error", {...}] 元组数组，
+    /// 需从元组第二个元素取 exception_message。
+    fn extract_history_error(entry: &Value) -> String {
+        let mut out = String::new();
+        if let Some(messages) = entry["status"]["messages"].as_array() {
+            for m in messages {
+                if let Some(arr) = m.as_array() {
+                    if arr.first().and_then(|v| v.as_str()) == Some("execution_error") {
+                        if let Some(data) = arr.get(1) {
+                            if let Some(emsg) = data["exception_message"].as_str() {
+                                if !out.is_empty() {
+                                    out.push_str("; ");
+                                }
+                                out.push_str(emsg);
+                            }
+                        }
+                    }
+                }
+            }
         }
-        result
+        if out.is_empty() {
+            if let Some(s) = entry["status"]["status_str"].as_str() {
+                out.push_str(s);
+            }
+        }
+        out
     }
 
-    async fn edit(&self, params: &EditParams) -> Result<Vec<GeneratedImage>, ImagineError> {
-        eprintln!(
-            "[comfyui] edit: prompt={}, aspect_ratio={}, resolution={}, n={}, image_data_url_len={}",
-            params.prompt,
-            params.aspect_ratio,
-            params.resolution,
-            params.n,
-            params.image_data_url.len()
+    async fn collect_images(&self, prompt_id: &str) -> Result<Vec<GeneratedImage>, ImagineError> {
+        let history_url = format!("{}/history/{}", self.base_url, prompt_id);
+        // ComfyUI 先发 execution_success 事件、稍后才把条目写入 history（task_done 落库），
+        // 因此成功信号后立即查询可能查不到，需要短暂重试等待落库。
+        let start = Instant::now();
+        let entry = loop {
+            let resp = self
+                .client
+                .get(&history_url)
+                .send()
+                .await
+                .map_err(ImagineError::Http)?;
+            let hist: Value = resp.json().await.map_err(ImagineError::Http)?;
+            if let Some(entry) = hist.get(prompt_id) {
+                break entry.clone();
+            }
+            if start.elapsed() > Duration::from_secs(10) {
+                return Err(ImagineError::Api("history 中无此任务".into()));
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        };
+        let outputs = entry["outputs"]
+            .as_object()
+            .ok_or(ImagineError::EmptyResponse)?;
+
+        let result_nodes = WorkflowManager::result_node_ids(&self.workflow.workflow_json);
+        let mut images = Vec::new();
+        let mut collected = false;
+
+        // 优先收集 linearData.outputs 声明的结果节点。
+        for rn in &result_nodes {
+            if let Some(no) = outputs.get(rn) {
+                if let Some(list) = no["images"].as_array() {
+                    for info in list {
+                        images.push(self.download(info).await?);
+                    }
+                    if !images.is_empty() {
+                        collected = true;
+                    }
+                }
+            }
+        }
+        // 兜底：扫描所有输出节点的 images。
+        if !collected {
+            for no in outputs.values() {
+                if let Some(list) = no["images"].as_array() {
+                    for info in list {
+                        images.push(self.download(info).await?);
+                    }
+                }
+            }
+        }
+        if images.is_empty() {
+            return Err(ImagineError::EmptyResponse);
+        }
+        Ok(images)
+    }
+
+    async fn download(&self, info: &Value) -> Result<GeneratedImage, ImagineError> {
+        let filename = info["filename"].as_str().unwrap_or("");
+        let subfolder = info["subfolder"].as_str().unwrap_or("");
+        let ty = info["type"].as_str().unwrap_or("output");
+        let url = format!(
+            "{}/view?filename={}&subfolder={}&type={}",
+            self.base_url, filename, subfolder, ty
         );
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(ImagineError::Http)?;
+        let data = resp.bytes().await.map_err(ImagineError::Http)?;
+        Ok(GeneratedImage {
+            mime_type: Self::guess_mime(&data, filename),
+            data: data.to_vec(),
+        })
+    }
 
-        let upload_url = format!("{}/upload/image", self.base_url);
+    fn guess_mime(data: &[u8], filename: &str) -> String {
+        if let Ok(fmt) = image::guess_format(data) {
+            return match fmt {
+                image::ImageFormat::Png => "image/png",
+                image::ImageFormat::Jpeg => "image/jpeg",
+                image::ImageFormat::WebP => "image/webp",
+                image::ImageFormat::Gif => "image/gif",
+                image::ImageFormat::Bmp => "image/bmp",
+                _ => {
+                    if filename.ends_with(".png") {
+                        "image/png"
+                    } else {
+                        "image/jpeg"
+                    }
+                }
+            }
+            .to_string();
+        }
+        if filename.ends_with(".png") {
+            "image/png".to_string()
+        } else {
+            "image/jpeg".to_string()
+        }
+    }
 
-        let (mime, b64_data) = if let Some(comma) = params.image_data_url.find(',') {
-            let data = &params.image_data_url[comma + 1..];
-            let mime = if params.image_data_url.contains("image/png") {
+    async fn upload_image(&self, image_data_url: &str) -> Result<String, ImagineError> {
+        let (mime, b64_data) = if let Some(comma) = image_data_url.find(',') {
+            let data = &image_data_url[comma + 1..];
+            let mime = if image_data_url.contains("image/png") {
                 "image/png"
             } else {
                 "image/jpeg"
             };
             (mime, data.to_string())
         } else {
-            eprintln!("[comfyui] edit: invalid image data URL");
-            return Err(ImagineError::Api("Invalid image data URL".into()));
+            return Err(ImagineError::Api("无效的图片 data URL".into()));
         };
 
         let img_bytes = base64::Engine::decode(
             &base64::engine::general_purpose::STANDARD,
             &b64_data,
         )
-        .map_err(|e| {
-            eprintln!("[comfyui] edit: base64 decode FAILED: {}", e);
-            ImagineError::Api(format!("Failed to decode base64: {}", e))
-        })?;
-        eprintln!("[comfyui] edit: decoded {} bytes", img_bytes.len());
+        .map_err(|e| ImagineError::Api(format!("base64 解码失败：{}", e)))?;
 
         let part = reqwest::multipart::Part::bytes(img_bytes)
             .file_name(if mime == "image/png" {
-                "input.png".to_string()
+                "input.png"
             } else {
-                "input.jpg".to_string()
+                "input.jpg"
             })
             .mime_str(mime)
-            .map_err(|e| {
-                eprintln!("[comfyui] edit: multipart part FAILED: {}", e);
-                ImagineError::Api(e.to_string())
-            })?;
-
+            .map_err(|e| ImagineError::Api(e.to_string()))?;
         let form = reqwest::multipart::Form::new().part("image", part);
 
-        eprintln!("[comfyui] edit: POST {}", upload_url);
-        let t_upload = Instant::now();
-        let upload_resp = self
+        let url = format!("{}/upload/image", self.base_url);
+        let resp = self
             .client
-            .post(&upload_url)
+            .post(&url)
             .multipart(form)
             .send()
             .await
             .map_err(ImagineError::Http)?;
-        eprintln!(
-            "[comfyui] edit: upload response HTTP {} duration_ms={}",
-            upload_resp.status(),
-            t_upload.elapsed().as_millis()
-        );
-
-        let upload_text = upload_resp.text().await.map_err(ImagineError::Http)?;
-        eprintln!(
-            "[comfyui] edit: upload body: {}",
-            &upload_text.chars().take(300).collect::<String>()
-        );
-        let upload_json: Value = serde_json::from_str(&upload_text).map_err(|e| {
-            eprintln!("[comfyui] edit: upload parse FAILED: {}", e);
-            ImagineError::Api(format!("Failed to parse upload response: {}", e))
-        })?;
-        let uploaded_filename = upload_json["name"]
+        let text = resp.text().await.map_err(ImagineError::Http)?;
+        let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        json["name"]
             .as_str()
-            .ok_or_else(|| {
-                eprintln!("[comfyui] edit: no filename in upload response: {:?}", upload_json);
-                ImagineError::Api("No filename from upload response".into())
-            })?;
-        eprintln!(
-            "[comfyui] edit: uploaded as filename={}",
-            uploaded_filename
+            .map(String::from)
+            .ok_or_else(|| ImagineError::Api("上传图片失败，响应无文件名".into()))
+    }
+
+    fn emit_progress(&self, value: u32, max: u32) {
+        if let Some(q) = self.app.try_state::<ImageQueue>() {
+            q.set_progress(&self.task_id, value, max);
+        }
+        let _ = self.app.emit(
+            "image-queue-progress",
+            serde_json::json!({ "task_id": self.task_id, "value": value, "max": max }),
         );
+    }
 
-        let mut values = params.workflow_values.clone();
-        values.insert("prompt".to_string(), params.prompt.clone());
-        // Single-image upload: maps to the first #input_image param in the workflow.
-        // Future: support multi-image upload by iterating over params.source_media_ids
-        // and uploading each image via POST /upload/image with distinct field names,
-        // then inserting e.g. "input_image1" -> "filename1.png", "input_image2" -> "filename2.png".
-        values.insert("input_image".to_string(), uploaded_filename.to_string());
+    fn ws_url(base_url: &str, client_id: &str) -> String {
+        let scheme = if base_url.starts_with("https") { "wss" } else { "ws" };
+        let rest = base_url
+            .replacen("https://", "", 1)
+            .replacen("http://", "", 1);
+        format!("{}://{}/ws?clientId={}", scheme, rest, client_id)
+    }
+}
 
-        let result = self.submit_and_wait(values).await;
-        match &result {
-            Ok(images) => eprintln!("[comfyui] edit SUCCESS: {} images", images.len()),
-            Err(e) => eprintln!("[comfyui] edit FAILED: {}", e),
+#[async_trait]
+impl ImageProvider for ComfyuiProvider {
+    async fn generate(&self, params: &GenerateParams) -> Result<Vec<GeneratedImage>, ImagineError> {
+        eprintln!(
+            "[comfyui] generate: workflow={} values={:?}",
+            self.workflow.name, params.workflow_values
+        );
+        let result = self
+            .submit_and_wait(params.workflow_values.clone(), Vec::new())
+            .await;
+        if let Err(e) = &result {
+            eprintln!("[comfyui] generate FAILED: {}", e);
+        }
+        result
+    }
+
+    async fn edit(&self, params: &EditParams) -> Result<Vec<GeneratedImage>, ImagineError> {
+        eprintln!(
+            "[comfyui] edit: workflow={} values={:?} images={}",
+            self.workflow.name,
+            params.workflow_values,
+            params.image_data_urls.len()
+        );
+        let result = self
+            .submit_and_wait(params.workflow_values.clone(), params.image_data_urls.clone())
+            .await;
+        if let Err(e) = &result {
+            eprintln!("[comfyui] edit FAILED: {}", e);
         }
         result
     }
 
     async fn health_check(&self) -> Result<bool, ImagineError> {
         let url = format!("{}/system_stats", self.base_url);
-        eprintln!("[comfyui] health_check: GET {}", url);
         match self.client.get(&url).send().await {
-            Ok(resp) => {
-                let ok = resp.status().is_success();
-                eprintln!("[comfyui] health_check: {}", ok);
-                Ok(ok)
-            }
-            Err(e) => {
-                eprintln!("[comfyui] health_check FAILED: {}", e);
-                Ok(false)
-            }
+            Ok(resp) => Ok(resp.status().is_success()),
+            Err(_) => Ok(false),
         }
     }
 }

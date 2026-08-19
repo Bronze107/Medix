@@ -16,14 +16,21 @@ pub struct ComfyWorkflow {
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkflowParam {
     pub node_id: String,
-    pub param_name: String,
     pub widget_name: String,
+    /// 稳定键: "{node_id}:{widget_name}"，前端表单 values 以此为 key。
+    pub param_name: String,
+    /// 表单显示标签（取自 linearData 或 widget 名）。
+    pub label: String,
     pub default_value: String,
-    pub field_type: String,
+    pub field_type: String, // "text"|"multiline"|"number"|"slider"|"seed"|"combo"|"image_selector"|"boolean"
     pub order_index: usize,
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub step: Option<f64>,
+    /// combo 枚举选项。
+    pub options: Vec<String>,
+    /// STRING 多行输入。
+    pub multiline: bool,
 }
 
 pub fn comfyui_workflow_list(

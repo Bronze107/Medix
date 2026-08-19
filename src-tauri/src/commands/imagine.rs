@@ -39,7 +39,7 @@ pub async fn image_generate(
     resolution: Option<String>,
     n: Option<u32>,
 ) -> Result<Vec<StagedImage>, String> {
-    let provider = imagine::create_provider(&app, None).map_err(|e| e.to_string())?;
+    let provider = imagine::create_provider(&app, None, None).map_err(|e| e.to_string())?;
 
     let params = GenerateParams {
         prompt: prompt.clone(),

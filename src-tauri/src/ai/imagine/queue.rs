@@ -42,6 +42,12 @@ pub enum ImageTask {
 }
 
 #[derive(Clone, Serialize)]
+pub struct TaskProgress {
+    pub value: u32,
+    pub max: u32,
+}
+
+#[derive(Clone, Serialize)]
 pub struct TaskInfo {
     pub task_id: String,
     pub task_type: String,
@@ -51,6 +57,7 @@ pub struct TaskInfo {
     pub staged: Vec<StagedImage>,
     pub error: Option<String>,
     pub created_at: String,
+    pub progress: Option<TaskProgress>,
 }
 
 struct TaskState {
@@ -63,6 +70,8 @@ struct TaskState {
     error: Option<String>,
     created_at: String,
     workflow_id: Option<String>,
+    prompt_id: Option<String>,
+    progress: Option<TaskProgress>,
 }
 
 impl TaskState {
@@ -76,6 +85,7 @@ impl TaskState {
             staged: self.staged.clone(),
             error: self.error.clone(),
             created_at: self.created_at.clone(),
+            progress: self.progress.clone(),
         }
     }
 }
@@ -108,6 +118,28 @@ impl ImageQueue {
             t.status = status.to_string();
             t.error = error;
         }
+    }
+
+    /// ComfyUI provider 提交后登记 prompt_id，供取消时定向中断。
+    pub fn set_prompt_id(&self, task_id: &str, prompt_id: String) {
+        if let Some(t) = self.tasks.lock().unwrap().get_mut(task_id) {
+            t.prompt_id = Some(prompt_id);
+        }
+    }
+
+    /// ComfyUI provider 上报采样进度。
+    pub fn set_progress(&self, task_id: &str, value: u32, max: u32) {
+        if let Some(t) = self.tasks.lock().unwrap().get_mut(task_id) {
+            t.progress = Some(TaskProgress { value, max });
+        }
+    }
+
+    fn get_prompt_id(&self, task_id: &str) -> Option<String> {
+        self.tasks
+            .lock()
+            .unwrap()
+            .get(task_id)
+            .and_then(|t| t.prompt_id.clone())
     }
 
     fn set_staged(&self, task_id: &str, staged: Vec<StagedImage>) {
@@ -218,7 +250,7 @@ async fn process_task(
             n,
             workflow_id,
         } => {
-            // Resolve first source image for the data URL (primary input)
+            // Resolve all source images for the data URLs (multi-image edit)
             let max_dim: u32 = match resolution.as_str() {
                 "2k" => 2048,
                 _ => 1024,
@@ -233,30 +265,40 @@ async fn process_task(
                     return;
                 }
             };
-            let primary_path = match find_media_path(&*conn, &source_media_ids[0]) {
-                Ok(p) => p,
-                Err(e) => {
-                    if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
-                        t.status = "failed".to_string();
-                        t.error = Some(e);
-                    }
-                    return;
+            if source_media_ids.is_empty() {
+                if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
+                    t.status = "failed".to_string();
+                    t.error = Some("没有选择源图片".to_string());
                 }
-            };
-            let image_data_url = match read_and_encode_image(&primary_path, max_dim) {
-                Ok(url) => url,
-                Err(e) => {
-                    if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
-                        t.status = "failed".to_string();
-                        t.error = Some(e);
+                return;
+            }
+            let mut image_data_urls = Vec::new();
+            for sid in &source_media_ids {
+                let path = match resolve_media_source(&app, &*conn, sid) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
+                            t.status = "failed".to_string();
+                            t.error = Some(e);
+                        }
+                        return;
                     }
-                    return;
+                };
+                match read_and_encode_image(&path, max_dim) {
+                    Ok(url) => image_data_urls.push(url),
+                    Err(e) => {
+                        if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
+                            t.status = "failed".to_string();
+                            t.error = Some(e);
+                        }
+                        return;
+                    }
                 }
-            };
+            }
             let params = EditParams {
                 prompt: prompt.clone(),
                 workflow_values,
-                image_data_url,
+                image_data_urls,
                 aspect_ratio,
                 resolution,
                 n,
@@ -277,7 +319,7 @@ async fn process_task(
         t.status = "running".to_string();
     }
 
-    let provider = match create_provider(&app, workflow_id.as_deref()) {
+    let provider = match create_provider(&app, workflow_id.as_deref(), Some(&task_id)) {
         Ok(p) => p,
         Err(e) => {
             if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
@@ -360,9 +402,53 @@ fn find_media_path(conn: &rusqlite::Connection, media_id: &str) -> Result<String
     Ok(path)
 }
 
+/// source_path 为网络链接时不能作为本地文件读取（浏览器插件导入的 Web 图片）。
+fn is_remote_url(path: &str) -> bool {
+    path.starts_with("http://")
+        || path.starts_with("https://")
+        || path.starts_with("asset://")
+        || path.starts_with("file://")
+}
+
+/// 解析媒体实际本地文件路径。
+/// 历史 Web 导入记录的 source_path 是 URL，但文件实际在 library/{id}.{ext}，
+/// 这里回退到按 media id 前缀在 library 目录中查找真实文件。
+fn resolve_media_source(
+    app: &AppHandle,
+    conn: &rusqlite::Connection,
+    media_id: &str,
+) -> Result<String, String> {
+    let path = find_media_path(conn, media_id)?;
+    if !is_remote_url(&path) {
+        return Ok(path);
+    }
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let library_dir = app_dir.join("library");
+    let prefix = format!("{}.", media_id);
+    let entries = std::fs::read_dir(&library_dir).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with(&prefix) {
+            return Ok(entry.path().to_string_lossy().replace('\\', "/"));
+        }
+    }
+    Err(format!(
+        "该媒体是网络链接（{}）且未在本地 library 中找到文件，无法用于本地图像编辑",
+        path
+    ))
+}
+
 /// Read an image from disk, optionally resize, and encode as data URL.
 fn read_and_encode_image(source_path: &str, max_dim: u32) -> Result<String, String> {
-    let img = image::open(source_path).map_err(|e| e.to_string())?;
+    if is_remote_url(source_path) {
+        return Err(format!(
+            "该媒体是网络链接（source_path: {}），没有本地文件，无法用于本地图像编辑。\
+             请先将其下载到本地再操作。",
+            source_path
+        ));
+    }
+    let img = image::open(source_path)
+        .map_err(|e| format!("无法读取源图片 {}：{}", source_path, e))?;
     let (w, h) = (img.width(), img.height());
     let image_data_url = if w.max(h) > max_dim {
         let ratio = max_dim as f64 / w.max(h) as f64;
@@ -449,6 +535,8 @@ pub fn image_queue_submit_generate(
         error: None,
         created_at: Utc::now().to_rfc3339(),
         workflow_id,
+        prompt_id: None,
+        progress: None,
     });
     queue.send(task).map_err(|e| e.to_string())?;
     let _ = app.emit("image-queue-updated", serde_json::json!({ "remaining": queue.pending_count() }));
@@ -488,6 +576,8 @@ pub fn image_queue_submit_edit(
         error: None,
         created_at: Utc::now().to_rfc3339(),
         workflow_id,
+        prompt_id: None,
+        progress: None,
     });
     queue.send(task).map_err(|e| e.to_string())?;
     let _ = app.emit("image-queue-updated", serde_json::json!({ "remaining": queue.pending_count() }));
@@ -545,9 +635,8 @@ pub fn image_queue_import(
         let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let library_dir = app_dir.join("library");
 
-        let provider_tag = task.workflow_id.as_deref().map_or("unknown", |w| {
-            if w.contains("comfyui") { "comfyui" } else { "xai" }
-        });
+        // ComfyUI 任务必有 workflow_id，xAI 任务没有 → 据此打来源标签。
+        let provider_tag = if task.workflow_id.is_some() { "comfyui" } else { "xai" };
         let source = format!("ai-edited:{}", provider_tag);
 
         let mut results = Vec::new();
@@ -743,7 +832,7 @@ pub fn image_queue_import(
                 }
             });
 
-            // Save prompt as caption (skip if empty — ComfyUI workflows may not have #prompt)
+            // Save prompt as caption (skip if empty — ComfyUI workflows may not expose a text param)
             if !task.prompt.is_empty() {
                 if let Err(e) = crate::db::caption_create_with_source(
                     &app, &id, &task.prompt, Some("ai-generated"),
@@ -812,6 +901,38 @@ pub fn image_queue_dismiss(app: AppHandle, task_id: String) -> Result<(), String
         .unwrap()
         .remove(&task_id);
     Ok(())
+}
+
+/// 取消正在运行的 ComfyUI 任务：通过已登记的 prompt_id 定向中断。
+#[tauri::command]
+pub async fn image_queue_cancel(app: AppHandle, task_id: String) -> Result<String, String> {
+    let queue = app.state::<ImageQueue>();
+    let prompt_id = queue
+        .get_prompt_id(&task_id)
+        .ok_or("任务不存在或尚未提交到 ComfyUI")?;
+    {
+        let tasks = queue.tasks.lock().unwrap();
+        match tasks.get(&task_id) {
+            Some(t) if t.status != "running" => return Err("任务未在运行".into()),
+            Some(_) => {}
+            None => return Err("任务不存在".into()),
+        }
+    }
+    let base_url = crate::settings::get_comfyui_base_url(&app);
+    let client = reqwest::Client::new();
+    let url = format!("{}/interrupt", base_url);
+    let resp = client
+        .post(&url)
+        .json(&serde_json::json!({ "prompt_id": prompt_id }))
+        .send()
+        .await
+        .map_err(|e| format!("中断请求失败：{}", e))?;
+    let status = resp.status();
+    if status.is_success() {
+        Ok("已发送中断请求".to_string())
+    } else {
+        Err(format!("ComfyUI 中断请求失败 (HTTP {})", status))
+    }
 }
 
 fn find_staged_ext(staging: &std::path::Path, id: &str) -> Result<String, String> {

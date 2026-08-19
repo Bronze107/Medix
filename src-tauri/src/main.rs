@@ -13,8 +13,9 @@ mod tag;
 use tauri::Manager;
 
 use ai::imagine::queue::{
-    image_queue_discard, image_queue_dismiss, image_queue_import, image_queue_list,
-    image_queue_pending_count, image_queue_submit_edit, image_queue_submit_generate,
+    image_queue_cancel, image_queue_discard, image_queue_dismiss, image_queue_import,
+    image_queue_list, image_queue_pending_count, image_queue_submit_edit,
+    image_queue_submit_generate,
 };
 
 use commands::{
@@ -105,6 +106,7 @@ fn main() {
             image_queue_import,
             image_queue_discard,
             image_queue_dismiss,
+            image_queue_cancel,
             comfyui_workflow_list,
             comfyui_workflow_get,
             comfyui_workflow_create,

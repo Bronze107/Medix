@@ -7,6 +7,7 @@ import {
   imageQueueImport,
   imageQueueDiscard,
   imageQueueDismiss,
+  imageQueueCancel,
   comfyuiWorkflowList,
   comfyuiWorkflowGet,
   settingsGet,
@@ -25,12 +26,16 @@ function TaskCard({
   onDiscard,
   onDismiss,
   onPreview,
+  onCancel,
+  showCancel,
 }: {
   task: ImageTaskInfo;
   onImport: (taskId: string, selectedIds: string[]) => void;
   onDiscard: (taskId: string) => void;
   onDismiss: (taskId: string) => void;
   onPreview: (path: string) => void;
+  onCancel?: (taskId: string) => void;
+  showCancel?: boolean;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
@@ -75,7 +80,30 @@ function TaskCard({
           )}
           {sc.label}
         </span>
+        {task.status === "running" && showCancel && onCancel && (
+          <button
+            onClick={() => onCancel(task.task_id)}
+            className="shrink-0 rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-2 py-0.5 text-[11px] text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)]/80 transition-colors active:scale-[0.97]"
+          >
+            取消
+          </button>
+        )}
       </div>
+
+      {/* Progress bar */}
+      {isRunning && task.progress && task.progress.max > 0 && (
+        <div className="mb-2 h-1 w-full overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
+          <div
+            className="h-full bg-[var(--color-accent)] transition-all duration-200"
+            style={{
+              width: `${Math.min(
+                100,
+                Math.round((task.progress.value / task.progress.max) * 100),
+              )}%`,
+            }}
+          />
+        </div>
+      )}
 
       {/* Done: results grid */}
       {task.status === "done" && task.staged.length > 0 && (
@@ -228,21 +256,42 @@ function AiGenPage() {
 
   useEffect(() => {
     loadTasks();
-    const unlisten = listen("image-queue-updated", () => {
+    const unlistenUpdated = listen("image-queue-updated", () => {
       loadTasks();
     });
+    const unlistenProgress = listen<{ task_id: string; value: number; max: number }>(
+      "image-queue-progress",
+      (e) => {
+        const { task_id, value, max } = e.payload;
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.task_id === task_id ? { ...t, progress: { value, max } } : t,
+          ),
+        );
+      },
+    );
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenUpdated.then((fn) => fn());
+      unlistenProgress.then((fn) => fn());
     };
   }, [loadTasks]);
 
   const isComfy = provider === "comfyui";
   const comfyReady = !isComfy || (isComfy && selectedWorkflowId && !providerLoading);
+  const comfyPrompt = (() => {
+    const p = workflowParams.find(
+      (x) => x.field_type === "multiline" || x.field_type === "text",
+    );
+    return p ? workflowValues[p.param_name] ?? p.default_value ?? "" : "";
+  })();
 
   const handleSubmit = async () => {
-    const finalPrompt = isComfy ? (workflowValues.prompt || prompt.trim()) : prompt.trim();
-    if (!finalPrompt) return;
-    if (isComfy && !selectedWorkflowId) return;
+    const finalPrompt = isComfy ? comfyPrompt : prompt.trim();
+    if (isComfy) {
+      if (!selectedWorkflowId) return;
+    } else {
+      if (!finalPrompt) return;
+    }
     setSubmitting(true);
     try {
       await imageQueueSubmitGenerate(
@@ -280,6 +329,15 @@ function AiGenPage() {
   const handleDismiss = async (taskId: string) => {
     await imageQueueDismiss(taskId);
     await loadTasks();
+  };
+
+  const handleCancel = async (taskId: string) => {
+    try {
+      await imageQueueCancel(taskId);
+      await loadTasks();
+    } catch (e) {
+      console.error("Cancel failed:", e);
+    }
   };
 
   const hasActive = tasks.some(
@@ -349,7 +407,7 @@ function AiGenPage() {
                   onWorkflowChange={setSelectedWorkflowId}
                   loading={workflowParamsLoading}
                   error={workflowParamsError}
-                  emptyMessage={'暂无文生图工作流。请先到 <strong>设置 → ComfyUI 配置</strong> 中保存一个 workflow JSON（类型选"文生图"）。'}
+                  emptyMessage={'暂无文生图工作流。请在 ComfyUI 中搭建 <strong>App 模式</strong>工作流（含 extra.linearData），再到 <strong>设置 → ComfyUI 配置</strong> 中粘贴保存。'}
                 />
                 {workflowParams.length > 0 && !workflowParamsLoading && !workflowParamsError && (
                   <ComfyUIWorkflowParams
@@ -434,6 +492,8 @@ function AiGenPage() {
                     onDiscard={handleDiscard}
                     onDismiss={handleDismiss}
                     onPreview={setPreview}
+                    onCancel={handleCancel}
+                    showCancel={isComfy}
                   />
                 ))}
               </div>

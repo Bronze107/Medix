@@ -186,9 +186,12 @@ fn download_and_import(
     let dest_path = library_dir.join(format!("{}.{}", id, ext));
     fs::copy(&tmp_path, &dest_path).map_err(|e| e.to_string())?;
 
+    // source_path 必须是本地文件路径（供本地读图/编辑），原始 URL 存到 source_url。
+    let dest_path_str = dest_path.to_string_lossy().replace('\\', "/");
+
     let media = crate::media::Media {
         id: id.clone(),
-        source_path: Some(req.url.clone()),
+        source_path: Some(dest_path_str.clone()),
         width: Some(width),
         height: Some(height),
         file_size: Some(file_size),
