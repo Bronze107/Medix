@@ -31,6 +31,8 @@ pub struct WorkflowParam {
     pub options: Vec<String>,
     /// STRING 多行输入。
     pub multiline: bool,
+    /// linearData 声明的参数描述（前端表单提示文案）。
+    pub description: Option<String>,
 }
 
 pub fn comfyui_workflow_list(

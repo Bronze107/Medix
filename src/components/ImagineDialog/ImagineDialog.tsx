@@ -188,6 +188,7 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
                         params={workflowParams}
                         values={workflowValues}
                         setValues={setWorkflowValues}
+                        mode="edit"
                       />
                     )}
                   </>

@@ -414,6 +414,7 @@ function AiGenPage() {
                     params={workflowParams}
                     values={workflowValues}
                     setValues={setWorkflowValues}
+                    mode="generate"
                   />
                 )}
               </>

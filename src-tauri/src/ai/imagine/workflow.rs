@@ -15,16 +15,14 @@ impl WorkflowManager {
     // --- 参数解析 ---
 
     fn linear_data_inputs(root: &Value) -> Result<&Vec<Value>, String> {
-        let inputs = root["extra"]["linearData"]["inputs"]
+        // 允许 inputs 为空：零参数工作流按工作流保存的默认值整体运行。
+        root["extra"]["linearData"]["inputs"]
             .as_array()
-            .ok_or(
+            .ok_or_else(|| {
                 "该工作流不是 App 模式工作流：缺少 extra.linearData.inputs。\
-                 请在 ComfyUI 中用 App 模式配置好暴露参数后，导出画布保存的标准 workflow JSON。",
-            )?;
-        if inputs.is_empty() {
-            return Err("App 模式工作流未暴露任何参数（extra.linearData.inputs 为空）".into());
-        }
-        Ok(inputs)
+                 请在 ComfyUI 中用 App 模式配置好暴露参数后，导出画布保存的标准 workflow JSON。"
+                    .to_string()
+            })
     }
 
     /// 解析 `extra.linearData.inputs`，返回暴露的参数列表。
@@ -57,11 +55,16 @@ impl WorkflowManager {
                 return Err(format!("重复的暴露参数：{}", param_name));
             }
 
+            // linearData 元组: [widgetId, displayName, config?]。widgetId 含冒号时
+            // 第二元素是显示名（App Builder 中可重命名），第三元素携带 description。
+            let display_name = Self::display_name(entry, &widget_name);
+            let description = Self::entry_description(entry);
+
             params.push(WorkflowParam {
                 node_id: node_id.clone(),
                 widget_name: widget_name.clone(),
                 param_name,
-                label: widget_name.clone(),
+                label: display_name,
                 default_value,
                 field_type: Self::infer_field_type(node, &widget_name),
                 order_index: i,
@@ -70,9 +73,39 @@ impl WorkflowManager {
                 step: None,
                 options: Vec::new(),
                 multiline: false,
+                description,
             });
         }
         Ok(params)
+    }
+
+    /// 读取 linearData 元组第二元素作为显示名。widgetId 不含冒号时（旧格式裸
+    /// 节点 ID），第二元素是 widget 名而非显示名，回退到 widget 名。
+    fn display_name(entry: &Value, widget_name: &str) -> String {
+        let id_has_colon = entry
+            .get(0)
+            .and_then(|v| v.as_str())
+            .map(|s| s.contains(':'))
+            .unwrap_or(false);
+        if !id_has_colon {
+            return widget_name.to_string();
+        }
+        entry
+            .get(1)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(widget_name)
+            .to_string()
+    }
+
+    /// 读取 linearData 元组第三元素 config.description。
+    fn entry_description(entry: &Value) -> Option<String> {
+        entry
+            .get(2)
+            .and_then(|c| c.get("description"))
+            .and_then(|d| d.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from)
     }
 
     /// 读取 `extra.linearData.outputs` 作为结果节点 ID 列表。
@@ -438,6 +471,9 @@ impl WorkflowManager {
                     .ok()
                     .map(Value::from)
                     .unwrap_or_else(|| Value::String(v.clone()))
+            } else if p.field_type == "boolean" {
+                // 必须以 JSON 布尔提交；字符串 "false" 会被 ComfyUI 的 bool("false") 判为 True。
+                Value::Bool(v == "true")
             } else {
                 Value::String(v.clone())
             };
@@ -852,7 +888,7 @@ mod tests {
                 field_type: "multiline".into(),
                 order_index: 0,
                 min: None, max: None, step: None,
-                options: vec![], multiline: true,
+                options: vec![], multiline: true, description: None,
             },
             WorkflowParam {
                 node_id: "8".into(),
@@ -863,7 +899,7 @@ mod tests {
                 field_type: "seed".into(),
                 order_index: 1,
                 min: None, max: None, step: None,
-                options: vec![], multiline: false,
+                options: vec![], multiline: false, description: None,
             },
             WorkflowParam {
                 node_id: "8".into(),
@@ -874,7 +910,7 @@ mod tests {
                 field_type: "number".into(),
                 order_index: 2,
                 min: None, max: None, step: None,
-                options: vec![], multiline: false,
+                options: vec![], multiline: false, description: None,
             },
         ];
         let mut values = HashMap::new();
@@ -898,6 +934,7 @@ mod tests {
             node_id: "6".into(), widget_name: "text".into(), param_name: "6:text".into(),
             label: "text".into(), default_value: "".into(), field_type: "text".into(),
             order_index: 0, min: None, max: None, step: None, options: vec![], multiline: false,
+            description: None,
         }];
         let mut values = HashMap::new();
         values.insert("9:other".to_string(), "x".to_string()); // 不在 params 中
@@ -924,11 +961,64 @@ mod tests {
             step: None,
             options: vec![],
             multiline: false,
+            description: None,
         }];
         let mut values = HashMap::new();
         values.insert("28:image".to_string(), "saved_default.png".to_string());
         WorkflowManager::inject(&mut api, &values, &params);
         assert_eq!(api["28"]["inputs"]["image"], "uploaded_xxx.png");
+    }
+
+    #[test]
+    fn test_inject_boolean() {
+        let mut api = serde_json::json!({
+            "5": {"class_type": "BooleanNode", "inputs": {"bool_value": true}}
+        });
+        let params = vec![WorkflowParam {
+            node_id: "5".into(),
+            widget_name: "bool_value".into(),
+            param_name: "5:bool_value".into(),
+            label: "bool_value".into(),
+            default_value: "true".into(),
+            field_type: "boolean".into(),
+            order_index: 0,
+            min: None,
+            max: None,
+            step: None,
+            options: vec![],
+            multiline: false,
+            description: None,
+        }];
+        let mut values = HashMap::new();
+        // 关闭 → 必须提交 JSON false，否则 ComfyUI 的 bool("false") 会判为 True。
+        values.insert("5:bool_value".to_string(), "false".to_string());
+        WorkflowManager::inject(&mut api, &values, &params);
+        assert_eq!(api["5"]["inputs"]["bool_value"], serde_json::json!(false));
+
+        values.insert("5:bool_value".to_string(), "true".to_string());
+        WorkflowManager::inject(&mut api, &values, &params);
+        assert_eq!(api["5"]["inputs"]["bool_value"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn test_parse_params_display_name_and_description() {
+        let json = r#"{"nodes":[
+            {"id":26,"type":"PrimitiveString","inputs":[],"widgets_values":[""],"widgets_values_named":{"value":""}}
+        ],"links":[],"extra":{"linearData":{"inputs":[["2dd1d505-7bae-42ea-b543-a0331c28beda:26:value","正向提示词",{"height":3,"description":"写在这里的提示词"}]]}}}"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].label, "正向提示词");
+        assert_eq!(params[0].description.as_deref(), Some("写在这里的提示词"));
+    }
+
+    #[test]
+    fn test_parse_params_empty_inputs() {
+        // 零参数工作流允许保存与运行（按工作流默认值整体执行）。
+        let json = r#"{"nodes":[
+            {"id":2,"type":"KSampler","inputs":[],"widgets_values":[]}
+        ],"links":[],"extra":{"linearData":{"inputs":[],"outputs":["2"]}}}"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        assert!(params.is_empty());
     }
 
     // --- enrich_params ---

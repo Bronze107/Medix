@@ -55,6 +55,8 @@ interface DynamicFieldProps {
   param: WorkflowParam;
   values: Record<string, string>;
   setValues: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+  /** 生图或编辑模式，决定 image_selector 字段的提示文案 */
+  mode: "generate" | "edit";
 }
 
 function ControlShell({ param, children }: { param: WorkflowParam; children: React.ReactNode }) {
@@ -71,7 +73,7 @@ function ControlShell({ param, children }: { param: WorkflowParam; children: Rea
   );
 }
 
-export function ComfyUIDynamicField({ param, values, setValues }: DynamicFieldProps) {
+export function ComfyUIDynamicField({ param, values, setValues, mode }: DynamicFieldProps) {
   const raw = values[param.param_name] ?? param.default_value ?? "";
 
   switch (param.field_type) {
@@ -97,7 +99,15 @@ export function ComfyUIDynamicField({ param, values, setValues }: DynamicFieldPr
               className="flex-1 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
             />
             <button
-              onClick={() => setValues((v) => ({ ...v, [param.param_name]: "-1" }))}
+              onClick={() =>
+                setValues((v) => ({
+                  ...v,
+                  // 生成随机非负种子；"-1" 会被 ComfyUI 的 seed min=0 校验拒绝
+                  [param.param_name]: String(
+                    Math.floor(Math.random() * Number.MAX_SAFE_INTEGER),
+                  ),
+                }))
+              }
               className="shrink-0 rounded border border-[var(--color-border-light)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-hover)] active:scale-[0.97]"
             >
               🎲
@@ -192,7 +202,9 @@ export function ComfyUIDynamicField({ param, values, setValues }: DynamicFieldPr
       return (
         <ControlShell param={param}>
           <div className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-xs text-[var(--color-text-muted)]">
-            当前选中的图片（自动绑定原图）
+            {mode === "edit"
+              ? "编辑时自动绑定所选原图"
+              : "生图时使用工作流默认图"}
           </div>
         </ControlShell>
       );
@@ -214,15 +226,23 @@ export function ComfyUIWorkflowParams({
   params,
   values,
   setValues,
+  mode,
 }: {
   params: WorkflowParam[];
   values: Record<string, string>;
   setValues: (fn: (prev: Record<string, string>) => Record<string, string>) => void;
+  mode: "generate" | "edit";
 }) {
   return (
     <>
       {params.map((p) => (
-        <ComfyUIDynamicField key={p.param_name} param={p} values={values} setValues={setValues} />
+        <ComfyUIDynamicField
+          key={p.param_name}
+          param={p}
+          values={values}
+          setValues={setValues}
+          mode={mode}
+        />
       ))}
     </>
   );
