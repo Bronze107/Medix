@@ -24,36 +24,36 @@ pub fn execute_search(
     let parsed = parser::parse(query);
 
     // Step 1: Semantic search
-    let semantic_map: Option<HashMap<String, f64>> =
-        query_embedding
-            .as_ref()
-            .and_then(|vec| match semantic::semantic_search_by_vector(vec, app, 500, min_score) {
-                Ok(results) => {
-                    let mut map: HashMap<String, f64> = HashMap::new();
-                    for r in results {
-                        let entry = map.entry(r.media_id).or_insert(0.0);
-                        *entry = (*entry).max(r.score);
-                    }
-                    Some(map)
+    let semantic_map: Option<HashMap<String, f64>> = query_embedding.as_ref().and_then(|vec| {
+        match semantic::semantic_search_by_vector(vec, app, 500, min_score) {
+            Ok(results) => {
+                let mut map: HashMap<String, f64> = HashMap::new();
+                for r in results {
+                    let entry = map.entry(r.media_id).or_insert(0.0);
+                    *entry = (*entry).max(r.score);
                 }
-                Err(e) => {
-                    eprintln!("[search] semantic search failed: {}", e);
-                    None
-                }
-            });
+                Some(map)
+            }
+            Err(e) => {
+                eprintln!("[search] semantic search failed: {}", e);
+                None
+            }
+        }
+    });
 
     // Step 1b: FTS5 full-text search (runs alongside semantic, results merged)
     let fts_ids: Option<HashSet<String>> = if crate::settings::is_fts5_search_enabled(app) {
-        parsed.semantic_text.as_ref().and_then(|text| {
-            match crate::db::fts_search(app, text, 500) {
+        parsed
+            .semantic_text
+            .as_ref()
+            .and_then(|text| match crate::db::fts_search(app, text, 500) {
                 Ok(ids) if !ids.is_empty() => Some(ids.into_iter().collect()),
                 Ok(_) => None,
                 Err(e) => {
                     eprintln!("[search] fts5 search failed: {}", e);
                     None
                 }
-            }
-        })
+            })
     } else {
         None
     };
@@ -108,7 +108,8 @@ pub fn execute_search(
         && parsed.file_size.is_none()
         && parsed.media_type.is_none()
     {
-        return crate::db::list_media(app, sort_by, descending, 0, u32::MAX).map_err(|e| e.to_string());
+        return crate::db::list_media(app, sort_by, descending, 0, u32::MAX)
+            .map_err(|e| e.to_string());
     }
 
     // Step 5: Apply metadata filters via SQL
@@ -129,8 +130,7 @@ pub fn execute_search(
         results.sort_by(|a, b| {
             let sa = sem_map.get(&a.id).copied().unwrap_or(0.0);
             let sb = sem_map.get(&b.id).copied().unwrap_or(0.0);
-            sb.partial_cmp(&sa)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
         });
     }
 
@@ -160,8 +160,10 @@ pub fn execute_search_path(
                 TagMatchMode::All => TagSearchMode::Intersection,
                 TagMatchMode::Any => TagSearchMode::Union,
             };
-            crate::db::media_search_by_tags_path(db_path, &tg.tags, sort_by, descending, mode, fuzzy_tags)
-                .map(|list| list.into_iter().map(|m| m.id).collect())
+            crate::db::media_search_by_tags_path(
+                db_path, &tg.tags, sort_by, descending, mode, fuzzy_tags,
+            )
+            .map(|list| list.into_iter().map(|m| m.id).collect())
         })
         .transpose()
         .map_err(|e| e.to_string())?;

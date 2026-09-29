@@ -1,17 +1,19 @@
 use tauri::{command, AppHandle, Emitter, Manager};
 
 use crate::db;
-use rusqlite::params;
 use crate::media::{import, Media, MediaImportResult};
+use rusqlite::params;
 
 #[command]
 pub async fn media_import(
     app: AppHandle,
     paths: Vec<String>,
 ) -> Result<Vec<MediaImportResult>, String> {
-    tokio::task::spawn_blocking(move || import::import_files(&app, paths).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        import::import_files(&app, paths).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[command]
@@ -38,7 +40,8 @@ pub async fn media_search(
 
     // Quick path: empty query returns all (paginated)
     if trimmed.is_empty() {
-        return db::list_media(&app, &sort_by, descending, offset, limit).map_err(|e| e.to_string());
+        return db::list_media(&app, &sort_by, descending, offset, limit)
+            .map_err(|e| e.to_string());
     }
 
     // Parse query to check if semantic search is needed
@@ -138,10 +141,7 @@ pub struct MediaPaths {
 
 #[command]
 pub fn media_get_paths(app: AppHandle, id: String) -> Result<MediaPaths, String> {
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
     let original = {
         let library_dir = app_dir.join("library");
@@ -187,10 +187,7 @@ pub fn media_get_paths(app: AppHandle, id: String) -> Result<MediaPaths, String>
 
 #[command]
 pub fn media_ai_annotate(app: AppHandle, id: String) -> Result<(), String> {
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
     // Find original file in library
     let library_dir = app_dir.join("library");

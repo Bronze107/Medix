@@ -122,8 +122,8 @@ pub fn media_import_derivative(
 
     // Decode for dimensions
     let data = fs::read(&dest).map_err(|e| e.to_string())?;
-    let img = image::load_from_memory(&data)
-        .map_err(|e| format!("Failed to decode image: {}", e))?;
+    let img =
+        image::load_from_memory(&data).map_err(|e| format!("Failed to decode image: {}", e))?;
     let (width, height) = (img.width() as i32, img.height() as i32);
 
     let dest_str = dest.to_string_lossy().replace('\\', "/");
@@ -154,8 +154,7 @@ pub fn media_import_derivative(
     };
 
     db::insert_media(&app, &media).map_err(|e| e.to_string())?;
-    db::lineage_insert(&app, &source_media_id, &id, "import", None)
-        .map_err(|e| e.to_string())?;
+    db::lineage_insert(&app, &source_media_id, &id, "import", None).map_err(|e| e.to_string())?;
 
     // Generate thumbnail
     if let Err(e) = media::thumbnail::generate_thumbnails(&app, &id, &dest) {

@@ -5,9 +5,7 @@ use crate::ai::server::LlamaServerStatus;
 use crate::models;
 
 #[command]
-pub async fn llama_server_status(
-    app: AppHandle,
-) -> LlamaServerStatus {
+pub async fn llama_server_status(app: AppHandle) -> LlamaServerStatus {
     let server = app.state::<crate::ai::LlamaServer>();
     let port = crate::settings::get_llama_port(&app);
     server.status(port)
@@ -25,7 +23,9 @@ pub async fn llama_server_start(app: AppHandle) -> Result<(), String> {
     let gpu = crate::settings::get_llama_gpu_layers(&app);
     let cache_k = crate::settings::get_llama_cache_type_k(&app);
     let cache_v = crate::settings::get_llama_cache_type_v(&app);
-    server.start(&bin, &model, &mmproj, port, ctx, threads, gpu, &cache_k, &cache_v)?;
+    server.start(
+        &bin, &model, &mmproj, port, ctx, threads, gpu, &cache_k, &cache_v,
+    )?;
     server.wait_until_ready(port).await
 }
 
@@ -46,7 +46,10 @@ pub fn auto_detect(app: AppHandle) -> models::AutoDetect {
 }
 
 #[command]
-pub fn embedding_info(app: AppHandle, media_id: String) -> Result<Vec<crate::db::EmbeddingInfo>, String> {
+pub fn embedding_info(
+    app: AppHandle,
+    media_id: String,
+) -> Result<Vec<crate::db::EmbeddingInfo>, String> {
     crate::db::embedding_info_list(&app, &media_id).map_err(|e| e.to_string())
 }
 
@@ -89,11 +92,14 @@ pub async fn embedding_rebuild_all(app: AppHandle) -> Result<String, String> {
 
     let emb_port = crate::settings::get_embedding_port(&app);
     let emb_server = app.state::<crate::ai::EmbeddingServer>();
-    emb_server.ensure_running(&app).await.map_err(|e| format!("embedding 服务器启动失败: {}", e))?;
+    emb_server
+        .ensure_running(&app)
+        .await
+        .map_err(|e| format!("embedding 服务器启动失败: {}", e))?;
 
     // Get all active media (not deleted, non-variant)
-    let all_media = crate::db::list_media(&app, "created_at", true, 0, u32::MAX)
-        .map_err(|e| e.to_string())?;
+    let all_media =
+        crate::db::list_media(&app, "created_at", true, 0, u32::MAX).map_err(|e| e.to_string())?;
     let total = all_media.len();
 
     let model_short = std::path::Path::new(&emb_model)
@@ -116,23 +122,36 @@ pub async fn embedding_rebuild_all(app: AppHandle) -> Result<String, String> {
 
         match crate::ai::llamacpp::embed_text(&caption, &emb_model, emb_port).await {
             Ok(vector) => {
-                if let Err(e) = crate::db::embedding_insert(
-                    &app, &media.id, &model_short, "caption", &vector,
-                ) {
-                    eprintln!("[embedding-rebuild] failed to store caption embedding for {}: {}", media.id, e);
+                if let Err(e) =
+                    crate::db::embedding_insert(&app, &media.id, &model_short, "caption", &vector)
+                {
+                    eprintln!(
+                        "[embedding-rebuild] failed to store caption embedding for {}: {}",
+                        media.id, e
+                    );
                 } else {
-                    println!("[embedding-rebuild] embedding stored for {} ({}d)", media.id, vector.len());
+                    println!(
+                        "[embedding-rebuild] embedding stored for {} ({}d)",
+                        media.id,
+                        vector.len()
+                    );
                 }
             }
             Err(e) => {
-                eprintln!("[embedding-rebuild] embedding failed for {}: {}", media.id, e);
+                eprintln!(
+                    "[embedding-rebuild] embedding failed for {}: {}",
+                    media.id, e
+                );
             }
         }
 
-        let _ = app.emit("embedding-rebuild-progress", EmbeddingRebuildProgress {
-            current: i + 1,
-            total,
-        });
+        let _ = app.emit(
+            "embedding-rebuild-progress",
+            EmbeddingRebuildProgress {
+                current: i + 1,
+                total,
+            },
+        );
     }
 
     Ok(format!("重建完成，共 {} 条", total))

@@ -22,7 +22,10 @@ pub fn media_thumbnail(app: AppHandle, id: String) -> Result<String, String> {
 
 /// Batch thumbnail resolution — single IPC + single DB query instead of N.
 #[command]
-pub fn media_thumbnail_batch(app: AppHandle, ids: Vec<String>) -> Result<Vec<ThumbnailResult>, String> {
+pub fn media_thumbnail_batch(
+    app: AppHandle,
+    ids: Vec<String>,
+) -> Result<Vec<ThumbnailResult>, String> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }

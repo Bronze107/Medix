@@ -5,7 +5,7 @@ pub struct ParsedQuery {
     pub date_range: Option<DateRange>,
     pub file_size: Option<SizeFilter>,
     pub semantic_text: Option<String>,
-    pub media_type: Option<String>,  // "image" or "video"
+    pub media_type: Option<String>, // "image" or "video"
 }
 
 #[derive(Debug)]
@@ -214,7 +214,9 @@ fn split_tag_words(content: &str) -> (Vec<String>, Vec<String>) {
             if !word.is_empty() {
                 tags.push(word);
             }
-            if i < chars.len() { i += 1; } // skip closing quote
+            if i < chars.len() {
+                i += 1;
+            } // skip closing quote
             continue;
         }
 

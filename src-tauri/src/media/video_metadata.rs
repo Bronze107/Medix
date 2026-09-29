@@ -15,7 +15,9 @@ pub fn find_ffmpeg() -> PathBuf {
         if let Some(exe_dir) = exe_path.parent() {
             for name in names {
                 let p = exe_dir.join(name);
-                if is_valid_binary(&p) { return p; }
+                if is_valid_binary(&p) {
+                    return p;
+                }
             }
             // In dev mode, walk up from target/debug/ to find binaries/
             let mut search = exe_dir.to_path_buf();
@@ -25,7 +27,9 @@ pub fn find_ffmpeg() -> PathBuf {
                 }
                 for name in names {
                     let p = search.join("binaries").join(name);
-                    if is_valid_binary(&p) { return p; }
+                    if is_valid_binary(&p) {
+                        return p;
+                    }
                 }
             }
         }
@@ -38,7 +42,10 @@ pub fn find_ffmpeg() -> PathBuf {
 
 /// Check that a binary file is valid (exists and is larger than 1MB — skip empty placeholders).
 fn is_valid_binary(path: &Path) -> bool {
-    path.exists() && std::fs::metadata(path).map(|m| m.len() > 1024 * 1024).unwrap_or(false)
+    path.exists()
+        && std::fs::metadata(path)
+            .map(|m| m.len() > 1024 * 1024)
+            .unwrap_or(false)
 }
 
 /// Resolve ffprobe executable path.
@@ -53,7 +60,9 @@ fn find_ffprobe() -> PathBuf {
         if let Some(exe_dir) = exe_path.parent() {
             for name in names {
                 let p = exe_dir.join(name);
-                if is_valid_binary(&p) { return p; }
+                if is_valid_binary(&p) {
+                    return p;
+                }
             }
             let mut search = exe_dir.to_path_buf();
             for _ in 0..4 {
@@ -62,7 +71,9 @@ fn find_ffprobe() -> PathBuf {
                 }
                 for name in names {
                     let p = search.join("binaries").join(name);
-                    if is_valid_binary(&p) { return p; }
+                    if is_valid_binary(&p) {
+                        return p;
+                    }
                 }
             }
         }
@@ -109,8 +120,10 @@ pub struct VideoMetadata {
 pub fn extract_metadata(input: &Path) -> Result<VideoMetadata, String> {
     let output = Command::new(find_ffprobe())
         .args([
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
         ])
@@ -129,7 +142,11 @@ pub fn extract_metadata(input: &Path) -> Result<VideoMetadata, String> {
     let video_stream = meta
         .streams
         .as_ref()
-        .and_then(|streams| streams.iter().find(|s| s.codec_type.as_deref() == Some("video")))
+        .and_then(|streams| {
+            streams
+                .iter()
+                .find(|s| s.codec_type.as_deref() == Some("video"))
+        })
         .ok_or("No video stream found in file")?;
 
     let width = video_stream.width.unwrap_or(0);
@@ -153,7 +170,12 @@ pub fn extract_metadata(input: &Path) -> Result<VideoMetadata, String> {
         .avg_frame_rate
         .as_ref()
         .and_then(|r| parse_fraction(r))
-        .or_else(|| video_stream.r_frame_rate.as_ref().and_then(|r| parse_fraction(r)));
+        .or_else(|| {
+            video_stream
+                .r_frame_rate
+                .as_ref()
+                .and_then(|r| parse_fraction(r))
+        });
 
     Ok(VideoMetadata {
         width,
@@ -167,11 +189,7 @@ pub fn extract_metadata(input: &Path) -> Result<VideoMetadata, String> {
 /// Quick check: does this file have a video stream?
 pub fn has_video_stream(input: &Path) -> Result<bool, String> {
     let output = Command::new(find_ffprobe())
-        .args([
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_streams",
-        ])
+        .args(["-v", "quiet", "-print_format", "json", "-show_streams"])
         .arg(input)
         .output()
         .map_err(|e| format!("ffprobe execution failed: {}", e))?;
@@ -228,16 +246,9 @@ pub fn extract_frames(
         ));
 
         let result = Command::new(find_ffmpeg())
-            .args([
-                "-ss", &format!("{:.3}", timestamp),
-                "-i",
-            ])
+            .args(["-ss", &format!("{:.3}", timestamp), "-i"])
             .arg(video_path)
-            .args([
-                "-frames:v", "1",
-                "-q:v", "2",
-                "-y",
-            ])
+            .args(["-frames:v", "1", "-q:v", "2", "-y"])
             .arg(&frame_path)
             .output();
 
@@ -249,7 +260,9 @@ pub fn extract_frames(
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 eprintln!(
                     "[video_ai] frame {}/{} at t={:.3}s failed: {}",
-                    i, n, timestamp,
+                    i,
+                    n,
+                    timestamp,
                     stderr.lines().last().unwrap_or("unknown error")
                 );
             }

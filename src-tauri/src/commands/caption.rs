@@ -51,7 +51,10 @@ async fn refresh_embedding(
     let emb_port = crate::settings::get_embedding_port(app);
     let emb_server = app.state::<crate::ai::EmbeddingServer>();
     if let Err(e) = emb_server.ensure_running(app).await {
-        eprintln!("[caption] embedding server failed to start, skipping auto-embed for {}: {}", media_id, e);
+        eprintln!(
+            "[caption] embedding server failed to start, skipping auto-embed for {}: {}",
+            media_id, e
+        );
         return;
     }
 
@@ -74,7 +77,10 @@ async fn refresh_embedding(
                 Some(t) if !t.trim().is_empty() => t,
                 _ => {
                     let _ = db::embedding_delete_for_media(app, media_id);
-                    eprintln!("[caption] no caption to embed for {}, deleted stale embedding", media_id);
+                    eprintln!(
+                        "[caption] no caption to embed for {}, deleted stale embedding",
+                        media_id
+                    );
                     return;
                 }
             }
@@ -93,14 +99,24 @@ async fn refresh_embedding(
             // while we were waiting.
             if let Some((key, gen)) = scope_gen {
                 if !is_latest_generation(key, *gen) {
-                    eprintln!("[caption] superseded after embed, discarding for {}", media_id);
+                    eprintln!(
+                        "[caption] superseded after embed, discarding for {}",
+                        media_id
+                    );
                     return;
                 }
             }
             if let Err(e) = db::embedding_insert(app, media_id, &model_short, "caption", &vector) {
-                eprintln!("[caption] failed to store caption embedding for {}: {}", media_id, e);
+                eprintln!(
+                    "[caption] failed to store caption embedding for {}: {}",
+                    media_id, e
+                );
             } else {
-                println!("[caption] embedding stored for {} ({}d)", media_id, vector.len());
+                println!(
+                    "[caption] embedding stored for {} ({}d)",
+                    media_id,
+                    vector.len()
+                );
             }
         }
         Err(e) => {
@@ -119,11 +135,7 @@ fn is_latest_caption(list: &[Caption], caption_id: &str) -> bool {
 /// Spawn a refresh_embedding call in the background, deduplicated by scope.
 /// If another task for the same media_id is already in flight,
 /// the new generation counter will cause the older task to skip its HTTP call.
-fn spawn_embed(
-    app: &AppHandle,
-    media_id: &str,
-    known_text: Option<&str>,
-) {
+fn spawn_embed(app: &AppHandle, media_id: &str, known_text: Option<&str>) {
     let gen = next_generation(media_id);
     let app_h = app.clone();
     let mid = media_id.to_string();
@@ -135,7 +147,8 @@ fn spawn_embed(
             &mid,
             txt.as_deref(),
             Some(&(key_ref.clone(), gen.1)),
-        ).await;
+        )
+        .await;
     });
 }
 
@@ -147,7 +160,11 @@ pub fn caption_list(app: AppHandle, media_id: String) -> Result<Vec<Caption>, St
 }
 
 #[command]
-pub async fn caption_create(app: AppHandle, media_id: String, text: String) -> Result<Caption, String> {
+pub async fn caption_create(
+    app: AppHandle,
+    media_id: String,
+    text: String,
+) -> Result<Caption, String> {
     let caption = db::caption_create(&app, &media_id, &text).map_err(|e| e.to_string())?;
     spawn_embed(&app, &media_id, Some(&text));
     Ok(caption)
@@ -201,7 +218,8 @@ pub async fn caption_create_batch(
         let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let db_path = app_data.join("medix.db");
         let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
-        conn.execute("BEGIN TRANSACTION", []).map_err(|e| e.to_string())?;
+        conn.execute("BEGIN TRANSACTION", [])
+            .map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare("INSERT INTO captions (id, media_id, text, source) VALUES (?1, ?2, ?3, ?4)")
             .map_err(|e| e.to_string())?;
@@ -252,7 +270,10 @@ async fn embed_batch(app: &AppHandle, media_ids: &[String], text: &str) {
     let emb_port = crate::settings::get_embedding_port(app);
     let emb_server = app.state::<crate::ai::EmbeddingServer>();
     if let Err(e) = emb_server.ensure_running(app).await {
-        eprintln!("[caption] embedding server failed to start, skipping batch embed: {}", e);
+        eprintln!(
+            "[caption] embedding server failed to start, skipping batch embed: {}",
+            e
+        );
         return;
     }
 

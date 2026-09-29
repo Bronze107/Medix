@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -31,10 +31,7 @@ pub fn is_ai_source(source: Option<&str>) -> bool {
 }
 
 fn find_media_file(app: &AppHandle, media_id: &str) -> Result<PathBuf, String> {
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let library_dir = app_dir.join("library");
     for entry in fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -61,10 +58,7 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
 
     // For ZIP mode, stage files in a temp dir under app data, then zip to user-specified path
     let (work_dir, final_zip_path) = if options.use_zip {
-        let app_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| e.to_string())?;
+        let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let tmp_dir = app_dir.join("tmp_export");
         // Clean up any previous temp dir
         let _ = fs::remove_dir_all(&tmp_dir);
@@ -97,8 +91,7 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
             .ok_or_else(|| format!("media not found: {}", media_id))?;
 
         // Get captions
-        let all_captions =
-            crate::db::caption_list(app, media_id).map_err(|e| e.to_string())?;
+        let all_captions = crate::db::caption_list(app, media_id).map_err(|e| e.to_string())?;
         let captions: Vec<_> = match options.caption_mode.as_str() {
             "manual" => all_captions
                 .iter()
@@ -128,39 +121,72 @@ pub fn run_export(app: &AppHandle, options: &ExportOptions) -> Result<String, St
             .unwrap_or(media_id);
 
         // Helper: write .txt + .json for one exported item
-        let write_meta = |stem: &str, item_caps: &[&crate::captions::Caption],
-                          item_tags: &[String], item_w: Option<i32>, item_h: Option<i32>,
+        let write_meta = |stem: &str,
+                          item_caps: &[&crate::captions::Caption],
+                          item_tags: &[String],
+                          item_w: Option<i32>,
+                          item_h: Option<i32>,
                           item_fn: &str|
          -> Result<(), String> {
             if !item_caps.is_empty() {
                 let tp = output_dir.join(format!("{}.txt", stem));
-                let tc = item_caps.iter().map(|c| c.text.as_str())
-                    .collect::<Vec<_>>().join("\n---\n");
+                let tc = item_caps
+                    .iter()
+                    .map(|c| c.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n---\n");
                 fs::write(&tp, tc).map_err(|e| e.to_string())?;
             }
             if options.export_json {
                 let cj: serde_json::Value = if item_caps.len() == 1 {
                     serde_json::Value::String(item_caps[0].text.clone())
                 } else if item_caps.len() > 1 {
-                    serde_json::Value::Array(item_caps.iter()
-                        .map(|c| serde_json::Value::String(c.text.clone())).collect())
-                } else { serde_json::Value::Null };
-                let jd = JsonExport { filename: item_fn.to_string(), caption: cj,
-                    tags: item_tags.to_vec(), width: item_w, height: item_h };
+                    serde_json::Value::Array(
+                        item_caps
+                            .iter()
+                            .map(|c| serde_json::Value::String(c.text.clone()))
+                            .collect(),
+                    )
+                } else {
+                    serde_json::Value::Null
+                };
+                let jd = JsonExport {
+                    filename: item_fn.to_string(),
+                    caption: cj,
+                    tags: item_tags.to_vec(),
+                    width: item_w,
+                    height: item_h,
+                };
                 let jp = output_dir.join(format!("{}.json", stem));
-                fs::write(&jp, serde_json::to_string_pretty(&jd).map_err(|e| e.to_string())?)
-                    .map_err(|e| e.to_string())?;
+                fs::write(
+                    &jp,
+                    serde_json::to_string_pretty(&jd).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
             }
             Ok(())
         };
 
         // Copy original + write metadata
         if options.export_original {
-            let ext = source_file.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
+            let ext = source_file
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("jpg");
             let dest = output_dir.join(format!("{}.{}", base_name, ext));
             fs::copy(&source_file, &dest).map_err(|e| e.to_string())?;
-            let src_fn = source_file.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            write_meta(base_name, &captions.iter().copied().collect::<Vec<_>>(), &tag_names, media.width, media.height, src_fn)?;
+            let src_fn = source_file
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            write_meta(
+                base_name,
+                &captions.iter().copied().collect::<Vec<_>>(),
+                &tag_names,
+                media.width,
+                media.height,
+                src_fn,
+            )?;
         }
     }
 
@@ -273,12 +299,11 @@ pub fn import_zip(app: &AppHandle, zip_path: &str) -> Result<usize, String> {
             // Create caption
             let caption_text = match &meta.caption {
                 serde_json::Value::String(s) => s.clone(),
-                serde_json::Value::Array(arr) => {
-                    arr.iter()
-                        .filter_map(|v| v.as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                }
+                serde_json::Value::Array(arr) => arr
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 _ => continue,
             };
             if !caption_text.is_empty() {
@@ -290,13 +315,9 @@ pub fn import_zip(app: &AppHandle, zip_path: &str) -> Result<usize, String> {
                 let existing = crate::db::tag_list(app).ok();
                 let tag_id: Option<String> = existing
                     .as_ref()
-                    .and_then(|list| {
-                        list.iter().find(|t| t.name.eq_ignore_ascii_case(tag_name))
-                    })
+                    .and_then(|list| list.iter().find(|t| t.name.eq_ignore_ascii_case(tag_name)))
                     .map(|t| t.id.clone())
-                    .or_else(|| {
-                        crate::db::tag_create(app, &tag_name.to_lowercase()).ok()
-                    });
+                    .or_else(|| crate::db::tag_create(app, &tag_name.to_lowercase()).ok());
 
                 if let Some(tid) = tag_id {
                     let _ = crate::db::media_tag_add(app, &result.id, &tid);
@@ -315,9 +336,7 @@ fn collect_json_metadata(dir: &Path, out: &mut HashMap<String, JsonExport>) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file()
-                && path.extension().and_then(|e| e.to_str()) == Some("json")
-            {
+            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("json") {
                 let stem = path
                     .file_stem()
                     .and_then(|s| s.to_str())
@@ -339,7 +358,20 @@ fn collect_images(dir: &Path, out: &mut Vec<String>) {
             let path = entry.path();
             if path.is_file() {
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if matches!(ext.to_lowercase().as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp" | "mp4" | "webm" | "mkv" | "avi" | "mov") {
+                    if matches!(
+                        ext.to_lowercase().as_str(),
+                        "jpg"
+                            | "jpeg"
+                            | "png"
+                            | "webp"
+                            | "gif"
+                            | "bmp"
+                            | "mp4"
+                            | "webm"
+                            | "mkv"
+                            | "avi"
+                            | "mov"
+                    ) {
                         out.push(path.to_string_lossy().to_string());
                     }
                 }

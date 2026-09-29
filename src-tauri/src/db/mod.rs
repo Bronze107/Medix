@@ -26,13 +26,18 @@ pub fn init_pool(app: &AppHandle) -> DbPool {
 }
 
 pub fn db_path(app: &AppHandle) -> PathBuf {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .expect("Failed to get app data dir");
     fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
     app_dir.join("medix.db")
 }
 
 /// Get a pooled connection from the Tauri managed state.
-pub(crate) fn get_conn(app: &AppHandle) -> Result<r2d2::PooledConnection<SqliteConnectionManager>, String> {
+pub(crate) fn get_conn(
+    app: &AppHandle,
+) -> Result<r2d2::PooledConnection<SqliteConnectionManager>, String> {
     app.state::<DbPool>().get().map_err(|e| e.to_string())
 }
 
@@ -317,7 +322,7 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
     } else {
         // Ensure the migration entry exists so subsequent passes don't re-try
         conn.execute_batch(
-            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0013_variant_annotation');"
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0013_variant_annotation');",
         )?;
     }
 
@@ -409,7 +414,9 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                 let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
                 rows.filter_map(|r| r.ok()).collect()
             };
-            let mut sql = String::from("INSERT OR IGNORE INTO _migrations (name) VALUES ('0018_video_support');");
+            let mut sql = String::from(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0018_video_support');",
+            );
             if !columns.contains(&"media_type".to_string()) {
                 sql.push_str("ALTER TABLE media ADD COLUMN media_type TEXT DEFAULT 'image';");
             }
@@ -442,7 +449,9 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                 let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
                 rows.filter_map(|r| r.ok()).collect()
             };
-            let mut sql = String::from("INSERT OR IGNORE INTO _migrations (name) VALUES ('0019_video_variants');");
+            let mut sql = String::from(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0019_video_variants');",
+            );
             if !columns.contains(&"media_type".to_string()) {
                 sql.push_str("ALTER TABLE variants ADD COLUMN media_type TEXT DEFAULT 'image';");
             }
@@ -1251,11 +1260,16 @@ pub fn collection_list(app: &AppHandle) -> Result<Vec<Collection>, Box<dyn std::
         })
     })?;
     let mut results = Vec::new();
-    for r in rows { results.push(r?); }
+    for r in rows {
+        results.push(r?);
+    }
     Ok(results)
 }
 
-pub fn collection_get(app: &AppHandle, id: &str) -> Result<Option<Collection>, Box<dyn std::error::Error>> {
+pub fn collection_get(
+    app: &AppHandle,
+    id: &str,
+) -> Result<Option<Collection>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
         "SELECT c.id, c.name, c.description, c.pinned_at, c.created_at,
@@ -1274,13 +1288,23 @@ pub fn collection_get(app: &AppHandle, id: &str) -> Result<Option<Collection>, B
             item_count: row.get(5)?,
         })
     })?;
-    if let Some(r) = rows.next() { return Ok(Some(r?)); }
+    if let Some(r) = rows.next() {
+        return Ok(Some(r?));
+    }
     Ok(None)
 }
 
-pub fn collection_create(app: &AppHandle, name: &str, description: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub fn collection_create(
+    app: &AppHandle,
+    name: &str,
+    description: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     let id = ulid::Ulid::new().to_string();
-    let desc = if description.is_empty() { None } else { Some(description.to_string()) };
+    let desc = if description.is_empty() {
+        None
+    } else {
+        Some(description.to_string())
+    };
     let conn = get_conn(app)?;
     conn.execute(
         "INSERT INTO collections (id, name, description) VALUES (?1, ?2, ?3)",
@@ -1295,25 +1319,42 @@ pub fn collection_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
-pub fn collection_rename(app: &AppHandle, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn collection_rename(
+    app: &AppHandle,
+    id: &str,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    conn.execute("UPDATE collections SET name = ?2 WHERE id = ?1", params![id, name])?;
+    conn.execute(
+        "UPDATE collections SET name = ?2 WHERE id = ?1",
+        params![id, name],
+    )?;
     Ok(())
 }
 
 pub fn collection_pin(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    conn.execute("UPDATE collections SET pinned_at = datetime('now') WHERE id = ?1", params![id])?;
+    conn.execute(
+        "UPDATE collections SET pinned_at = datetime('now') WHERE id = ?1",
+        params![id],
+    )?;
     Ok(())
 }
 
 pub fn collection_unpin(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    conn.execute("UPDATE collections SET pinned_at = NULL WHERE id = ?1", params![id])?;
+    conn.execute(
+        "UPDATE collections SET pinned_at = NULL WHERE id = ?1",
+        params![id],
+    )?;
     Ok(())
 }
 
-pub fn collection_add_item(app: &AppHandle, collection_id: &str, media_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn collection_add_item(
+    app: &AppHandle,
+    collection_id: &str,
+    media_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     conn.execute(
         "INSERT OR IGNORE INTO collection_items (collection_id, media_id) VALUES (?1, ?2)",
@@ -1322,7 +1363,11 @@ pub fn collection_add_item(app: &AppHandle, collection_id: &str, media_id: &str)
     Ok(())
 }
 
-pub fn collection_add_batch(app: &AppHandle, collection_id: &str, media_ids: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+pub fn collection_add_batch(
+    app: &AppHandle,
+    collection_id: &str,
+    media_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     conn.execute("BEGIN TRANSACTION", [])?;
     let result = (|| {
@@ -1335,12 +1380,22 @@ pub fn collection_add_batch(app: &AppHandle, collection_id: &str, media_ids: &[S
         Ok(())
     })();
     match result {
-        Ok(()) => { conn.execute("COMMIT", [])?; Ok(()) }
-        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
+        Ok(()) => {
+            conn.execute("COMMIT", [])?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
     }
 }
 
-pub fn collection_remove_item(app: &AppHandle, collection_id: &str, media_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn collection_remove_item(
+    app: &AppHandle,
+    collection_id: &str,
+    media_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     conn.execute(
         "DELETE FROM collection_items WHERE collection_id = ?1 AND media_id = ?2",
@@ -1407,24 +1462,37 @@ pub fn media_list_by_collection(
         })
     })?;
     let mut results = Vec::new();
-    for r in rows { results.push(r?); }
+    for r in rows {
+        results.push(r?);
+    }
     Ok(results)
 }
 
-pub fn collection_get_item_ids(app: &AppHandle, collection_id: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+pub fn collection_get_item_ids(
+    app: &AppHandle,
+    collection_id: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
-    let mut stmt = conn.prepare("SELECT media_id FROM collection_items WHERE collection_id = ?1")?;
+    let mut stmt =
+        conn.prepare("SELECT media_id FROM collection_items WHERE collection_id = ?1")?;
     let rows = stmt.query_map(params![collection_id], |row| row.get::<_, String>(0))?;
     let mut results = Vec::new();
-    for r in rows { results.push(r?); }
+    for r in rows {
+        results.push(r?);
+    }
     Ok(results)
 }
 
-pub fn collection_first_media_id(app: &AppHandle, collection_id: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+pub fn collection_first_media_id(
+    app: &AppHandle,
+    collection_id: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare("SELECT media_id FROM collection_items WHERE collection_id = ?1 ORDER BY created_at LIMIT 1")?;
     let mut rows = stmt.query_map(params![collection_id], |row| row.get::<_, String>(0))?;
-    if let Some(r) = rows.next() { return Ok(Some(r?)); }
+    if let Some(r) = rows.next() {
+        return Ok(Some(r?));
+    }
     Ok(None)
 }
 
@@ -1499,7 +1567,9 @@ pub fn insert_media(app: &AppHandle, media: &Media) -> Result<(), Box<dyn std::e
 }
 
 pub(crate) fn resolve_thumb_paths(app: &AppHandle, media_list: &mut [Media]) {
-    let Ok(app_dir) = app.path().app_data_dir() else { return };
+    let Ok(app_dir) = app.path().app_data_dir() else {
+        return;
+    };
     let thumbs_dir = app_dir.join("thumbnails");
 
     // Always set the expected path — thumbnails are generated synchronously during import.
@@ -1798,7 +1868,8 @@ pub fn browse_query_filtered_path(
     param_refs.push(Box::new(limit as i64));
     param_refs.push(Box::new(offset as i64));
 
-    let param_slice: Vec<&dyn rusqlite::types::ToSql> = param_refs.iter().map(|p| p.as_ref()).collect();
+    let param_slice: Vec<&dyn rusqlite::types::ToSql> =
+        param_refs.iter().map(|p| p.as_ref()).collect();
     let rows = stmt.query_map(param_slice.as_slice(), |row| {
         Ok(BrowseItem {
             id: row.get(0)?,
@@ -1843,8 +1914,9 @@ pub fn browse_query_filtered(
     visibility: &BrowseVisibility,
 ) -> Result<Vec<BrowseItem>, Box<dyn std::error::Error>> {
     let path = db_path(app);
-    let mut results =
-        browse_query_filtered_path(&path, media_ids, sort_by, descending, offset, limit, visibility)?;
+    let mut results = browse_query_filtered_path(
+        &path, media_ids, sort_by, descending, offset, limit, visibility,
+    )?;
     resolve_browse_thumb_paths(app, &mut results);
     Ok(results)
 }
@@ -1872,7 +1944,11 @@ fn find_items_with_tags_inner(
     }
     let placeholders: Vec<String> = media_ids.iter().map(|_| "?".to_string()).collect();
     let name_condition: String = if fuzzy {
-        tag_names.iter().map(|_| "t.name LIKE ?").collect::<Vec<_>>().join(" OR ")
+        tag_names
+            .iter()
+            .map(|_| "t.name LIKE ?")
+            .collect::<Vec<_>>()
+            .join(" OR ")
     } else {
         let ph = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         format!("t.name IN ({})", ph)
@@ -1882,13 +1958,17 @@ fn find_items_with_tags_inner(
          FROM media_tags mt
          JOIN tags t ON mt.tag_id = t.id
          WHERE ({}) AND mt.media_id IN ({})",
-        name_condition, placeholders.join(",")
+        name_condition,
+        placeholders.join(",")
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
     for tn in tag_names {
-        if fuzzy { params.push(Box::new(format!("%{}%", tn))); }
-        else { params.push(Box::new(tn.clone())); }
+        if fuzzy {
+            params.push(Box::new(format!("%{}%", tn)));
+        } else {
+            params.push(Box::new(tn.clone()));
+        }
     }
     for mid in media_ids {
         params.push(Box::new(mid.to_string()));
@@ -1896,7 +1976,9 @@ fn find_items_with_tags_inner(
     let param_slice: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
     let rows = stmt.query_map(param_slice.as_slice(), |row| row.get::<_, String>(0))?;
     let mut result = HashSet::new();
-    for r in rows { result.insert(r?); }
+    for r in rows {
+        result.insert(r?);
+    }
     Ok(result)
 }
 
@@ -1912,7 +1994,9 @@ pub fn find_items_with_tags_path(
 }
 
 pub(crate) fn resolve_browse_thumb_paths(app: &AppHandle, items: &mut [BrowseItem]) {
-    let Ok(app_dir) = app.path().app_data_dir() else { return };
+    let Ok(app_dir) = app.path().app_data_dir() else {
+        return;
+    };
     let thumbs_dir = app_dir.join("thumbnails");
     for item in items.iter_mut() {
         item.thumb_256 = Some(
@@ -1950,8 +2034,10 @@ pub fn media_get_batch(
         placeholders.join(",")
     );
     let mut stmt = conn.prepare(&sql)?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-        ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
     let iter = stmt.query_map(param_refs.as_slice(), |row| {
         Ok(Media {
             id: row.get(0)?,
@@ -1994,7 +2080,7 @@ pub fn tag_list_path(db_path: &Path) -> Result<Vec<Tag>, Box<dyn std::error::Err
          LEFT JOIN media_tags mt ON t.id = mt.tag_id
          LEFT JOIN media m ON mt.media_id = m.id AND m.deleted_at IS NULL
          GROUP BY t.id
-         ORDER BY t.name"
+         ORDER BY t.name",
     )?;
     let tag_iter = stmt.query_map([], |row| {
         Ok(Tag {
@@ -2016,10 +2102,7 @@ pub fn tag_list(app: &AppHandle) -> Result<Vec<Tag>, Box<dyn std::error::Error>>
     tag_list_path(&db_path(app))
 }
 
-pub fn tag_create(
-    app: &AppHandle,
-    name: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
+pub fn tag_create(app: &AppHandle, name: &str) -> Result<String, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let name_lower = name.to_lowercase();
     // INSERT OR IGNORE — if tag already exists (e.g. AI returns duplicate),
@@ -2047,11 +2130,7 @@ pub fn tag_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-pub fn tag_rename(
-    app: &AppHandle,
-    id: &str,
-    name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn tag_rename(app: &AppHandle, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let name_lower = name.to_lowercase();
     conn.execute(
@@ -2080,10 +2159,18 @@ pub fn media_tags_get_by_media_id(
          ORDER BY t.name",
     )?;
     let tag_iter = stmt.query_map(params![media_id], |row| {
-        Ok(Tag { id: row.get(0)?, name: row.get(1)?, source: row.get(2)?, confidence: row.get(3)?, item_count: None })
+        Ok(Tag {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            source: row.get(2)?,
+            confidence: row.get(3)?,
+            item_count: None,
+        })
     })?;
     let mut results = Vec::new();
-    for tag in tag_iter { results.push(tag?); }
+    for tag in tag_iter {
+        results.push(tag?);
+    }
     Ok(results)
 }
 
@@ -2148,7 +2235,10 @@ pub fn media_tag_add_batch(
             }
             Ok(())
         }
-        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
     }
 }
 
@@ -2176,10 +2266,7 @@ pub fn media_tag_remove_for_media(
     Ok(())
 }
 
-pub fn media_tags_clear(
-    app: &AppHandle,
-    media_id: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn media_tags_clear(app: &AppHandle, media_id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     conn.execute(
         "DELETE FROM media_tags WHERE media_id = ?1",
@@ -2199,7 +2286,11 @@ pub fn media_tags_intersect(
         return Ok(Vec::new());
     }
     let conn = get_conn(app)?;
-    let placeholders: Vec<String> = media_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let placeholders: Vec<String> = media_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect();
     let sql = format!(
         "SELECT t.id, t.name, mt.source, mt.confidence
          FROM tags t
@@ -2211,7 +2302,10 @@ pub fn media_tags_intersect(
         media_ids.len()
     );
     let mut stmt = conn.prepare(&sql)?;
-    let params: Vec<&dyn rusqlite::types::ToSql> = media_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = media_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
     let rows = stmt.query_map(params.as_slice(), |row| {
         Ok(Tag {
             id: row.get(0)?,
@@ -2259,7 +2353,11 @@ pub fn media_search_by_tags_path(
     };
 
     let name_condition: String = if fuzzy {
-        tag_names.iter().map(|_| "t.name LIKE ?").collect::<Vec<_>>().join(" OR ")
+        tag_names
+            .iter()
+            .map(|_| "t.name LIKE ?")
+            .collect::<Vec<_>>()
+            .join(" OR ")
     } else {
         let placeholders = tag_names.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         format!("t.name IN ({})", placeholders)
@@ -2296,7 +2394,10 @@ pub fn media_search_by_tags_path(
     } else {
         tag_names.to_vec()
     };
-    let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
+    let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec
+        .iter()
+        .map(|n| n as &dyn rusqlite::ToSql)
+        .collect();
     let media_iter = stmt.query_map(param_refs.as_slice(), |row| {
         Ok(Media {
             id: row.get(0)?,
@@ -2340,9 +2441,7 @@ pub fn fts_sync(app: &AppHandle, media_id: &str) -> Result<(), Box<dyn std::erro
     // Gather all captions and tags for this media
     let mut captions = Vec::new();
     {
-        let mut stmt = conn.prepare(
-            "SELECT text FROM captions WHERE media_id = ?1",
-        )?;
+        let mut stmt = conn.prepare("SELECT text FROM captions WHERE media_id = ?1")?;
         for row in stmt.query_map(params![media_id], |r| r.get::<_, String>(0))? {
             captions.push(row?);
         }
@@ -2366,7 +2465,10 @@ pub fn fts_sync(app: &AppHandle, media_id: &str) -> Result<(), Box<dyn std::erro
     };
 
     // Delete existing entry and insert new
-    conn.execute("DELETE FROM media_fts WHERE media_id = ?1", params![media_id])?;
+    conn.execute(
+        "DELETE FROM media_fts WHERE media_id = ?1",
+        params![media_id],
+    )?;
     if !search_text.is_empty() {
         conn.execute(
             "INSERT INTO media_fts (media_id, search_text) VALUES (?1, ?2)",
@@ -2449,7 +2551,8 @@ pub fn media_search_by_tags(
     }
     let path = db_path(app);
     let fuzzy = crate::settings::is_tag_search_fuzzy(app);
-    let mut results = media_search_by_tags_path(&path, tag_names, sort_by, descending, mode, fuzzy)?;
+    let mut results =
+        media_search_by_tags_path(&path, tag_names, sort_by, descending, mode, fuzzy)?;
     resolve_thumb_paths(app, &mut results);
     Ok(results)
 }
@@ -2514,12 +2617,7 @@ pub fn media_query_filtered_path(
                 bind_values.push(rusqlite::types::Value::Integer(*lo));
                 bind_values.push(rusqlite::types::Value::Integer(*hi));
                 let n = bind_values.len();
-                conditions.push(format!(
-                    "{} BETWEEN ?{} AND ?{}",
-                    col,
-                    n - 1,
-                    n
-                ));
+                conditions.push(format!("{} BETWEEN ?{} AND ?{}", col, n - 1, n));
             }
         }
     }
@@ -2528,11 +2626,7 @@ pub fn media_query_filtered_path(
         bind_values.push(rusqlite::types::Value::Text(dr.start.clone()));
         bind_values.push(rusqlite::types::Value::Text(dr.end.clone()));
         let n = bind_values.len();
-        conditions.push(format!(
-            "m.created_at BETWEEN ?{} AND ?{}",
-            n - 1,
-            n
-        ));
+        conditions.push(format!("m.created_at BETWEEN ?{} AND ?{}", n - 1, n));
     }
 
     if let Some(sf) = file_size {
@@ -2569,8 +2663,10 @@ pub fn media_query_filtered_path(
     );
 
     let mut stmt = conn.prepare(&sql)?;
-    let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-        bind_values.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = bind_values
+        .iter()
+        .map(|p| p as &dyn rusqlite::types::ToSql)
+        .collect();
 
     let iter = stmt.query_map(param_refs.as_slice(), |row| {
         Ok(Media {
@@ -2615,7 +2711,16 @@ pub fn media_query_filtered(
     sort_by: &str,
     descending: bool,
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
-    media_query_filtered_path(&db_path(app), media_ids, dimensions, date_range, file_size, media_type, sort_by, descending)
+    media_query_filtered_path(
+        &db_path(app),
+        media_ids,
+        dimensions,
+        date_range,
+        file_size,
+        media_type,
+        sort_by,
+        descending,
+    )
 }
 
 // --- LineageGraph / LineageEdge structs ---
@@ -2659,14 +2764,23 @@ pub fn lineage_insert(
     workflow_id: Option<&str>,
 ) -> Result<(), String> {
     let conn = get_conn(app)?;
-    lineage_insert_path(&conn, parent_media_id, child_media_id, relation_type, workflow_id)
-        .map_err(|e| e.to_string())
+    lineage_insert_path(
+        &conn,
+        parent_media_id,
+        child_media_id,
+        relation_type,
+        workflow_id,
+    )
+    .map_err(|e| e.to_string())
 }
 
-pub fn lineage_list_path(conn: &Connection, media_id: &str) -> Result<LineageGraph, rusqlite::Error> {
+pub fn lineage_list_path(
+    conn: &Connection,
+    media_id: &str,
+) -> Result<LineageGraph, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT parent_media_id, relation_type, workflow_id, created_at
-         FROM media_lineage WHERE child_media_id = ?1 ORDER BY created_at"
+         FROM media_lineage WHERE child_media_id = ?1 ORDER BY created_at",
     )?;
     let parents: Vec<LineageEdge> = stmt
         .query_map(params![media_id], |r| {
@@ -2682,7 +2796,7 @@ pub fn lineage_list_path(conn: &Connection, media_id: &str) -> Result<LineageGra
 
     let mut stmt = conn.prepare(
         "SELECT child_media_id, relation_type, workflow_id, created_at
-         FROM media_lineage WHERE parent_media_id = ?1 ORDER BY created_at"
+         FROM media_lineage WHERE parent_media_id = ?1 ORDER BY created_at",
     )?;
     let children: Vec<LineageEdge> = stmt
         .query_map(params![media_id], |r| {
@@ -2726,7 +2840,11 @@ pub fn lineage_remove(
 }
 
 /// Returns true if inserting (parent → child) would create a cycle in the DAG.
-pub fn lineage_would_cycle_path(conn: &Connection, parent_id: &str, child_id: &str) -> Result<bool, rusqlite::Error> {
+pub fn lineage_would_cycle_path(
+    conn: &Connection,
+    parent_id: &str,
+    child_id: &str,
+) -> Result<bool, rusqlite::Error> {
     use std::collections::HashSet;
     let mut visited: HashSet<String> = HashSet::new();
     let mut queue: Vec<String> = vec![child_id.to_string()];
@@ -2736,9 +2854,8 @@ pub fn lineage_would_cycle_path(conn: &Connection, parent_id: &str, child_id: &s
             return Ok(true);
         }
         if visited.insert(current.clone()) {
-            let mut stmt = conn.prepare(
-                "SELECT child_media_id FROM media_lineage WHERE parent_media_id = ?1"
-            )?;
+            let mut stmt = conn
+                .prepare("SELECT child_media_id FROM media_lineage WHERE parent_media_id = ?1")?;
             let descendants: Vec<String> = stmt
                 .query_map(params![current], |r| r.get(0))?
                 .filter_map(|r| r.ok())
@@ -2758,11 +2875,19 @@ pub fn lineage_insert_safe(
     workflow_id: Option<&str>,
 ) -> Result<(), String> {
     let conn = get_conn(app)?;
-    if lineage_would_cycle_path(&conn, parent_media_id, child_media_id).map_err(|e| e.to_string())? {
+    if lineage_would_cycle_path(&conn, parent_media_id, child_media_id)
+        .map_err(|e| e.to_string())?
+    {
         return Err("Adding this lineage would create a cycle".into());
     }
-    lineage_insert_path(&conn, parent_media_id, child_media_id, relation_type, workflow_id)
-        .map_err(|e| e.to_string())
+    lineage_insert_path(
+        &conn,
+        parent_media_id,
+        child_media_id,
+        relation_type,
+        workflow_id,
+    )
+    .map_err(|e| e.to_string())
 }
 
 pub fn media_is_root(conn: &Connection, media_id: &str) -> Result<bool, rusqlite::Error> {
@@ -2946,9 +3071,7 @@ pub fn embedding_get(
     Ok(None)
 }
 
-pub fn embedding_clear_all(
-    app: &AppHandle,
-) -> Result<usize, Box<dyn std::error::Error>> {
+pub fn embedding_clear_all(app: &AppHandle) -> Result<usize, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
     conn.execute("DELETE FROM embeddings", [])?;
@@ -3034,13 +3157,17 @@ pub struct SavedFilter {
     pub query: String,
 }
 
-pub fn saved_filters_get_all(app: &AppHandle) -> Result<Vec<SavedFilter>, Box<dyn std::error::Error>> {
-    let json = setting_get(app, "saved_filters")?
-        .unwrap_or_else(|| "[]".to_string());
+pub fn saved_filters_get_all(
+    app: &AppHandle,
+) -> Result<Vec<SavedFilter>, Box<dyn std::error::Error>> {
+    let json = setting_get(app, "saved_filters")?.unwrap_or_else(|| "[]".to_string());
     Ok(serde_json::from_str(&json)?)
 }
 
-pub fn saved_filters_save(app: &AppHandle, filter: &SavedFilter) -> Result<(), Box<dyn std::error::Error>> {
+pub fn saved_filters_save(
+    app: &AppHandle,
+    filter: &SavedFilter,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut filters = saved_filters_get_all(app)?;
     if let Some(pos) = filters.iter().position(|f| f.name == filter.name) {
         filters[pos] = filter.clone();
@@ -3052,16 +3179,16 @@ pub fn saved_filters_save(app: &AppHandle, filter: &SavedFilter) -> Result<(), B
 
 pub fn saved_filters_delete(app: &AppHandle, name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let filters = saved_filters_get_all(app)?;
-    let filters: Vec<SavedFilter> = filters
-        .into_iter()
-        .filter(|f| f.name != name)
-        .collect();
+    let filters: Vec<SavedFilter> = filters.into_iter().filter(|f| f.name != name).collect();
     setting_set(app, "saved_filters", &serde_json::to_string(&filters)?)
 }
 
 // --- Settings operations ---
 
-pub fn setting_get(app: &AppHandle, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
+pub fn setting_get(
+    app: &AppHandle,
+    key: &str,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
     let mut rows = stmt.query_map(params![key], |row| Ok(row.get::<_, String>(0)?))?;
@@ -3313,14 +3440,22 @@ pub fn media_find_similar(
                 // Pre-filter: skip if aspect ratios differ by > 2x (e.g., landscape vs portrait)
                 let ar_i = items[i].width as f64 / items[i].height.max(1) as f64;
                 let ar_j = items[j].width as f64 / items[j].height.max(1) as f64;
-                let ar_ratio = if ar_i > ar_j { ar_i / ar_j } else { ar_j / ar_i };
+                let ar_ratio = if ar_i > ar_j {
+                    ar_i / ar_j
+                } else {
+                    ar_j / ar_i
+                };
                 if ar_ratio > 2.0 {
                     continue;
                 }
                 // Pre-filter: skip if file sizes differ by > 4x
                 let fs_i = items[i].file_size.max(1) as f64;
                 let fs_j = items[j].file_size.max(1) as f64;
-                let fs_ratio = if fs_i > fs_j { fs_i / fs_j } else { fs_j / fs_i };
+                let fs_ratio = if fs_i > fs_j {
+                    fs_i / fs_j
+                } else {
+                    fs_j / fs_i
+                };
                 if fs_ratio > 4.0 {
                     continue;
                 }
@@ -3355,7 +3490,10 @@ pub fn media_find_similar(
     Ok(result)
 }
 
-pub fn media_get_by_id(app: &AppHandle, id: &str) -> Result<Option<Media>, Box<dyn std::error::Error>> {
+pub fn media_get_by_id(
+    app: &AppHandle,
+    id: &str,
+) -> Result<Option<Media>, Box<dyn std::error::Error>> {
     let list = media_get_batch(app, &[id.to_string()])?;
     Ok(list.into_iter().next())
 }
@@ -3377,12 +3515,8 @@ mod tests {
     }
 
     fn count(conn: &Connection, table: &str) -> i64 {
-        conn.query_row(
-            &format!("SELECT COUNT(*) FROM {}", table),
-            [],
-            |r| r.get(0),
-        )
-        .unwrap()
+        conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0))
+            .unwrap()
     }
 
     #[test]
@@ -3441,11 +3575,8 @@ mod tests {
         let conn = open(&db_path);
 
         // Create
-        conn.execute(
-            "INSERT INTO tags (id, name) VALUES ('t1', 'landscape')",
-            [],
-        )
-        .unwrap();
+        conn.execute("INSERT INTO tags (id, name) VALUES ('t1', 'landscape')", [])
+            .unwrap();
         assert_eq!(
             conn.query_row::<String, _, _>(
                 "SELECT name FROM tags WHERE id='t1'",
@@ -3488,11 +3619,8 @@ mod tests {
             "INSERT INTO media (id, source_path, width, height, file_size, imported_at) VALUES ('m1', '/tmp/x.png', 100, 100, 1024, '2026-01-01T00:00:00')",
             [],
         ).unwrap();
-        conn.execute(
-            "INSERT INTO tags (id, name) VALUES ('t1', 'sunset')",
-            [],
-        )
-        .unwrap();
+        conn.execute("INSERT INTO tags (id, name) VALUES ('t1', 'sunset')", [])
+            .unwrap();
 
         // Add tag to media
         conn.execute(
@@ -3540,11 +3668,7 @@ mod tests {
         .unwrap();
 
         let collections = conn
-            .query_row::<i64, _, _>(
-                "SELECT COUNT(*) FROM collections",
-                [],
-                |r| r.get(0),
-            )
+            .query_row::<i64, _, _>("SELECT COUNT(*) FROM collections", [], |r| r.get(0))
             .unwrap();
         assert_eq!(collections, 1);
 
@@ -3647,11 +3771,8 @@ mod tests {
             params![now],
         )
         .unwrap();
-        conn.execute(
-            "INSERT INTO tags (id, name) VALUES ('dt', 'temp')",
-            [],
-        )
-        .unwrap();
+        conn.execute("INSERT INTO tags (id, name) VALUES ('dt', 'temp')", [])
+            .unwrap();
         conn.execute(
             "INSERT INTO media_tags (media_id, tag_id) VALUES ('del_test', 'dt')",
             [],
@@ -3841,10 +3962,17 @@ mod tests {
         let conn = open(&db_path);
 
         let expected = [
-            "_migrations", "media", "tags", "media_tags",
-            "collections", "collection_items", "captions",
-            "embeddings", "settings",
-            "media_lineage", "comfyui_workflows",
+            "_migrations",
+            "media",
+            "tags",
+            "media_tags",
+            "collections",
+            "collection_items",
+            "captions",
+            "embeddings",
+            "settings",
+            "media_lineage",
+            "comfyui_workflows",
         ];
 
         for table in &expected {
@@ -3873,13 +4001,27 @@ mod tests {
             "INSERT INTO media (id, source_path, width, height, file_size, imported_at) VALUES ('ft2', '/tmp/ft2.jpg', 200, 200, 200, '2026-01-01T00:00:00')",
             [],
         ).unwrap();
-        conn.execute("INSERT INTO tags (id, name) VALUES ('tag_a', 'alpha')", []).unwrap();
-        conn.execute("INSERT INTO tags (id, name) VALUES ('tag_b', 'beta')", []).unwrap();
+        conn.execute("INSERT INTO tags (id, name) VALUES ('tag_a', 'alpha')", [])
+            .unwrap();
+        conn.execute("INSERT INTO tags (id, name) VALUES ('tag_b', 'beta')", [])
+            .unwrap();
 
         // ft1 has both tags, ft2 has only tag_a
-        conn.execute("INSERT INTO media_tags (media_id, tag_id) VALUES ('ft1', 'tag_a')", []).unwrap();
-        conn.execute("INSERT INTO media_tags (media_id, tag_id) VALUES ('ft1', 'tag_b')", []).unwrap();
-        conn.execute("INSERT INTO media_tags (media_id, tag_id) VALUES ('ft2', 'tag_a')", []).unwrap();
+        conn.execute(
+            "INSERT INTO media_tags (media_id, tag_id) VALUES ('ft1', 'tag_a')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO media_tags (media_id, tag_id) VALUES ('ft1', 'tag_b')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO media_tags (media_id, tag_id) VALUES ('ft2', 'tag_a')",
+            [],
+        )
+        .unwrap();
 
         // Build minimal browse items
         fn make_item(id: &str, w: i32, h: i32, sz: i64) -> BrowseItem {
@@ -3908,11 +4050,19 @@ mod tests {
                 parent_count: 0,
             }
         }
-        let items = vec![make_item("ft1", 100, 100, 100), make_item("ft2", 200, 200, 200)];
+        let items = vec![
+            make_item("ft1", 100, 100, 100),
+            make_item("ft2", 200, 200, 200),
+        ];
 
         // Union (any tag) — both media have alpha, so both match
-        let matching = find_items_with_tags_path(&db_path, &items, &["alpha".into(), "beta".into()]).unwrap();
-        assert_eq!(matching.len(), 2, "union of alpha+beta should match both media");
+        let matching =
+            find_items_with_tags_path(&db_path, &items, &["alpha".into(), "beta".into()]).unwrap();
+        assert_eq!(
+            matching.len(),
+            2,
+            "union of alpha+beta should match both media"
+        );
         assert!(matching.contains("ft1"));
         assert!(matching.contains("ft2"));
 
@@ -3927,4 +4077,3 @@ mod tests {
         assert_eq!(matching.len(), 0);
     }
 }
-

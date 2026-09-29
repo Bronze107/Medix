@@ -18,8 +18,8 @@ pub fn decode_jpeg_fast(
     max_dim: u32,
 ) -> Result<image::DynamicImage, Box<dyn std::error::Error>> {
     let jpeg_data = std::fs::read(path)?;
-    let mut decoder = libjpeg_turbo_rs::Decoder::new(&jpeg_data)
-        .map_err(|e| format!("jpeg decoder: {}", e))?;
+    let mut decoder =
+        libjpeg_turbo_rs::Decoder::new(&jpeg_data).map_err(|e| format!("jpeg decoder: {}", e))?;
     let (hdr_w, hdr_h) = {
         let header = decoder.header();
         (header.width, header.height)
@@ -118,7 +118,8 @@ pub fn generate_derivative(
     match ext {
         "jpg" | "jpeg" => {
             let rgb = resized.to_rgb8();
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, quality);
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, quality);
             encoder.encode_image(&rgb)?;
         }
         "png" => {

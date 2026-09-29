@@ -10,13 +10,16 @@ fn bench_parse_simple(c: &mut Criterion) {
 
 /// Parse a mixed query with multiple filter types.
 fn bench_parse_complex(c: &mut Criterion) {
-    c.bench_function("parser::parse tag:cat width:>1920 size:>1mb date:2026-01-01..2026-06-01", |b| {
-        b.iter(|| {
-            parser::parse(black_box(
-                "tag:cat dog width:>1920 size:>1mb date:2026-01-01..2026-06-01",
-            ))
-        })
-    });
+    c.bench_function(
+        "parser::parse tag:cat width:>1920 size:>1mb date:2026-01-01..2026-06-01",
+        |b| {
+            b.iter(|| {
+                parser::parse(black_box(
+                    "tag:cat dog width:>1920 size:>1mb date:2026-01-01..2026-06-01",
+                ))
+            })
+        },
+    );
 }
 
 /// Parse a quoted tag — exercises the regex path.

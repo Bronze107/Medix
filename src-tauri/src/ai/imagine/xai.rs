@@ -176,7 +176,12 @@ pub struct XaiProvider {
 impl XaiProvider {
     pub fn new(api_key: String, base_url: String, model: String, proxy: Option<String>) -> Self {
         let client = build_client(proxy.as_deref());
-        Self { api_key, base_url, model, client }
+        Self {
+            api_key,
+            base_url,
+            model,
+            client,
+        }
     }
 }
 
@@ -201,7 +206,10 @@ impl ImageProvider for XaiProvider {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             eprintln!("[imagine] generate error resp ({}): {}", status, text);
-            return Err(ImagineError::Api(format!("xAI generate failed ({}): {}", status, text)));
+            return Err(ImagineError::Api(format!(
+                "xAI generate failed ({}): {}",
+                status, text
+            )));
         }
 
         let body: ImageResponse = resp.json().await?;
@@ -213,7 +221,11 @@ impl ImageProvider for XaiProvider {
         }
         if let Some(ref usage) = body.usage {
             let ticks = usage.cost_in_usd_ticks.unwrap_or(0);
-            eprintln!("[imagine] usage: {} ticks (~${:.4})", ticks, ticks as f64 / 10_000_000_000.0);
+            eprintln!(
+                "[imagine] usage: {} ticks (~${:.4})",
+                ticks,
+                ticks as f64 / 10_000_000_000.0
+            );
         }
         download_images(&self.client, &body.data).await
     }
@@ -229,7 +241,11 @@ impl ImageProvider for XaiProvider {
                 url: params.image_data_urls.first().cloned().unwrap_or_default(),
             },
             n: if params.n > 1 { Some(params.n) } else { None },
-            aspect_ratio: if params.aspect_ratio == "auto" || params.aspect_ratio.is_empty() { None } else { Some(params.aspect_ratio.clone()) },
+            aspect_ratio: if params.aspect_ratio == "auto" || params.aspect_ratio.is_empty() {
+                None
+            } else {
+                Some(params.aspect_ratio.clone())
+            },
             resolution: Some(params.resolution.clone()),
             response_format: "url".to_string(),
         };
@@ -240,7 +256,10 @@ impl ImageProvider for XaiProvider {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             eprintln!("[imagine] edit error resp ({}): {}", status, text);
-            return Err(ImagineError::Api(format!("xAI edit failed ({}): {}", status, text)));
+            return Err(ImagineError::Api(format!(
+                "xAI edit failed ({}): {}",
+                status, text
+            )));
         }
 
         let body: ImageResponse = resp.json().await?;
@@ -252,7 +271,11 @@ impl ImageProvider for XaiProvider {
         }
         if let Some(ref usage) = body.usage {
             let ticks = usage.cost_in_usd_ticks.unwrap_or(0);
-            eprintln!("[imagine] usage: {} ticks (~${:.4})", ticks, ticks as f64 / 10_000_000_000.0);
+            eprintln!(
+                "[imagine] usage: {} ticks (~${:.4})",
+                ticks,
+                ticks as f64 / 10_000_000_000.0
+            );
         }
         download_images(&self.client, &body.data).await
     }
@@ -263,7 +286,8 @@ impl ImageProvider for XaiProvider {
             return Ok(false);
         }
         // Light check: try a minimal request
-        let resp = self.client
+        let resp = self
+            .client
             .get(format!("{}/models", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("User-Agent", "Hermes-Agent/0.14.0")

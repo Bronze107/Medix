@@ -155,7 +155,11 @@ pub fn get_llama_max_image_dim(app: &AppHandle) -> u32 {
 pub fn get_ai_custom_prompt(app: &AppHandle) -> Option<String> {
     let val = get(app, KEY_AI_CUSTOM_PROMPT)?;
     let trimmed = val.trim().to_string();
-    if trimmed.is_empty() { None } else { Some(trimmed) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 pub fn get_ai_language(app: &AppHandle) -> AiLanguage {

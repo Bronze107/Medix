@@ -35,15 +35,15 @@ pub fn generate_video_thumbnail(
 
     for (i, ts) in timestamps.iter().enumerate() {
         let result = Command::new(crate::media::video_metadata::find_ffmpeg())
-            .args([
-                "-ss", ts,
-                "-i",
-            ])
+            .args(["-ss", ts, "-i"])
             .arg(source_path)
             .args([
-                "-frames:v", "1",
-                "-vf", "scale=256:256:force_original_aspect_ratio=decrease",
-                "-q:v", "3",
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=256:256:force_original_aspect_ratio=decrease",
+                "-q:v",
+                "3",
                 "-y",
             ])
             .arg(&thumb_path)

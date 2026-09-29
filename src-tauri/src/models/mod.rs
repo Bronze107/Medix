@@ -19,7 +19,10 @@ pub struct GgufModelList {
 }
 
 fn models_dir(app: &AppHandle) -> PathBuf {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .expect("Failed to get app data dir");
     app_dir.join("models")
 }
 
@@ -77,8 +80,7 @@ pub fn model_exists(app: &AppHandle, name_or_path: &str) -> bool {
         p.exists()
     } else {
         let dir = models_dir(app);
-        dir.join(name_or_path).exists()
-            || dir.join(format!("{}.gguf", name_or_path)).exists()
+        dir.join(name_or_path).exists() || dir.join(format!("{}.gguf", name_or_path)).exists()
     }
 }
 
@@ -111,10 +113,7 @@ pub fn auto_detect(app: &AppHandle) -> AutoDetect {
     }
 
     // Detect binary
-    let candidates = [
-        "llama-server.exe",
-        "llama-server",
-    ];
+    let candidates = ["llama-server.exe", "llama-server"];
     let mut binary_paths = Vec::new();
     let mut binary_path = String::new();
 
@@ -124,8 +123,14 @@ pub fn auto_detect(app: &AppHandle) -> AutoDetect {
             "C:\\llama-vulkan",
             "C:\\llama-cpp",
             "C:\\llama.cpp",
-            &format!("{}\\llama-vulkan", std::env::var("USERPROFILE").unwrap_or_default()),
-            &format!("{}\\llama-cpp", std::env::var("USERPROFILE").unwrap_or_default()),
+            &format!(
+                "{}\\llama-vulkan",
+                std::env::var("USERPROFILE").unwrap_or_default()
+            ),
+            &format!(
+                "{}\\llama-cpp",
+                std::env::var("USERPROFILE").unwrap_or_default()
+            ),
         ];
         for dir in &search_dirs {
             let p = std::path::Path::new(dir).join(name);

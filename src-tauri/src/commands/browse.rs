@@ -27,8 +27,7 @@ fn filter_items_by_tags(
     if tag_names.is_empty() || items.is_empty() {
         return Ok(());
     }
-    let matching = db::find_items_with_tags(app, items, tag_names)
-        .map_err(|e| e.to_string())?;
+    let matching = db::find_items_with_tags(app, items, tag_names).map_err(|e| e.to_string())?;
     items.retain(|it| matching.contains(&it.id));
     Ok(())
 }
@@ -59,7 +58,9 @@ pub async fn browse_search(
 
     // Parse query to extract tag filters
     let parsed = crate::search::parser::parse(&trimmed);
-    let tag_names: Vec<String> = parsed.tag_group.as_ref()
+    let tag_names: Vec<String> = parsed
+        .tag_group
+        .as_ref()
         .map(|tg| tg.tags.clone())
         .unwrap_or_default();
     let has_tag_filter = !tag_names.is_empty();
@@ -113,7 +114,9 @@ pub async fn browse_search(
         // Compute item-level semantic scores: key = (media_id, None)
         let item_semantic_scores: Option<HashMap<String, f64>> =
             query_emb_for_items.and_then(|vec| {
-                match crate::search::semantic::semantic_search_by_vector(&vec, &app_clone, 500, min_score) {
+                match crate::search::semantic::semantic_search_by_vector(
+                    &vec, &app_clone, 500, min_score,
+                ) {
                     Ok(scored) => {
                         let mut map = HashMap::new();
                         for s in scored {
@@ -137,19 +140,36 @@ pub async fn browse_search(
 
     // Always expand in "all" mode to get full set, then filter
     let mut items = db::browse_query_filtered(
-        &app, &media_ids, &sort_by, descending, 0, u32::MAX, &BrowseVisibility::All,
-    ).map_err(|e| e.to_string())?;
+        &app,
+        &media_ids,
+        &sort_by,
+        descending,
+        0,
+        u32::MAX,
+        &BrowseVisibility::All,
+    )
+    .map_err(|e| e.to_string())?;
 
     // Item-level semantic ranking: sort by own embedding score,
     // drop items whose score is far below their media group's top scorer.
     if let Some(ref scores) = item_semantic_scores {
-        eprintln!("[search] item-level scores map has {} entries", scores.len());
-        let item_score: HashMap<String, f64> = items.iter().map(|it| {
-            let s = scores.get(&it.media_id).copied().unwrap_or(0.0);
-            eprintln!("[search]   item={} media={} score={:.4}",
-                &it.id[..8.min(it.id.len())], &it.media_id[..8], s);
-            (it.id.clone(), s)
-        }).collect();
+        eprintln!(
+            "[search] item-level scores map has {} entries",
+            scores.len()
+        );
+        let item_score: HashMap<String, f64> = items
+            .iter()
+            .map(|it| {
+                let s = scores.get(&it.media_id).copied().unwrap_or(0.0);
+                eprintln!(
+                    "[search]   item={} media={} score={:.4}",
+                    &it.id[..8.min(it.id.len())],
+                    &it.media_id[..8],
+                    s
+                );
+                (it.id.clone(), s)
+            })
+            .collect();
         let mut group_max: HashMap<String, f64> = HashMap::new();
         for it in items.iter() {
             let s = item_score[&it.id];
@@ -161,8 +181,12 @@ pub async fn browse_search(
             let max = group_max.get(&it.media_id).copied().unwrap_or(0.0);
             let keep = max == 0.0 || s >= max * 0.5;
             if !keep {
-                eprintln!("[search]   DROP item={} (score={:.4} < max*0.5={:.4})",
-                    &it.id[..8.min(it.id.len())], s, max * 0.5);
+                eprintln!(
+                    "[search]   DROP item={} (score={:.4} < max*0.5={:.4})",
+                    &it.id[..8.min(it.id.len())],
+                    s,
+                    max * 0.5
+                );
             }
             keep
         });
@@ -209,11 +233,18 @@ pub fn browse_list_by_collection(
     variant_visibility: String,
 ) -> Result<Vec<BrowseItem>, String> {
     let visibility = BrowseVisibility::parse(&variant_visibility);
-    let media_ids = db::collection_get_item_ids(&app, &collection_id)
-        .map_err(|e| e.to_string())?;
+    let media_ids = db::collection_get_item_ids(&app, &collection_id).map_err(|e| e.to_string())?;
     if media_ids.is_empty() {
         return Ok(vec![]);
     }
-    db::browse_query_filtered(&app, &media_ids, &sort_by, descending, offset, limit, &visibility)
-        .map_err(|e| e.to_string())
+    db::browse_query_filtered(
+        &app,
+        &media_ids,
+        &sort_by,
+        descending,
+        offset,
+        limit,
+        &visibility,
+    )
+    .map_err(|e| e.to_string())
 }

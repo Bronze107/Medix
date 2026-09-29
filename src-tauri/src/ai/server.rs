@@ -78,7 +78,6 @@ impl LlamaServer {
         cache_type_k: &str,
         cache_type_v: &str,
     ) -> Result<(), String> {
-
         if !std::path::Path::new(bin_path).exists() {
             return Err(format!("llama-server binary not found: {}", bin_path));
         }
@@ -112,7 +111,9 @@ impl LlamaServer {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        let child = cmd.spawn().map_err(|e| format!("failed to spawn llama-server: {}", e))?;
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("failed to spawn llama-server: {}", e))?;
 
         **guard = Some(child);
         Ok(())
@@ -131,7 +132,7 @@ impl LlamaServer {
             // Already running — check if still alive
             if let Some(ref mut child) = *guard {
                 match child.try_wait() {
-                    Ok(None) => return Ok(()), // still running
+                    Ok(None) => return Ok(()),    // still running
                     Ok(Some(_)) => *guard = None, // exited, restart below
                     Err(e) => return Err(format!("error checking child process: {}", e)),
                 }
@@ -149,16 +150,7 @@ impl LlamaServer {
             let cache_v = crate::settings::get_llama_cache_type_v(app);
 
             self.start_locked(
-                &mut guard,
-                &bin,
-                &model,
-                &mmproj,
-                port,
-                ctx,
-                threads,
-                gpu,
-                &cache_k,
-                &cache_v,
+                &mut guard, &bin, &model, &mmproj, port, ctx, threads, gpu, &cache_k, &cache_v,
             )?;
         } // guard dropped here, before any await
 

@@ -57,7 +57,6 @@ impl EmbeddingServer {
         port: u16,
         threads: u32,
     ) -> Result<(), String> {
-
         if !std::path::Path::new(bin_path).exists() {
             return Err(format!("llama-server binary not found: {}", bin_path));
         }
@@ -83,7 +82,9 @@ impl EmbeddingServer {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        let child = cmd.spawn().map_err(|e| format!("failed to spawn embedding server: {}", e))?;
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("failed to spawn embedding server: {}", e))?;
 
         **guard = Some(child);
         Ok(())

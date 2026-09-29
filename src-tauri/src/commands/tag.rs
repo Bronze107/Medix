@@ -29,11 +29,7 @@ pub fn media_tags_get(app: AppHandle, media_id: String) -> Result<Vec<Tag>, Stri
 }
 
 #[command]
-pub fn media_tag_add(
-    app: AppHandle,
-    media_id: String,
-    tag_id: String,
-) -> Result<(), String> {
+pub fn media_tag_add(app: AppHandle, media_id: String, tag_id: String) -> Result<(), String> {
     db::media_tag_add(&app, &media_id, &tag_id).map_err(|e| e.to_string())
 }
 
@@ -47,11 +43,7 @@ pub fn media_tag_add_batch(
 }
 
 #[command]
-pub fn media_tag_remove(
-    app: AppHandle,
-    media_id: String,
-    tag_id: String,
-) -> Result<(), String> {
+pub fn media_tag_remove(app: AppHandle, media_id: String, tag_id: String) -> Result<(), String> {
     db::media_tag_remove(&app, &media_id, &tag_id).map_err(|e| e.to_string())
 }
 
@@ -73,9 +65,6 @@ pub fn media_tags_clear(app: AppHandle, media_id: String) -> Result<(), String> 
 }
 
 #[command]
-pub fn media_tags_intersect(
-    app: AppHandle,
-    media_ids: Vec<String>,
-) -> Result<Vec<Tag>, String> {
+pub fn media_tags_intersect(app: AppHandle, media_ids: Vec<String>) -> Result<Vec<Tag>, String> {
     db::media_tags_intersect(&app, &media_ids).map_err(|e| e.to_string())
 }

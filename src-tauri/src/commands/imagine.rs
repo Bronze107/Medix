@@ -161,12 +161,16 @@ pub async fn image_confirm_import(
             }
 
             // Generate thumbnails
-            if let Err(e) = crate::media::thumbnail::generate_thumbnails_from_image(&app, &new_id, &img) {
+            if let Err(e) =
+                crate::media::thumbnail::generate_thumbnails_from_image(&app, &new_id, &img)
+            {
                 eprintln!("[imagine] thumbnail failed: {}", e);
             }
 
             // Store prompt as caption
-            if let Err(e) = crate::db::caption_create_with_source(&app, &new_id, &prompt, Some("ai-edit")) {
+            if let Err(e) =
+                crate::db::caption_create_with_source(&app, &new_id, &prompt, Some("ai-edit"))
+            {
                 eprintln!("[imagine] failed to save prompt caption: {}", e);
             }
 
@@ -183,7 +187,12 @@ pub async fn image_confirm_import(
         let mut paths = Vec::new();
         for sid in &staged_ids {
             let ext = find_staged_ext(&staging, sid)?;
-            paths.push(staging.join(format!("{}.{}", sid, ext)).to_string_lossy().to_string());
+            paths.push(
+                staging
+                    .join(format!("{}.{}", sid, ext))
+                    .to_string_lossy()
+                    .to_string(),
+            );
         }
         let library_dir = {
             let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -193,12 +202,21 @@ pub async fn image_confirm_import(
         let mut results = Vec::new();
         for (i, path_str) in paths.iter().enumerate() {
             let src = Path::new(path_str);
-            let id = if let Some(sid) = staged_ids.get(i) { sid.clone() } else { Ulid::new().to_string() };
+            let id = if let Some(sid) = staged_ids.get(i) {
+                sid.clone()
+            } else {
+                Ulid::new().to_string()
+            };
             let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("png");
             let dest = library_dir.join(format!("{}.{}", id, ext));
 
             if let Err(e) = fs::copy(src, &dest) {
-                results.push(crate::media::MediaImportResult { id: String::new(), path: path_str.clone(), success: false, error: Some(e.to_string()) });
+                results.push(crate::media::MediaImportResult {
+                    id: String::new(),
+                    path: path_str.clone(),
+                    success: false,
+                    error: Some(e.to_string()),
+                });
                 continue;
             }
             let _ = fs::remove_file(src);
@@ -206,7 +224,12 @@ pub async fn image_confirm_import(
             let img = match image::open(&dest) {
                 Ok(i) => i,
                 Err(e) => {
-                    results.push(crate::media::MediaImportResult { id: String::new(), path: path_str.clone(), success: false, error: Some(e.to_string()) });
+                    results.push(crate::media::MediaImportResult {
+                        id: String::new(),
+                        path: path_str.clone(),
+                        success: false,
+                        error: Some(e.to_string()),
+                    });
                     continue;
                 }
             };
@@ -238,7 +261,12 @@ pub async fn image_confirm_import(
 
             if let Err(e) = crate::db::insert_media(&app, &media) {
                 let _ = fs::remove_file(&dest);
-                results.push(crate::media::MediaImportResult { id: String::new(), path: path_str.clone(), success: false, error: Some(e.to_string()) });
+                results.push(crate::media::MediaImportResult {
+                    id: String::new(),
+                    path: path_str.clone(),
+                    success: false,
+                    error: Some(e.to_string()),
+                });
                 continue;
             }
 
@@ -247,13 +275,17 @@ pub async fn image_confirm_import(
             let app_clone = app.clone();
             let mid = id.clone();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = crate::media::thumbnail::generate_thumbnails_from_image(&app_clone, &mid, &img_clone) {
+                if let Err(e) = crate::media::thumbnail::generate_thumbnails_from_image(
+                    &app_clone, &mid, &img_clone,
+                ) {
                     eprintln!("[imagine] thumbnail failed: {}", e);
                 }
             });
 
             // Save prompt as caption
-            if let Err(e) = crate::db::caption_create_with_source(&app, &id, &prompt, Some("ai-generated")) {
+            if let Err(e) =
+                crate::db::caption_create_with_source(&app, &id, &prompt, Some("ai-generated"))
+            {
                 eprintln!("[imagine] failed to save prompt caption: {}", e);
             }
 
@@ -269,7 +301,12 @@ pub async fn image_confirm_import(
                 });
             });
 
-            results.push(crate::media::MediaImportResult { id, path: path_str.clone(), success: true, error: None });
+            results.push(crate::media::MediaImportResult {
+                id,
+                path: path_str.clone(),
+                success: true,
+                error: None,
+            });
         }
         Ok(results)
     }
@@ -310,15 +347,19 @@ fn image_to_data_url(img: &image::DynamicImage, source_path: &Path) -> Result<St
             let mut buf = Vec::new();
             let encoder = image::codecs::png::PngEncoder::new(&mut buf);
             encoder
-                .write_image(&rgba, img.width(), img.height(), image::ExtendedColorType::Rgba8)
+                .write_image(
+                    &rgba,
+                    img.width(),
+                    img.height(),
+                    image::ExtendedColorType::Rgba8,
+                )
                 .map_err(|e| e.to_string())?;
             ("image/png", buf)
         }
         _ => {
             let mut buf = Vec::new();
             let rgb = img.to_rgb8();
-            let mut encoder =
-                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85);
+            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85);
             encoder.encode_image(&rgb).map_err(|e| e.to_string())?;
             ("image/jpeg", buf)
         }

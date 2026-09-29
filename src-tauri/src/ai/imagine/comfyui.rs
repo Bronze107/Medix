@@ -11,9 +11,8 @@ use super::workflow::WorkflowManager;
 use super::{EditParams, GenerateParams, GeneratedImage, ImageProvider, ImagineError};
 use crate::db::comfyui::ComfyWorkflow;
 
-type ComfyWs = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type ComfyWs =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 pub struct ComfyuiProvider {
     base_url: String,
@@ -82,8 +81,7 @@ impl ComfyuiProvider {
             for p in &params {
                 if p.field_type == "image_selector" && idx < filenames.len() {
                     if let Some(node) = api_prompt.get_mut(&p.node_id) {
-                        if let Some(inputs) =
-                            node.get_mut("inputs").and_then(|i| i.as_object_mut())
+                        if let Some(inputs) = node.get_mut("inputs").and_then(|i| i.as_object_mut())
                         {
                             inputs.insert(
                                 p.widget_name.clone(),
@@ -139,30 +137,36 @@ impl ComfyuiProvider {
             "client_id": self.task_id,
         });
         let url = format!("{}/prompt", self.base_url);
-        let resp = self.client.post(&url).json(&body).send().await.map_err(|e| {
-            if e.is_connect() {
-                ImagineError::Api(format!("ComfyUI 未运行于 {}", self.base_url))
-            } else {
-                ImagineError::Http(e)
-            }
-        })?;
+        let resp = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_connect() {
+                    ImagineError::Api(format!("ComfyUI 未运行于 {}", self.base_url))
+                } else {
+                    ImagineError::Http(e)
+                }
+            })?;
         let status = resp.status();
         let text = resp.text().await.map_err(ImagineError::Http)?;
         let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
 
         if !status.is_success() || json["error"].is_object() || json["error"].is_string() {
-            return Err(ImagineError::Api(Self::format_prompt_error(&json, status.as_u16())));
+            return Err(ImagineError::Api(Self::format_prompt_error(
+                &json,
+                status.as_u16(),
+            )));
         }
 
-        json["prompt_id"]
-            .as_str()
-            .map(String::from)
-            .ok_or_else(|| {
-                ImagineError::Api(format!(
-                    "ComfyUI 响应缺少 prompt_id：{}",
-                    text.chars().take(200).collect::<String>()
-                ))
-            })
+        json["prompt_id"].as_str().map(String::from).ok_or_else(|| {
+            ImagineError::Api(format!(
+                "ComfyUI 响应缺少 prompt_id：{}",
+                text.chars().take(200).collect::<String>()
+            ))
+        })
     }
 
     /// 修复：POST /prompt 失败时 `error` 是对象，需解析 type/message/details + node_errors。
@@ -294,10 +298,7 @@ impl ComfyuiProvider {
                         let status_str = status["status_str"].as_str().unwrap_or("");
                         if status_str == "error" {
                             let msg = Self::extract_history_error(entry);
-                            return Err(ImagineError::Api(format!(
-                                "ComfyUI 执行失败：{}",
-                                msg
-                            )));
+                            return Err(ImagineError::Api(format!("ComfyUI 执行失败：{}", msg)));
                         }
                         return Ok(());
                     }
@@ -452,11 +453,9 @@ impl ComfyuiProvider {
             return Err(ImagineError::Api("无效的图片 data URL".into()));
         };
 
-        let img_bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &b64_data,
-        )
-        .map_err(|e| ImagineError::Api(format!("base64 解码失败：{}", e)))?;
+        let img_bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64_data)
+                .map_err(|e| ImagineError::Api(format!("base64 解码失败：{}", e)))?;
 
         let part = reqwest::multipart::Part::bytes(img_bytes)
             .file_name(if mime == "image/png" {
@@ -495,7 +494,11 @@ impl ComfyuiProvider {
     }
 
     fn ws_url(base_url: &str, client_id: &str) -> String {
-        let scheme = if base_url.starts_with("https") { "wss" } else { "ws" };
+        let scheme = if base_url.starts_with("https") {
+            "wss"
+        } else {
+            "ws"
+        };
         let rest = base_url
             .replacen("https://", "", 1)
             .replacen("http://", "", 1);
@@ -527,7 +530,10 @@ impl ImageProvider for ComfyuiProvider {
             params.image_data_urls.len()
         );
         let result = self
-            .submit_and_wait(params.workflow_values.clone(), params.image_data_urls.clone())
+            .submit_and_wait(
+                params.workflow_values.clone(),
+                params.image_data_urls.clone(),
+            )
             .await;
         if let Err(e) = &result {
             eprintln!("[comfyui] edit FAILED: {}", e);

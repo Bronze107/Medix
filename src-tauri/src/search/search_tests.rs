@@ -23,7 +23,8 @@ mod tests {
              INSERT INTO media_tags (media_id, tag_id) VALUES ('img_small', 't_cat');
              INSERT INTO media_tags (media_id, tag_id) VALUES ('img_small', 't_dog');
              INSERT INTO media_tags (media_id, tag_id) VALUES ('img_large', 't_cat');"
-        )).unwrap();
+        ))
+        .unwrap();
 
         (dir, db_path)
     }
@@ -42,21 +43,29 @@ mod tests {
         let results = execute_search_path(&db_path, "tag:cat", "imported_at", true, false).unwrap();
         assert_eq!(results.len(), 2, "both imgs have cat tag");
         // Union
-        let results = execute_search_path(&db_path, "tag:cat | dog", "imported_at", true, false).unwrap();
+        let results =
+            execute_search_path(&db_path, "tag:cat | dog", "imported_at", true, false).unwrap();
         assert_eq!(results.len(), 2);
         // Intersection (ALL mode): only img_small has both cat AND dog
-        let results = execute_search_path(&db_path, "tag:cat dog", "imported_at", true, false).unwrap();
-        assert_eq!(results.len(), 1, "ALL mode: only img_small has both cat and dog tags");
+        let results =
+            execute_search_path(&db_path, "tag:cat dog", "imported_at", true, false).unwrap();
+        assert_eq!(
+            results.len(),
+            1,
+            "ALL mode: only img_small has both cat and dog tags"
+        );
         assert_eq!(results[0].id, "img_small");
     }
 
     #[test]
     fn test_search_dimension_filter() {
         let (_dir, db_path) = setup_search_db();
-        let results = execute_search_path(&db_path, "width:>2000", "imported_at", true, false).unwrap();
+        let results =
+            execute_search_path(&db_path, "width:>2000", "imported_at", true, false).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "img_large");
-        let results = execute_search_path(&db_path, "width:<200", "imported_at", true, false).unwrap();
+        let results =
+            execute_search_path(&db_path, "width:<200", "imported_at", true, false).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "img_small");
     }
@@ -64,10 +73,12 @@ mod tests {
     #[test]
     fn test_search_size_filter() {
         let (_dir, db_path) = setup_search_db();
-        let results = execute_search_path(&db_path, "size:>1mb", "imported_at", true, false).unwrap();
+        let results =
+            execute_search_path(&db_path, "size:>1mb", "imported_at", true, false).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "img_large");
-        let results = execute_search_path(&db_path, "size:<10kb", "imported_at", true, false).unwrap();
+        let results =
+            execute_search_path(&db_path, "size:<10kb", "imported_at", true, false).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "img_small");
     }
@@ -75,7 +86,9 @@ mod tests {
     #[test]
     fn test_search_mixed_filters() {
         let (_dir, db_path) = setup_search_db();
-        let results = execute_search_path(&db_path, "tag:cat width:>2000", "imported_at", true, false).unwrap();
+        let results =
+            execute_search_path(&db_path, "tag:cat width:>2000", "imported_at", true, false)
+                .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "img_large");
     }
@@ -83,7 +96,8 @@ mod tests {
     #[test]
     fn test_search_nonexistent_tag() {
         let (_dir, db_path) = setup_search_db();
-        let results = execute_search_path(&db_path, "tag:nonexistent", "imported_at", true, false).unwrap();
+        let results =
+            execute_search_path(&db_path, "tag:nonexistent", "imported_at", true, false).unwrap();
         assert_eq!(results.len(), 0);
     }
 }

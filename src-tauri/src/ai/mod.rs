@@ -69,8 +69,7 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
                         image_path,
                     } => {
                         if let Err(e) =
-                            process_generate_caption(app.clone(), media_id, image_path)
-                                .await
+                            process_generate_caption(app.clone(), media_id, image_path).await
                         {
                             eprintln!("[ai] failed to process caption generation: {}", e);
                         }
@@ -82,13 +81,9 @@ pub fn init_ai_queue(app: AppHandle) -> AiQueue {
                         video_path,
                         duration_secs,
                     } => {
-                        if let Err(e) = process_video_caption(
-                            app.clone(),
-                            media_id,
-                            video_path,
-                            duration_secs,
-                        )
-                        .await
+                        if let Err(e) =
+                            process_video_caption(app.clone(), media_id, video_path, duration_secs)
+                                .await
                         {
                             eprintln!("[ai] failed to process video caption: {}", e);
                         }
@@ -356,8 +351,13 @@ async fn process_generate_caption(
 
         println!(
             "[ai] {} done in {}ms | resize={}ms infer_en={}ms infer_zh={}ms tags={}ms emb={}ms",
-            media_id, t_total.elapsed().as_millis(),
-            resize_ms, en_ms, zh_infer_ms, tags_ms, emb_ms
+            media_id,
+            t_total.elapsed().as_millis(),
+            resize_ms,
+            en_ms,
+            zh_infer_ms,
+            tags_ms,
+            emb_ms
         );
 
         return Ok(());
@@ -785,12 +785,7 @@ fn dedup_join(items: &[String], separator: &str) -> String {
 }
 
 /// Store a caption for the given media.
-fn store_video_caption(
-    app: &AppHandle,
-    media_id: &str,
-    caption: &str,
-    source: &str,
-) {
+fn store_video_caption(app: &AppHandle, media_id: &str, caption: &str, source: &str) {
     let result = crate::db::caption_create_with_source(app, media_id, caption, Some(source))
         .map_err(|e| e.to_string());
     match result {
@@ -803,11 +798,7 @@ fn store_video_caption(
 }
 
 /// Generate and store a caption embedding via the dedicated embedding server.
-async fn generate_caption_embedding(
-    app: &AppHandle,
-    media_id: &str,
-    caption: &str,
-) {
+async fn generate_caption_embedding(app: &AppHandle, media_id: &str, caption: &str) {
     let emb_model = crate::settings::get_embedding_model(app);
     if emb_model.is_empty() {
         eprintln!(
@@ -832,13 +823,9 @@ async fn generate_caption_embedding(
         .to_string();
     match embed_text(caption, &emb_model, emb_port).await {
         Ok(vector) => {
-            if let Err(e) = crate::db::embedding_insert(
-                app,
-                media_id,
-                &emb_model_short,
-                "caption",
-                &vector,
-            ) {
+            if let Err(e) =
+                crate::db::embedding_insert(app, media_id, &emb_model_short, "caption", &vector)
+            {
                 eprintln!(
                     "[ai] failed to store caption embedding for {}: {}",
                     media_id, e

@@ -23,8 +23,8 @@ pub fn semantic_search_by_vector(
         .and_then(|n| n.to_str())
         .unwrap_or(&model);
 
-    let all_embs = crate::db::embedding_get_all_by_model(app, model_short)
-        .map_err(|e| e.to_string())?;
+    let all_embs =
+        crate::db::embedding_get_all_by_model(app, model_short).map_err(|e| e.to_string())?;
 
     let mut scored: Vec<ScoredMedia> = all_embs
         .into_iter()

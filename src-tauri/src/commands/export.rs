@@ -3,10 +3,7 @@ use tauri::{command, AppHandle};
 use crate::export::ExportOptions;
 
 #[command]
-pub async fn export_dataset(
-    app: AppHandle,
-    options: ExportOptions,
-) -> Result<String, String> {
+pub async fn export_dataset(app: AppHandle, options: ExportOptions) -> Result<String, String> {
     tokio::task::spawn_blocking(move || crate::export::run_export(&app, &options))
         .await
         .map_err(|e| e.to_string())?

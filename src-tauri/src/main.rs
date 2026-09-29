@@ -19,23 +19,24 @@ use ai::imagine::queue::{
 };
 
 use commands::{
-    ai_pending_count, auto_detect, browse_list, browse_list_by_collection, browse_search, caption_create, caption_create_batch,
-    caption_delete, caption_list, caption_update,
+    ai_pending_count, auto_detect, browse_list, browse_list_by_collection, browse_search,
+    caption_create, caption_create_batch, caption_delete, caption_list, caption_update,
     collection_add_batch, collection_add_item, collection_create, collection_delete,
     collection_first_media_id, collection_get, collection_get_item_ids, collection_list,
     collection_pin, collection_remove_item, collection_rename, collection_unpin,
-    comfyui_workflow_list, comfyui_workflow_get, comfyui_workflow_create, comfyui_workflow_update,
-    comfyui_workflow_delete, comfyui_test_connection,
-    embedding_info, embedding_delete, embedding_clear_all, embedding_rebuild_all, embedding_server_status, export_dataset, greet, image_confirm_import, image_discard_staged,
-    image_generate, import_zip, llama_server_start, llama_server_status,
-    llama_server_stop, media_ai_annotate, media_empty_trash, media_find_duplicates,
-    media_generate_derivative, media_get_paths, media_import, media_import_derivative, media_list, media_list_by_collection, media_list_trash,
-    media_permanent_delete,
-    media_recover, media_soft_delete,
-    media_search, media_tag_add, media_tag_add_batch, media_tag_remove, media_tag_remove_batch, media_tags_clear, media_tags_get, media_tags_intersect,
-    media_thumbnail, media_thumbnail_batch, model_list, saved_filters_delete, saved_filters_list, saved_filters_save,
-    settings_get, settings_get_all, settings_set, test_proxy, tag_create, tag_delete, tag_list, tag_rename,
-    media_lineage_list, media_lineage_add, media_lineage_remove, media_list_roots_count,
+    comfyui_test_connection, comfyui_workflow_create, comfyui_workflow_delete,
+    comfyui_workflow_get, comfyui_workflow_list, comfyui_workflow_update, embedding_clear_all,
+    embedding_delete, embedding_info, embedding_rebuild_all, embedding_server_status,
+    export_dataset, greet, image_confirm_import, image_discard_staged, image_generate, import_zip,
+    llama_server_start, llama_server_status, llama_server_stop, media_ai_annotate,
+    media_empty_trash, media_find_duplicates, media_generate_derivative, media_get_paths,
+    media_import, media_import_derivative, media_lineage_add, media_lineage_list,
+    media_lineage_remove, media_list, media_list_by_collection, media_list_roots_count,
+    media_list_trash, media_permanent_delete, media_recover, media_search, media_soft_delete,
+    media_tag_add, media_tag_add_batch, media_tag_remove, media_tag_remove_batch, media_tags_clear,
+    media_tags_get, media_tags_intersect, media_thumbnail, media_thumbnail_batch, model_list,
+    saved_filters_delete, saved_filters_list, saved_filters_save, settings_get, settings_get_all,
+    settings_set, tag_create, tag_delete, tag_list, tag_rename, test_proxy,
 };
 
 fn main() {
@@ -86,8 +87,7 @@ fn main() {
             let ai_queue = ai::init_ai_queue(app.handle().clone());
             app.manage(ai_queue);
 
-            let image_queue =
-                ai::imagine::queue::init_image_queue(app.handle().clone());
+            let image_queue = ai::imagine::queue::init_image_queue(app.handle().clone());
             app.manage(image_queue);
 
             server::start_http_server(app.handle().clone());

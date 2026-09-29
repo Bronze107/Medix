@@ -16,10 +16,7 @@ pub fn compute_phash_from_image(img: &image::DynamicImage) -> Option<u64> {
     let tiny = image::imageops::resize(&small, 8, 8, image::imageops::FilterType::Nearest);
 
     // Get pixel values (Luma<u8> -> f64)
-    let pixels: Vec<f64> = tiny
-        .pixels()
-        .map(|p| p.0[0] as f64)
-        .collect();
+    let pixels: Vec<f64> = tiny.pixels().map(|p| p.0[0] as f64).collect();
 
     // Compute DCT for 8x8
     let dct = dct_8x8(&pixels);
@@ -65,8 +62,10 @@ fn dct_8x8(pixels: &[f64]) -> Vec<f64> {
             for x in 0..n {
                 for y in 0..n {
                     let pixel = pixels[y * n + x];
-                    let cx = (std::f64::consts::PI * u as f64 * (2.0 * x as f64 + 1.0)) / (2.0 * n as f64);
-                    let cy = (std::f64::consts::PI * v as f64 * (2.0 * y as f64 + 1.0)) / (2.0 * n as f64);
+                    let cx = (std::f64::consts::PI * u as f64 * (2.0 * x as f64 + 1.0))
+                        / (2.0 * n as f64);
+                    let cy = (std::f64::consts::PI * v as f64 * (2.0 * y as f64 + 1.0))
+                        / (2.0 * n as f64);
                     sum += pixel * cx.cos() * cy.cos();
                 }
             }

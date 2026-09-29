@@ -1,9 +1,12 @@
 // src-tauri/src/commands/lineage.rs
-use tauri::AppHandle;
 use crate::db;
+use tauri::AppHandle;
 
 #[tauri::command]
-pub async fn media_lineage_list(app: AppHandle, media_id: String) -> Result<db::LineageGraph, String> {
+pub async fn media_lineage_list(
+    app: AppHandle,
+    media_id: String,
+) -> Result<db::LineageGraph, String> {
     db::lineage_list(&app, &media_id)
 }
 

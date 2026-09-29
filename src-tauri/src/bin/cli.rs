@@ -3,7 +3,10 @@ use medix::db;
 use medix::search;
 
 #[derive(Parser)]
-#[command(name = "medix-cli", about = "Medix CLI dev tool for testing backend commands")]
+#[command(
+    name = "medix-cli",
+    about = "Medix CLI dev tool for testing backend commands"
+)]
 struct Cli {
     /// Override the database path (for testing with isolated DBs)
     #[arg(long = "db-path", global = true)]
@@ -124,7 +127,6 @@ enum Command {
         /// Also create collections
         #[arg(long)]
         with_collections: bool,
-
     },
 }
 
@@ -137,7 +139,9 @@ fn json_str(s: &str) -> String {
 fn json_obj(pairs: &[(&str, String)]) -> String {
     let mut s = String::from("{");
     for (i, (k, v)) in pairs.iter().enumerate() {
-        if i > 0 { s.push(','); }
+        if i > 0 {
+            s.push(',');
+        }
         s.push_str(&json_str(k));
         s.push(':');
         s.push_str(v);
@@ -146,7 +150,9 @@ fn json_obj(pairs: &[(&str, String)]) -> String {
     s
 }
 
-fn json_null() -> String { "null".to_string() }
+fn json_null() -> String {
+    "null".to_string()
+}
 
 // ── Main ──
 
@@ -163,10 +169,18 @@ fn main() {
     };
 
     match cli.command {
-        Command::Search { query, sort, descending, variants, count } => {
+        Command::Search {
+            query,
+            sort,
+            descending,
+            variants,
+            count,
+        } => {
             let visibility = medix::media::BrowseVisibility::parse(&variants);
             let parsed = medix::search::parser::parse(&query);
-            let tag_names: Vec<String> = parsed.tag_group.as_ref()
+            let tag_names: Vec<String> = parsed
+                .tag_group
+                .as_ref()
                 .map(|tg| tg.tags.clone())
                 .unwrap_or_default();
             let has_tag_filter = !tag_names.is_empty();
@@ -175,35 +189,66 @@ fn main() {
                 Ok(results) => {
                     let media_ids: Vec<String> = results.iter().map(|m| m.id.clone()).collect();
                     match db::browse_query_filtered_path(
-                        &db_path, &media_ids, &sort, descending, 0, u32::MAX,
+                        &db_path,
+                        &media_ids,
+                        &sort,
+                        descending,
+                        0,
+                        u32::MAX,
                         &medix::media::BrowseVisibility::All,
                     ) {
                         Ok(mut browse_items) => {
                             if has_tag_filter {
                                 if let Ok(matching) = db::find_items_with_tags_path(
-                                    &db_path, &browse_items, &tag_names
+                                    &db_path,
+                                    &browse_items,
+                                    &tag_names,
                                 ) {
                                     browse_items.retain(|it| matching.contains(&it.id));
                                 }
                             }
-                            if matches!(visibility, medix::media::BrowseVisibility::Representative) {
+                            if matches!(visibility, medix::media::BrowseVisibility::Representative)
+                            {
                                 browse_items.retain(|it| it.parent_count == 0);
                             }
 
                             if count {
                                 println!("{}", browse_items.len());
                             } else if cli.json {
-                                let items: Vec<String> = browse_items.iter().map(|it| {
-                                    json_obj(&[
-                                        ("id", json_str(&it.id)),
-                                        ("media_id", json_str(&it.media_id)),
-                                        ("width", it.width.map(|w| w.to_string()).unwrap_or_else(json_null)),
-                                        ("height", it.height.map(|h| h.to_string()).unwrap_or_else(json_null)),
-                                        ("file_size", it.file_size.map(|s| s.to_string()).unwrap_or_else(json_null)),
-                                        ("imported_at", json_str(&it.imported_at)),
-                                        ("path", it.source_path.as_deref().map_or_else(json_null, json_str)),
-                                    ])
-                                }).collect();
+                                let items: Vec<String> = browse_items
+                                    .iter()
+                                    .map(|it| {
+                                        json_obj(&[
+                                            ("id", json_str(&it.id)),
+                                            ("media_id", json_str(&it.media_id)),
+                                            (
+                                                "width",
+                                                it.width
+                                                    .map(|w| w.to_string())
+                                                    .unwrap_or_else(json_null),
+                                            ),
+                                            (
+                                                "height",
+                                                it.height
+                                                    .map(|h| h.to_string())
+                                                    .unwrap_or_else(json_null),
+                                            ),
+                                            (
+                                                "file_size",
+                                                it.file_size
+                                                    .map(|s| s.to_string())
+                                                    .unwrap_or_else(json_null),
+                                            ),
+                                            ("imported_at", json_str(&it.imported_at)),
+                                            (
+                                                "path",
+                                                it.source_path
+                                                    .as_deref()
+                                                    .map_or_else(json_null, json_str),
+                                            ),
+                                        ])
+                                    })
+                                    .collect();
                                 println!("[{}]", items.join(","));
                             } else {
                                 println!("{} results for \"{}\"\n", browse_items.len(), query);
@@ -223,24 +268,47 @@ fn main() {
             }
         }
 
-        Command::List { sort, descending, variants, count } => {
+        Command::List {
+            sort,
+            descending,
+            variants,
+            count,
+        } => {
             let visibility = medix::media::BrowseVisibility::parse(&variants);
-            match db::list_browse_items_path(&db_path, &sort, descending, 0, u32::MAX, &visibility) {
+            match db::list_browse_items_path(&db_path, &sort, descending, 0, u32::MAX, &visibility)
+            {
                 Ok(results) => {
                     if count {
                         println!("{}", results.len());
                     } else if cli.json {
-                        let items: Vec<String> = results.iter().map(|it| {
-                            json_obj(&[
-                                ("id", json_str(&it.id)),
-                                ("media_id", json_str(&it.media_id)),
-                                ("width", it.width.map(|w| w.to_string()).unwrap_or_else(json_null)),
-                                ("height", it.height.map(|h| h.to_string()).unwrap_or_else(json_null)),
-                                ("file_size", it.file_size.map(|s| s.to_string()).unwrap_or_else(json_null)),
-                                ("imported_at", json_str(&it.imported_at)),
-                                ("path", it.source_path.as_deref().map_or_else(json_null, json_str)),
-                            ])
-                        }).collect();
+                        let items: Vec<String> = results
+                            .iter()
+                            .map(|it| {
+                                json_obj(&[
+                                    ("id", json_str(&it.id)),
+                                    ("media_id", json_str(&it.media_id)),
+                                    (
+                                        "width",
+                                        it.width.map(|w| w.to_string()).unwrap_or_else(json_null),
+                                    ),
+                                    (
+                                        "height",
+                                        it.height.map(|h| h.to_string()).unwrap_or_else(json_null),
+                                    ),
+                                    (
+                                        "file_size",
+                                        it.file_size
+                                            .map(|s| s.to_string())
+                                            .unwrap_or_else(json_null),
+                                    ),
+                                    ("imported_at", json_str(&it.imported_at)),
+                                    (
+                                        "path",
+                                        it.source_path.as_deref().map_or_else(json_null, json_str),
+                                    ),
+                                ])
+                            })
+                            .collect();
                         println!("[{}]", items.join(","));
                     } else {
                         println!("{} items\n", results.len());
@@ -254,63 +322,71 @@ fn main() {
             }
         }
 
-        Command::ListTags { count } => {
-            match db::tag_list_path(&db_path) {
-                Ok(tags) => {
-                    if count {
-                        println!("{}", tags.len());
-                    } else if cli.json {
-                        let items: Vec<String> = tags.iter().map(|t| {
-                            json_obj(&[
-                                ("id", json_str(&t.id)),
-                                ("name", json_str(&t.name)),
-                            ])
-                        }).collect();
-                        println!("[{}]", items.join(","));
-                    } else {
-                        println!("{} tags\n", tags.len());
-                        for t in &tags {
-                            println!("  {}  {}", t.id.chars().take(8).collect::<String>(), t.name);
-                        }
+        Command::ListTags { count } => match db::tag_list_path(&db_path) {
+            Ok(tags) => {
+                if count {
+                    println!("{}", tags.len());
+                } else if cli.json {
+                    let items: Vec<String> = tags
+                        .iter()
+                        .map(|t| json_obj(&[("id", json_str(&t.id)), ("name", json_str(&t.name))]))
+                        .collect();
+                    println!("[{}]", items.join(","));
+                } else {
+                    println!("{} tags\n", tags.len());
+                    for t in &tags {
+                        println!("  {}  {}", t.id.chars().take(8).collect::<String>(), t.name);
                     }
                 }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
             }
-        }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        },
 
         Command::ListCollections => {
             let conn = match rusqlite::Connection::open(&db_path) {
                 Ok(c) => c,
-                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error opening DB: {}", e);
+                    std::process::exit(1);
+                }
             };
-            let mut stmt = conn.prepare(
-                "SELECT id, name, pinned_at FROM collections ORDER BY name"
-            ).expect("prepare");
+            let mut stmt = conn
+                .prepare("SELECT id, name, pinned_at FROM collections ORDER BY name")
+                .expect("prepare");
             let rows: Vec<(String, String, Option<String>)> = stmt
-                .query_map([], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-                })
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
                 .unwrap()
                 .filter_map(|r| r.ok())
                 .collect();
 
             if cli.json {
-                let items: Vec<String> = rows.iter().map(|(id, name, pinned)| {
-                    json_obj(&[
-                        ("id", json_str(id)),
-                        ("name", json_str(name)),
-                        ("pinned", pinned.as_ref().map_or_else(json_null, |_| json_str("true"))),
-                    ])
-                }).collect();
+                let items: Vec<String> = rows
+                    .iter()
+                    .map(|(id, name, pinned)| {
+                        json_obj(&[
+                            ("id", json_str(id)),
+                            ("name", json_str(name)),
+                            (
+                                "pinned",
+                                pinned.as_ref().map_or_else(json_null, |_| json_str("true")),
+                            ),
+                        ])
+                    })
+                    .collect();
                 println!("[{}]", items.join(","));
             } else {
                 println!("{} collections\n", rows.len());
                 for (id, name, pinned) in &rows {
                     let pin = if pinned.is_some() { " [PINNED]" } else { "" };
-                    println!("  {}  {}{}", id.chars().take(8).collect::<String>(), name, pin);
+                    println!(
+                        "  {}  {}{}",
+                        id.chars().take(8).collect::<String>(),
+                        name,
+                        pin
+                    );
                 }
             }
         }
@@ -318,32 +394,42 @@ fn main() {
         Command::LineageList { media_id } => {
             let conn = match rusqlite::Connection::open(&db_path) {
                 Ok(c) => c,
-                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error opening DB: {}", e);
+                    std::process::exit(1);
+                }
             };
             match medix::db::lineage_list_path(&conn, &media_id) {
                 Ok(graph) => {
                     if cli.json {
                         println!("{}", serde_json::to_string(&graph).unwrap_or_default());
                     } else {
-                        println!("{} parents, {} children for {}\n",
-                            graph.parents.len(), graph.children.len(),
-                            &media_id[..media_id.len().min(8)]);
+                        println!(
+                            "{} parents, {} children for {}\n",
+                            graph.parents.len(),
+                            graph.children.len(),
+                            &media_id[..media_id.len().min(8)]
+                        );
                         if !graph.parents.is_empty() {
                             println!("  Parents:");
                             for edge in &graph.parents {
-                                println!("    {}  relation={}  workflow={}",
+                                println!(
+                                    "    {}  relation={}  workflow={}",
                                     &edge.media_id[..edge.media_id.len().min(8)],
                                     edge.relation_type,
-                                    edge.workflow_id.as_deref().unwrap_or("—"));
+                                    edge.workflow_id.as_deref().unwrap_or("—")
+                                );
                             }
                         }
                         if !graph.children.is_empty() {
                             println!("  Children:");
                             for edge in &graph.children {
-                                println!("    {}  relation={}  workflow={}",
+                                println!(
+                                    "    {}  relation={}  workflow={}",
                                     &edge.media_id[..edge.media_id.len().min(8)],
                                     edge.relation_type,
-                                    edge.workflow_id.as_deref().unwrap_or("—"));
+                                    edge.workflow_id.as_deref().unwrap_or("—")
+                                );
                             }
                         }
                     }
@@ -355,20 +441,30 @@ fn main() {
             }
         }
 
-        Command::LineageAdd { parent_id, child_id, relation_type } => {
+        Command::LineageAdd {
+            parent_id,
+            child_id,
+            relation_type,
+        } => {
             let conn = match rusqlite::Connection::open(&db_path) {
                 Ok(c) => c,
-                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error opening DB: {}", e);
+                    std::process::exit(1);
+                }
             };
-            match medix::db::lineage_insert_path(&conn, &parent_id, &child_id, &relation_type, None) {
+            match medix::db::lineage_insert_path(&conn, &parent_id, &child_id, &relation_type, None)
+            {
                 Ok(()) => {
                     if cli.json {
                         println!("{}", json_obj(&[("status", json_str("ok"))]));
                     } else {
-                        println!("Lineage link created: {} → {} ({})",
+                        println!(
+                            "Lineage link created: {} → {} ({})",
                             &parent_id[..parent_id.len().min(8)],
                             &child_id[..child_id.len().min(8)],
-                            relation_type);
+                            relation_type
+                        );
                     }
                 }
                 Err(e) => {
@@ -378,19 +474,27 @@ fn main() {
             }
         }
 
-        Command::LineageRemove { parent_id, child_id } => {
+        Command::LineageRemove {
+            parent_id,
+            child_id,
+        } => {
             let conn = match rusqlite::Connection::open(&db_path) {
                 Ok(c) => c,
-                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error opening DB: {}", e);
+                    std::process::exit(1);
+                }
             };
             match medix::db::lineage_remove_path(&conn, &parent_id, &child_id) {
                 Ok(()) => {
                     if cli.json {
                         println!("{}", json_obj(&[("status", json_str("ok"))]));
                     } else {
-                        println!("Lineage link removed: {} → {}",
+                        println!(
+                            "Lineage link removed: {} → {}",
                             &parent_id[..parent_id.len().min(8)],
-                            &child_id[..child_id.len().min(8)]);
+                            &child_id[..child_id.len().min(8)]
+                        );
                     }
                 }
                 Err(e) => {
@@ -401,7 +505,10 @@ fn main() {
         }
 
         Command::ListRootsCount => {
-            match medix::db::browse_count_path(&db_path, &medix::media::BrowseVisibility::Representative) {
+            match medix::db::browse_count_path(
+                &db_path,
+                &medix::media::BrowseVisibility::Representative,
+            ) {
                 Ok(count) => {
                     if cli.json {
                         println!("{}", json_obj(&[("roots", count.to_string())]));
@@ -417,30 +524,56 @@ fn main() {
         }
 
         Command::Stats => {
-            let media = db::list_media_path(&db_path, "imported_at", true, 0, u32::MAX).unwrap_or_default();
+            let media =
+                db::list_media_path(&db_path, "imported_at", true, 0, u32::MAX).unwrap_or_default();
             let tags = db::tag_list_path(&db_path).unwrap_or_default();
             let (collection_count, pinned_count) = {
                 let conn = rusqlite::Connection::open(&db_path).ok();
-                let cc = conn.as_ref().and_then(|c| {
-                    c.query_row("SELECT COUNT(*) FROM collections", [], |r| r.get::<_, i64>(0)).ok()
-                }).unwrap_or(-1);
-                let pc = conn.as_ref().and_then(|c| {
-                    c.query_row("SELECT COUNT(*) FROM collections WHERE pinned_at IS NOT NULL", [], |r| r.get::<_, i64>(0)).ok()
-                }).unwrap_or(-1);
+                let cc = conn
+                    .as_ref()
+                    .and_then(|c| {
+                        c.query_row("SELECT COUNT(*) FROM collections", [], |r| {
+                            r.get::<_, i64>(0)
+                        })
+                        .ok()
+                    })
+                    .unwrap_or(-1);
+                let pc = conn
+                    .as_ref()
+                    .and_then(|c| {
+                        c.query_row(
+                            "SELECT COUNT(*) FROM collections WHERE pinned_at IS NOT NULL",
+                            [],
+                            |r| r.get::<_, i64>(0),
+                        )
+                        .ok()
+                    })
+                    .unwrap_or(-1);
                 (cc, pc)
             };
-            let trashed = rusqlite::Connection::open(&db_path).ok().and_then(|c| {
-                c.query_row("SELECT COUNT(*) FROM media WHERE deleted_at IS NOT NULL", [], |r| r.get::<_, i64>(0)).ok()
-            }).unwrap_or(-1);
+            let trashed = rusqlite::Connection::open(&db_path)
+                .ok()
+                .and_then(|c| {
+                    c.query_row(
+                        "SELECT COUNT(*) FROM media WHERE deleted_at IS NOT NULL",
+                        [],
+                        |r| r.get::<_, i64>(0),
+                    )
+                    .ok()
+                })
+                .unwrap_or(-1);
 
             if cli.json {
-                println!("{}", json_obj(&[
-                    ("media", media.len().to_string()),
-                    ("tags", tags.len().to_string()),
-                    ("collections", collection_count.to_string()),
-                    ("pinned", pinned_count.to_string()),
-                    ("trashed", trashed.to_string()),
-                ]));
+                println!(
+                    "{}",
+                    json_obj(&[
+                        ("media", media.len().to_string()),
+                        ("tags", tags.len().to_string()),
+                        ("collections", collection_count.to_string()),
+                        ("pinned", pinned_count.to_string()),
+                        ("trashed", trashed.to_string()),
+                    ])
+                );
             } else {
                 println!("Media:       {}", media.len());
                 println!("Tags:        {}", tags.len());
@@ -453,11 +586,17 @@ fn main() {
         Command::Query { sql } => {
             let conn = match rusqlite::Connection::open(&db_path) {
                 Ok(c) => c,
-                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error opening DB: {}", e);
+                    std::process::exit(1);
+                }
             };
             let mut stmt = match conn.prepare(&sql) {
                 Ok(s) => s,
-                Err(e) => { eprintln!("SQL error: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("SQL error: {}", e);
+                    std::process::exit(1);
+                }
             };
             let col_count = stmt.column_count();
             let col_names: Vec<String> = (0..col_count)
@@ -481,12 +620,17 @@ fn main() {
             }
 
             if cli.json {
-                let rows_json: Vec<String> = rows_data.iter().map(|vals| {
-                    let pairs: Vec<String> = col_names.iter().zip(vals.iter())
-                        .map(|(k, v)| format!("{}:{}", json_str(k), json_str(v)))
-                        .collect();
-                    format!("{{{}}}", pairs.join(","))
-                }).collect();
+                let rows_json: Vec<String> = rows_data
+                    .iter()
+                    .map(|vals| {
+                        let pairs: Vec<String> = col_names
+                            .iter()
+                            .zip(vals.iter())
+                            .map(|(k, v)| format!("{}:{}", json_str(k), json_str(v)))
+                            .collect();
+                        format!("{{{}}}", pairs.join(","))
+                    })
+                    .collect();
                 println!("[{}]", rows_json.join(","));
             } else {
                 for vals in &rows_data {
@@ -498,7 +642,10 @@ fn main() {
         Command::Exec { sql } => {
             let conn = match rusqlite::Connection::open(&db_path) {
                 Ok(c) => c,
-                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error opening DB: {}", e);
+                    std::process::exit(1);
+                }
             };
             match conn.execute(&sql, []) {
                 Ok(n) => {
@@ -508,53 +655,84 @@ fn main() {
                         println!("{} rows affected", n);
                     }
                 }
-                Err(e) => { eprintln!("SQL error: {}", e); std::process::exit(1); }
-            }
-        }
-
-        Command::SetupDb => {
-            match db::setup_test_db(&db_path) {
-                Ok(()) => {
-                    if cli.json {
-                        println!("{}", json_obj(&[("status", json_str("ok")), ("path", json_str(&db_path.to_string_lossy()))]));
-                    } else {
-                        println!("Database initialized at {}", db_path.display());
-                    }
+                Err(e) => {
+                    eprintln!("SQL error: {}", e);
+                    std::process::exit(1);
                 }
-                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
 
-        Command::Seed { count, with_collections } => {
+        Command::SetupDb => match db::setup_test_db(&db_path) {
+            Ok(()) => {
+                if cli.json {
+                    println!(
+                        "{}",
+                        json_obj(&[
+                            ("status", json_str("ok")),
+                            ("path", json_str(&db_path.to_string_lossy()))
+                        ])
+                    );
+                } else {
+                    println!("Database initialized at {}", db_path.display());
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        },
+
+        Command::Seed {
+            count,
+            with_collections,
+        } => {
             let conn = match rusqlite::Connection::open(&db_path) {
                 Ok(c) => c,
-                Err(e) => { eprintln!("Error opening DB: {}", e); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("Error opening DB: {}", e);
+                    std::process::exit(1);
+                }
             };
 
             let now = chrono::Utc::now().to_rfc3339();
 
             // Create tags
-            let tag_names = ["cat", "dog", "bird", "sunset", "portrait", "landscape", "night", "food"];
+            let tag_names = [
+                "cat",
+                "dog",
+                "bird",
+                "sunset",
+                "portrait",
+                "landscape",
+                "night",
+                "food",
+            ];
             for (i, name) in tag_names.iter().enumerate() {
                 conn.execute(
                     "INSERT OR IGNORE INTO tags (id, name) VALUES (?1, ?2)",
                     rusqlite::params![format!("seed_t{}", i), name],
-                ).ok();
+                )
+                .ok();
             }
 
             // Create collections if requested
             if with_collections {
-                for (i, name) in ["Favorites", "Travel", "Nature", "Urban"].iter().enumerate() {
+                for (i, name) in ["Favorites", "Travel", "Nature", "Urban"]
+                    .iter()
+                    .enumerate()
+                {
                     conn.execute(
                         "INSERT OR IGNORE INTO collections (id, name) VALUES (?1, ?2)",
                         rusqlite::params![format!("seed_c{}", i), name],
-                    ).ok();
+                    )
+                    .ok();
                 }
                 // Pin first collection
                 conn.execute(
                     "UPDATE collections SET pinned_at = ?1 WHERE id = 'seed_c0'",
                     rusqlite::params![now],
-                ).ok();
+                )
+                .ok();
             }
 
             // Create media records
@@ -564,7 +742,11 @@ fn main() {
                 let h = 300 + (i % 6) as i32 * 150;
                 let sz = (1024 + (i % 100) as i64 * 10000) as i64;
                 let mt = if i % 7 == 0 { "video" } else { "image" };
-                let dur: Option<f64> = if mt == "video" { Some(30.0 + i as f64) } else { None };
+                let dur: Option<f64> = if mt == "video" {
+                    Some(30.0 + i as f64)
+                } else {
+                    None
+                };
                 let codec: Option<&str> = if mt == "video" { Some("h264") } else { None };
                 let fps: Option<f64> = if mt == "video" { Some(30.0) } else { None };
 
@@ -580,12 +762,14 @@ fn main() {
                 conn.execute(
                     "INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?1, ?2)",
                     rusqlite::params![mid, format!("seed_t{}", t1)],
-                ).unwrap();
+                )
+                .unwrap();
                 if i % 3 == 0 {
                     conn.execute(
                         "INSERT OR IGNORE INTO media_tags (media_id, tag_id) VALUES (?1, ?2)",
                         rusqlite::params![mid, format!("seed_t{}", t2)],
-                    ).unwrap();
+                    )
+                    .unwrap();
                 }
 
                 // Add to collections
@@ -601,19 +785,27 @@ fn main() {
                         ).unwrap();
                     }
                 }
-
             }
 
-            let media_count: i64 = conn.query_row("SELECT COUNT(*) FROM media", [], |r| r.get(0)).unwrap();
-            let tag_count: i64 = conn.query_row("SELECT COUNT(*) FROM tags", [], |r| r.get(0)).unwrap();
-            let coll_count: i64 = conn.query_row("SELECT COUNT(*) FROM collections", [], |r| r.get(0)).unwrap();
+            let media_count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM media", [], |r| r.get(0))
+                .unwrap();
+            let tag_count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM tags", [], |r| r.get(0))
+                .unwrap();
+            let coll_count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM collections", [], |r| r.get(0))
+                .unwrap();
 
             if cli.json {
-                println!("{}", json_obj(&[
-                    ("media", media_count.to_string()),
-                    ("tags", tag_count.to_string()),
-                    ("collections", coll_count.to_string()),
-                ]));
+                println!(
+                    "{}",
+                    json_obj(&[
+                        ("media", media_count.to_string()),
+                        ("tags", tag_count.to_string()),
+                        ("collections", coll_count.to_string()),
+                    ])
+                );
             } else {
                 println!("Seeded database:");
                 println!("  Media:       {}", media_count);
@@ -644,7 +836,11 @@ fn print_browse_list(items: &[medix::media::BrowseItem]) {
     );
     println!("{}", "-".repeat(80));
     for item in items {
-        let kind = if item.parent_count > 0 { "derived" } else { "root" };
+        let kind = if item.parent_count > 0 {
+            "derived"
+        } else {
+            "root"
+        };
         let dims = match (item.width, item.height) {
             (Some(w), Some(h)) => format!("{}x{}", w, h),
             _ => "—".to_string(),
@@ -654,7 +850,12 @@ fn print_browse_list(items: &[medix::media::BrowseItem]) {
         let path = item.source_path.as_deref().unwrap_or("—");
         println!(
             "{:<10} {:<10} {:>10} {:>10} {:<12} {}",
-            short_id, kind, dims, format_size(item.file_size), date, path,
+            short_id,
+            kind,
+            dims,
+            format_size(item.file_size),
+            date,
+            path,
         );
     }
 }

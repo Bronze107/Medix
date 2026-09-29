@@ -1,15 +1,15 @@
-mod comfyui;
 mod browse;
 mod caption;
 mod collection;
+mod comfyui;
 mod export;
 mod imagine;
+mod lineage;
 mod media;
 mod model;
 mod settings;
 mod tag;
 mod thumbnail;
-mod lineage;
 mod transform;
 
 pub use browse::*;
@@ -18,12 +18,12 @@ pub use collection::*;
 pub use comfyui::*;
 pub use export::*;
 pub use imagine::*;
+pub use lineage::*;
 pub use media::*;
 pub use model::*;
 pub use settings::*;
 pub use tag::*;
 pub use thumbnail::*;
-pub use lineage::*;
 pub use transform::*;
 
 use tauri::command;

@@ -8,7 +8,10 @@ async fn fetch_object_info(app: &AppHandle) -> serde_json::Value {
     let base_url = crate::settings::get_comfyui_base_url(app);
     let url = format!("{}/object_info", base_url);
     match reqwest::get(&url).await {
-        Ok(resp) => resp.json::<serde_json::Value>().await.unwrap_or(serde_json::Value::Null),
+        Ok(resp) => resp
+            .json::<serde_json::Value>()
+            .await
+            .unwrap_or(serde_json::Value::Null),
         Err(_) => serde_json::Value::Null,
     }
 }
@@ -22,13 +25,9 @@ pub fn comfyui_workflow_list(
 }
 
 #[command]
-pub async fn comfyui_workflow_get(
-    app: AppHandle,
-    id: String,
-) -> Result<serde_json::Value, String> {
+pub async fn comfyui_workflow_get(app: AppHandle, id: String) -> Result<serde_json::Value, String> {
     let wf = comfyui::comfyui_workflow_get(&app, &id).map_err(|e| e.to_string())?;
-    let mut params =
-        WorkflowManager::parse_params(&wf.workflow_json).map_err(|e| e.to_string())?;
+    let mut params = WorkflowManager::parse_params(&wf.workflow_json).map_err(|e| e.to_string())?;
     let object_info = fetch_object_info(&app).await;
     params = WorkflowManager::enrich_params(&params, &object_info, &wf.workflow_json);
     let result_nodes = WorkflowManager::result_node_ids(&wf.workflow_json);
@@ -69,8 +68,7 @@ pub fn comfyui_workflow_update(
     let _ = WorkflowManager::parse_params(&workflow_json)
         .map_err(|e| format!("无效的工作流：{}", e))?;
 
-    comfyui::comfyui_workflow_update(&app, &id, &name, &workflow_json)
-        .map_err(|e| e.to_string())
+    comfyui::comfyui_workflow_update(&app, &id, &name, &workflow_json).map_err(|e| e.to_string())
 }
 
 #[command]

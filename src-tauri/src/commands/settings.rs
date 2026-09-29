@@ -65,18 +65,12 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
 }
 
 #[command]
-pub fn saved_filters_list(
-    app: AppHandle,
-) -> Result<Vec<crate::db::SavedFilter>, String> {
+pub fn saved_filters_list(app: AppHandle) -> Result<Vec<crate::db::SavedFilter>, String> {
     crate::db::saved_filters_get_all(&app).map_err(|e| e.to_string())
 }
 
 #[command]
-pub fn saved_filters_save(
-    app: AppHandle,
-    name: String,
-    query: String,
-) -> Result<(), String> {
+pub fn saved_filters_save(app: AppHandle, name: String, query: String) -> Result<(), String> {
     let filter = crate::db::SavedFilter { name, query };
     crate::db::saved_filters_save(&app, &filter).map_err(|e| e.to_string())
 }

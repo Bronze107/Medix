@@ -24,12 +24,15 @@ pub fn import_single_video(
 ) -> MediaImportResult {
     let id = Ulid::new().to_string();
 
-    let _ = app.emit("import-progress", serde_json::json!({
-        "stage": "validating",
-        "current": 0,
-        "total": 1,
-        "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-    }));
+    let _ = app.emit(
+        "import-progress",
+        serde_json::json!({
+            "stage": "validating",
+            "current": 0,
+            "total": 1,
+            "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        }),
+    );
 
     // 1. Check extension
     let ext = source_path
@@ -95,12 +98,15 @@ pub fn import_single_video(
     }
 
     // 4. Copy to library
-    let _ = app.emit("import-progress", serde_json::json!({
-        "stage": "copying",
-        "current": 0,
-        "total": 1,
-        "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-    }));
+    let _ = app.emit(
+        "import-progress",
+        serde_json::json!({
+            "stage": "copying",
+            "current": 0,
+            "total": 1,
+            "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        }),
+    );
     let dest_path = library_dir.join(format!("{}.{}", id, ext));
     if let Err(e) = fs::copy(source_path, &dest_path) {
         return MediaImportResult {
@@ -112,12 +118,15 @@ pub fn import_single_video(
     }
 
     // 5. SHA256 dedup
-    let _ = app.emit("import-progress", serde_json::json!({
-        "stage": "hashing",
-        "current": 0,
-        "total": 1,
-        "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-    }));
+    let _ = app.emit(
+        "import-progress",
+        serde_json::json!({
+            "stage": "hashing",
+            "current": 0,
+            "total": 1,
+            "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        }),
+    );
     let sha256 = match compute_sha256(&dest_path) {
         Ok(hash) => Some(hash),
         Err(e) => {
@@ -156,12 +165,15 @@ pub fn import_single_video(
     }
 
     // 6. Extract metadata
-    let _ = app.emit("import-progress", serde_json::json!({
-        "stage": "metadata",
-        "current": 0,
-        "total": 1,
-        "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-    }));
+    let _ = app.emit(
+        "import-progress",
+        serde_json::json!({
+            "stage": "metadata",
+            "current": 0,
+            "total": 1,
+            "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        }),
+    );
     let metadata = match video_metadata::extract_metadata(&dest_path) {
         Ok(m) => m,
         Err(e) => {
@@ -176,26 +188,28 @@ pub fn import_single_video(
     };
 
     // 7. Generate thumbnail
-    let _ = app.emit("import-progress", serde_json::json!({
-        "stage": "thumbnail",
-        "current": 0,
-        "total": 1,
-        "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-    }));
-    let _thumb_result = video_thumbnail::generate_video_thumbnail(
-        app,
-        &id,
-        &dest_path,
-        metadata.duration,
+    let _ = app.emit(
+        "import-progress",
+        serde_json::json!({
+            "stage": "thumbnail",
+            "current": 0,
+            "total": 1,
+            "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        }),
     );
+    let _thumb_result =
+        video_thumbnail::generate_video_thumbnail(app, &id, &dest_path, metadata.duration);
 
     // 8. Insert into database (LQIP = None for video, skip pHash)
-    let _ = app.emit("import-progress", serde_json::json!({
-        "stage": "database",
-        "current": 0,
-        "total": 1,
-        "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
-    }));
+    let _ = app.emit(
+        "import-progress",
+        serde_json::json!({
+            "stage": "database",
+            "current": 0,
+            "total": 1,
+            "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+        }),
+    );
     let media = Media {
         id: id.clone(),
         source_path: Some(source_path.to_string_lossy().to_string()),
@@ -237,7 +251,7 @@ pub fn import_single_video(
                 success: true,
                 error: None,
             }
-        },
+        }
         Err(e) => {
             let _ = fs::remove_file(&dest_path);
             MediaImportResult {

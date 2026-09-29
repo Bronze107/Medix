@@ -110,7 +110,10 @@ impl ImageQueue {
     }
 
     fn insert_task(&self, state: TaskState) {
-        self.tasks.lock().unwrap().insert(state.task_id.clone(), state);
+        self.tasks
+            .lock()
+            .unwrap()
+            .insert(state.task_id.clone(), state);
     }
 
     fn update_status(&self, task_id: &str, status: &str, error: Option<String>) {
@@ -168,10 +171,7 @@ pub fn init_image_queue(app: AppHandle) -> ImageQueue {
 
     let app_clone = app.clone();
     let staging_dir = {
-        let app_dir = app
-            .path()
-            .app_data_dir()
-            .expect("app data dir");
+        let app_dir = app.path().app_data_dir().expect("app data dir");
         let staging = app_dir.join("staging");
         fs::create_dir_all(&staging).ok();
         staging
@@ -303,14 +303,7 @@ async fn process_task(
                 resolution,
                 n,
             };
-            (
-                task_id,
-                "edit",
-                prompt,
-                None,
-                Some(params),
-                workflow_id,
-            )
+            (task_id, "edit", prompt, None, Some(params), workflow_id)
         }
     };
 
@@ -330,14 +323,14 @@ async fn process_task(
         }
     };
 
-    let result: Result<Vec<super::GeneratedImage>, super::ImagineError> = if let Some(params) = generate_params
-    {
-        provider.generate(&params).await
-    } else if let Some(params) = edit_params {
-        provider.edit(&params).await
-    } else {
-        return;
-    };
+    let result: Result<Vec<super::GeneratedImage>, super::ImagineError> =
+        if let Some(params) = generate_params {
+            provider.generate(&params).await
+        } else if let Some(params) = edit_params {
+            provider.edit(&params).await
+        } else {
+            return;
+        };
 
     match result {
         Ok(images) => {
@@ -359,8 +352,9 @@ async fn process_task(
                     Ok(d) => d,
                     Err(_) => continue,
                 };
-                let file_size =
-                    fs::metadata(&temp_path).map(|m| m.len() as i64).unwrap_or(0);
+                let file_size = fs::metadata(&temp_path)
+                    .map(|m| m.len() as i64)
+                    .unwrap_or(0);
                 staged_results.push(StagedImage {
                     id,
                     path: temp_path.to_string_lossy().replace('\\', "/"),
@@ -447,8 +441,8 @@ fn read_and_encode_image(source_path: &str, max_dim: u32) -> Result<String, Stri
             source_path
         ));
     }
-    let img = image::open(source_path)
-        .map_err(|e| format!("无法读取源图片 {}：{}", source_path, e))?;
+    let img =
+        image::open(source_path).map_err(|e| format!("无法读取源图片 {}：{}", source_path, e))?;
     let (w, h) = (img.width(), img.height());
     let image_data_url = if w.max(h) > max_dim {
         let ratio = max_dim as f64 / w.max(h) as f64;
@@ -485,7 +479,12 @@ fn image_to_data_url(img: &image::DynamicImage, source_path: &str) -> Result<Str
             let mut buf = Vec::new();
             let encoder = image::codecs::png::PngEncoder::new(&mut buf);
             encoder
-                .write_image(&rgba, img.width(), img.height(), image::ExtendedColorType::Rgba8)
+                .write_image(
+                    &rgba,
+                    img.width(),
+                    img.height(),
+                    image::ExtendedColorType::Rgba8,
+                )
                 .map_err(|e| e.to_string())?;
             ("image/png", buf)
         }
@@ -539,7 +538,10 @@ pub fn image_queue_submit_generate(
         progress: None,
     });
     queue.send(task).map_err(|e| e.to_string())?;
-    let _ = app.emit("image-queue-updated", serde_json::json!({ "remaining": queue.pending_count() }));
+    let _ = app.emit(
+        "image-queue-updated",
+        serde_json::json!({ "remaining": queue.pending_count() }),
+    );
     Ok(task_id)
 }
 
@@ -580,7 +582,10 @@ pub fn image_queue_submit_edit(
         progress: None,
     });
     queue.send(task).map_err(|e| e.to_string())?;
-    let _ = app.emit("image-queue-updated", serde_json::json!({ "remaining": queue.pending_count() }));
+    let _ = app.emit(
+        "image-queue-updated",
+        serde_json::json!({ "remaining": queue.pending_count() }),
+    );
     Ok(task_id)
 }
 
@@ -636,7 +641,11 @@ pub fn image_queue_import(
         let library_dir = app_dir.join("library");
 
         // ComfyUI 任务必有 workflow_id，xAI 任务没有 → 据此打来源标签。
-        let provider_tag = if task.workflow_id.is_some() { "comfyui" } else { "xai" };
+        let provider_tag = if task.workflow_id.is_some() {
+            "comfyui"
+        } else {
+            "xai"
+        };
         let source = format!("ai-edited:{}", provider_tag);
 
         let mut results = Vec::new();
@@ -709,19 +718,32 @@ pub fn image_queue_import(
 
             // Create lineage links for ALL source images
             for src_id in source_media_ids {
-                if let Err(e) = crate::db::lineage_insert(&app, src_id, &new_id, "edit", task.workflow_id.as_deref()) {
+                if let Err(e) = crate::db::lineage_insert(
+                    &app,
+                    src_id,
+                    &new_id,
+                    "edit",
+                    task.workflow_id.as_deref(),
+                ) {
                     eprintln!("[image-queue] failed to insert lineage: {}", e);
                 }
             }
 
             // Generate thumbnail
-            if let Err(e) = crate::media::thumbnail::generate_thumbnails_from_image(&app, &new_id, &decoded) {
+            if let Err(e) =
+                crate::media::thumbnail::generate_thumbnails_from_image(&app, &new_id, &decoded)
+            {
                 eprintln!("[image-queue] thumbnail failed: {}", e);
             }
 
             // Save prompt as caption (if not empty)
             if !task.prompt.is_empty() {
-                if let Err(e) = crate::db::caption_create_with_source(&app, &new_id, &task.prompt, Some("ai-edit")) {
+                if let Err(e) = crate::db::caption_create_with_source(
+                    &app,
+                    &new_id,
+                    &task.prompt,
+                    Some("ai-edit"),
+                ) {
                     eprintln!("[image-queue] failed to save prompt caption: {}", e);
                 }
             }
@@ -782,7 +804,11 @@ pub fn image_queue_import(
 
             let lqip = {
                 let data_url = crate::media::thumbnail::generate_lqip(&decoded);
-                if data_url.is_empty() { None } else { Some(data_url) }
+                if data_url.is_empty() {
+                    None
+                } else {
+                    Some(data_url)
+                }
             };
 
             let media = crate::media::Media {
@@ -835,7 +861,10 @@ pub fn image_queue_import(
             // Save prompt as caption (skip if empty — ComfyUI workflows may not expose a text param)
             if !task.prompt.is_empty() {
                 if let Err(e) = crate::db::caption_create_with_source(
-                    &app, &id, &task.prompt, Some("ai-generated"),
+                    &app,
+                    &id,
+                    &task.prompt,
+                    Some("ai-generated"),
                 ) {
                     eprintln!("[image-queue] failed to save prompt caption: {}", e);
                 }
