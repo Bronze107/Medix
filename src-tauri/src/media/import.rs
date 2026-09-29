@@ -355,6 +355,16 @@ fn import_single_file(
     };
     let lqip_ms = t_lqip.elapsed().as_millis();
 
+    // Step 6.6: Detect AI generation tool from PNG text chunks (ComfyUI / WebUI).
+    // Falls back to "local" when no metadata is found. Video imports are unaffected.
+    let source = if ext == "png" {
+        super::ai_source::detect_ai_source(&dest_path)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "local".to_string())
+    } else {
+        "local".to_string()
+    };
+
     let media = Media {
         id: id.clone(),
         source_path: Some(path_str.clone()),
@@ -366,7 +376,7 @@ fn import_single_file(
         imported_at: chrono::Utc::now().to_rfc3339(),
         source_url: None,
         page_url: None,
-        source: Some("local".to_string()),
+        source: Some(source),
         phash,
         sha256,
         deleted_at: None,
