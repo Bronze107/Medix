@@ -1,7 +1,7 @@
-use std::error::Error as StdError;
-use std::io::{Cursor, Write};
 use serde::Deserialize;
+use std::error::Error as StdError;
 use std::fs;
+use std::io::{Cursor, Write};
 use std::path::Path;
 use std::time::Duration;
 use tauri::{Emitter, Manager};
@@ -30,18 +30,18 @@ pub fn start_http_server(app: tauri::AppHandle) {
 
         println!("[http] listening on {}", addr);
 
-        let app_dir = app
-            .path()
-            .app_data_dir()
-            .expect("app data dir");
+        let app_dir = app.path().app_data_dir().expect("app data dir");
 
         for mut request in server.incoming_requests() {
             let url_path = request.url().to_string();
 
             match (request.method(), url_path.as_str()) {
                 (tiny_http::Method::Get, "/api/health") => {
-                    let resp = tiny_http::Response::from_string("{\"status\":\"ok\"}")
-                        .with_header("Content-Type: application/json; charset=utf-8".parse::<tiny_http::Header>().unwrap());
+                    let resp = tiny_http::Response::from_string("{\"status\":\"ok\"}").with_header(
+                        "Content-Type: application/json; charset=utf-8"
+                            .parse::<tiny_http::Header>()
+                            .unwrap(),
+                    );
                     let _ = request.respond(resp);
                 }
                 (tiny_http::Method::Post, "/api/import") => {
@@ -56,9 +56,10 @@ pub fn start_http_server(app: tauri::AppHandle) {
                     let import_req: ImportRequest = match serde_json::from_str(&body) {
                         Ok(r) => r,
                         Err(e) => {
-                            let resp = tiny_http::Response::from_string(
-                                format!("{{\"error\":\"{}\"}}", e),
-                            )
+                            let resp = tiny_http::Response::from_string(format!(
+                                "{{\"error\":\"{}\"}}",
+                                e
+                            ))
                             .with_status_code(400);
                             let _ = request.respond(resp);
                             continue;
@@ -69,25 +70,21 @@ pub fn start_http_server(app: tauri::AppHandle) {
                     let app_dir_clone = app_dir.clone();
 
                     // Fire and forget — respond immediately
-                    let resp = tiny_http::Response::from_string("{\"ok\":true}")
-                        .with_header("Content-Type: application/json; charset=utf-8".parse::<tiny_http::Header>().unwrap());
+                    let resp = tiny_http::Response::from_string("{\"ok\":true}").with_header(
+                        "Content-Type: application/json; charset=utf-8"
+                            .parse::<tiny_http::Header>()
+                            .unwrap(),
+                    );
                     let _ = request.respond(resp);
 
                     // Download and import in background
                     std::thread::spawn(move || {
-                        match download_and_import(
-                            &app_clone,
-                            &app_dir_clone,
-                            &import_req,
-                        ) {
+                        match download_and_import(&app_clone, &app_dir_clone, &import_req) {
                             Ok(media_id) => {
                                 println!("[http] imported {} from {}", media_id, import_req.url);
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "[http] import failed for {}: {}",
-                                    import_req.url, e
-                                );
+                                eprintln!("[http] import failed for {}: {}", import_req.url, e);
                                 let _ = app_clone.emit(
                                     "remote-import-error",
                                     format!("{}: {}", import_req.url, e),
@@ -129,22 +126,23 @@ fn download_and_import(
     let mut http_req = client.get(&req.url);
     // Sites like Twitter/X block requests without a browser-like User-Agent
     http_req = http_req.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-    http_req = http_req.header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8");
+    http_req = http_req.header(
+        "Accept",
+        "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    );
     if let Some(ref page_url) = req.page_url {
         http_req = http_req.header("Referer", page_url.as_str());
     }
 
-    let response = http_req
-        .send()
-        .map_err(|e| {
-            let mut msg = format!("download failed: {e}");
-            let mut src = e.source();
-            while let Some(inner) = src {
-                msg.push_str(&format!("\n  caused by: {inner}"));
-                src = inner.source();
-            }
-            msg
-        })?;
+    let response = http_req.send().map_err(|e| {
+        let mut msg = format!("download failed: {e}");
+        let mut src = e.source();
+        while let Some(inner) = src {
+            msg.push_str(&format!("\n  caused by: {inner}"));
+            src = inner.source();
+        }
+        msg
+    })?;
 
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()));
@@ -160,8 +158,11 @@ fn download_and_import(
     let bytes = response.bytes().map_err(|e| e.to_string())?;
 
     // Compute SHA256 for dedup
-    use sha2::{Sha256, Digest};
-    let sha256 = Some(format!("{:x}", Sha256::new().chain_update(&bytes[..]).finalize()));
+    use sha2::{Digest, Sha256};
+    let sha256 = Some(format!(
+        "{:x}",
+        Sha256::new().chain_update(&bytes[..]).finalize()
+    ));
 
     // Detect format from magic bytes (primary), fall back to Content-Type, then URL
 
@@ -246,7 +247,9 @@ fn detect_image_format(
         .with_guessed_format()
         .map_err(|e| format!("cannot detect image format: {e}"))?;
     let fmt = reader.format();
-    let img = reader.decode().map_err(|e| format!("image decode error: {e}"))?;
+    let img = reader
+        .decode()
+        .map_err(|e| format!("image decode error: {e}"))?;
 
     let ext = extension_from_image_format(fmt)
         .or_else(|| content_type.and_then(extension_from_mime))
@@ -279,11 +282,8 @@ fn extension_from_mime(mime: &str) -> Option<String> {
 }
 
 fn extension_from_url(url: &str) -> Option<String> {
-    url.rsplit('.')
-        .next()
-        .and_then(|e| {
-            let e = e.split('?').next().unwrap_or(e).to_lowercase();
-            matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp")
-                .then_some(e)
-        })
+    url.rsplit('.').next().and_then(|e| {
+        let e = e.split('?').next().unwrap_or(e).to_lowercase();
+        matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif" | "bmp").then_some(e)
+    })
 }

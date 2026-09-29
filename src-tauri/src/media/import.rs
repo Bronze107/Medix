@@ -1,4 +1,4 @@
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -10,8 +10,7 @@ use super::{Media, MediaImportResult};
 use crate::db;
 
 const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "webp", "gif", "bmp",
-    "mp4", "webm", "mkv", "avi", "mov",
+    "jpg", "jpeg", "png", "webp", "gif", "bmp", "mp4", "webm", "mkv", "avi", "mov",
 ];
 
 /// Detect image format from magic bytes (file header).
@@ -110,11 +109,14 @@ pub fn import_files(
                 .unwrap_or("")
                 .to_string();
             let idx = counter.fetch_add(1, Ordering::Relaxed);
-            let _ = app.emit("import-progress", serde_json::json!({
-                "current": idx + 1,
-                "total": total,
-                "filename": filename,
-            }));
+            let _ = app.emit(
+                "import-progress",
+                serde_json::json!({
+                    "current": idx + 1,
+                    "total": total,
+                    "filename": filename,
+                }),
+            );
             result
         })
         .collect();
@@ -153,7 +155,10 @@ struct HashingReader<R: Read> {
 
 impl<R: Read> HashingReader<R> {
     fn new(inner: R) -> Self {
-        Self { inner, hasher: Sha256::new() }
+        Self {
+            inner,
+            hasher: Sha256::new(),
+        }
     }
     fn finalize(self) -> String {
         format!("{:x}", self.hasher.finalize())
@@ -200,7 +205,9 @@ fn import_single_file(
         Ok(f) => f,
         Err(e) => {
             return MediaImportResult {
-                id: String::new(), path: path_str, success: false,
+                id: String::new(),
+                path: path_str,
+                success: false,
                 error: Some(format!("Failed to open source: {}", e)),
             };
         }
@@ -216,11 +223,15 @@ fn import_single_file(
             Ok(0) => break,
             Ok(n) => {
                 total_read += n;
-                if total_read >= first_chunk.len() { break; }
+                if total_read >= first_chunk.len() {
+                    break;
+                }
             }
             Err(e) => {
                 return MediaImportResult {
-                    id: String::new(), path: path_str, success: false,
+                    id: String::new(),
+                    path: path_str,
+                    success: false,
                     error: Some(format!("Failed to read source: {}", e)),
                 };
             }
@@ -233,7 +244,9 @@ fn import_single_file(
         Some(e) => e,
         None => {
             return MediaImportResult {
-                id: String::new(), path: path_str, success: false,
+                id: String::new(),
+                path: path_str,
+                success: false,
                 error: Some("Unsupported file type (unrecognized format)".to_string()),
             };
         }
@@ -243,7 +256,9 @@ fn import_single_file(
     // Write the buffered first chunk to dest
     if let Err(e) = fs::write(&dest_path, &first_chunk) {
         return MediaImportResult {
-            id: String::new(), path: path_str, success: false,
+            id: String::new(),
+            path: path_str,
+            success: false,
             error: Some(format!("Failed to write dest: {}", e)),
         };
     }
@@ -253,7 +268,9 @@ fn import_single_file(
         Ok(f) => f,
         Err(e) => {
             return MediaImportResult {
-                id: String::new(), path: path_str, success: false,
+                id: String::new(),
+                path: path_str,
+                success: false,
                 error: Some(format!("Failed to open dest for append: {}", e)),
             };
         }
@@ -266,14 +283,18 @@ fn import_single_file(
             Ok(n) => {
                 if let Err(e) = dest_file.write_all(&buf[..n]) {
                     return MediaImportResult {
-                        id: String::new(), path: path_str, success: false,
+                        id: String::new(),
+                        path: path_str,
+                        success: false,
                         error: Some(format!("Failed to write dest: {}", e)),
                     };
                 }
             }
             Err(e) => {
                 return MediaImportResult {
-                    id: String::new(), path: path_str, success: false,
+                    id: String::new(),
+                    path: path_str,
+                    success: false,
                     error: Some(format!("Failed to read source: {}", e)),
                 };
             }
@@ -290,7 +311,9 @@ fn import_single_file(
             Ok(Some(existing)) => {
                 let _ = fs::remove_file(&dest_path);
                 return MediaImportResult {
-                    id: existing.id, path: path_str, success: true,
+                    id: existing.id,
+                    path: path_str,
+                    success: true,
                     error: Some("已存在（重复文件）".to_string()),
                 };
             }
@@ -306,7 +329,9 @@ fn import_single_file(
         Ok(i) => i,
         Err(e) => {
             return MediaImportResult {
-                id: String::new(), path: path_str, success: false,
+                id: String::new(),
+                path: path_str,
+                success: false,
                 error: Some(format!("Failed to decode image: {}", e)),
             };
         }
@@ -323,8 +348,15 @@ fn import_single_file(
     let img_work = if img.width() > max_dim || img.height() > max_dim {
         let t = Instant::now();
         let small = img.resize(max_dim, max_dim, image::imageops::FilterType::Nearest);
-        println!("[import] {} downscale {}x{} -> {}x{} in {}ms",
-            fname, img.width(), img.height(), small.width(), small.height(), t.elapsed().as_millis());
+        println!(
+            "[import] {} downscale {}x{} -> {}x{} in {}ms",
+            fname,
+            img.width(),
+            img.height(),
+            small.width(),
+            small.height(),
+            t.elapsed().as_millis()
+        );
         small
     } else {
         img
@@ -343,15 +375,18 @@ fn import_single_file(
 
     // Step 6: pHash from work copy (tiny → near-instant)
     let t_phash = Instant::now();
-    let phash = super::phash::compute_phash_from_image(&img_work)
-        .map(|h| h.to_le_bytes().to_vec());
+    let phash = super::phash::compute_phash_from_image(&img_work).map(|h| h.to_le_bytes().to_vec());
     let phash_ms = t_phash.elapsed().as_millis();
 
     // Step 6.5: LQIP placeholder (20px base64, ~300 bytes)
     let t_lqip = Instant::now();
     let lqip = {
         let data_url = super::thumbnail::generate_lqip(&img_work);
-        if data_url.is_empty() { None } else { Some(data_url) }
+        if data_url.is_empty() {
+            None
+        } else {
+            Some(data_url)
+        }
     };
     let lqip_ms = t_lqip.elapsed().as_millis();
 
@@ -404,7 +439,10 @@ fn import_single_file(
     // Step 7: Generate thumbnails from the work copy (already ≤512px → near-instant)
     let t_thumb = Instant::now();
     if let Err(e) = super::thumbnail::generate_thumbnails_from_image(app, &id, &img_work) {
-        eprintln!("[thumbnail] failed to generate thumbnails for {}: {}", id, e);
+        eprintln!(
+            "[thumbnail] failed to generate thumbnails for {}: {}",
+            id, e
+        );
     }
     let thumb_ms = t_thumb.elapsed().as_millis();
 
