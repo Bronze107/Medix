@@ -623,7 +623,9 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
                   {media.source === "web" && `网页 · ${parsePlatform(media.page_url || media.source_url) || "未知站点"}`}
                   {media.source === "local" && "本地"}
                   {media.source === "zip" && "ZIP 导入"}
-                  {media.source !== "web" && media.source !== "local" && media.source !== "zip" && media.source}
+                  {media.source === "comfyui" && "ComfyUI 生成"}
+                  {media.source === "webui" && "WebUI (A1111) 生成"}
+                  {!["web", "local", "zip", "comfyui", "webui"].includes(media.source) && media.source}
                 </p>
               </div>
             )}
