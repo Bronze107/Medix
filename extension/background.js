@@ -16,6 +16,19 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const imageUrl = info.srcUrl;
   const pageUrl = tab?.url || info.pageUrl || "";
 
+  await importImage(imageUrl, pageUrl);
+});
+
+// Relay imports from content scripts (e.g. Xiaohongshu alt+click).
+// The local Medix server has no CORS headers, so content scripts cannot
+// fetch localhost directly — the service worker's fetch is not origin-bound.
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === "medix-import" && msg.url) {
+    importImage(msg.url, msg.page_url || "");
+  }
+});
+
+async function importImage(imageUrl, pageUrl) {
   const port = await getPort();
 
   // Brief badge feedback before the async request
@@ -47,7 +60,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   } catch (e) {
     showError(e.message);
   }
-});
+}
 
 function showSuccess() {
   // Badge on extension icon
