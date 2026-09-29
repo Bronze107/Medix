@@ -11,6 +11,18 @@ use crate::db::comfyui::WorkflowParam;
 /// `nodeId:widgetName` / `graphId:nodeId:widgetName` 形式）。
 pub struct WorkflowManager;
 
+/// 子图层级上下文，用于边界输入的链式上溯解析：
+/// instance 为该层子图实例节点，graph_def 为包含它的图的定义（root 为 None），
+/// lm 为该图已重写完成的 link map。
+#[derive(Clone)]
+struct SubCtx<'a> {
+    instance: &'a Value,
+    graph_def: Option<&'a Value>,
+    lm: &'a HashMap<u64, (String, u64)>,
+    /// 该层级的节点 id 前缀（lm 中的 origin 相对此前缀）。
+    prefix: &'a str,
+}
+
 impl WorkflowManager {
     // --- 参数解析 ---
 
@@ -27,15 +39,15 @@ impl WorkflowManager {
 
     /// 解析 `extra.linearData.inputs`，返回暴露的参数列表。
     pub fn parse_params(workflow_json: &str) -> Result<Vec<WorkflowParam>, String> {
-        let root: Value = serde_json::from_str(workflow_json)
-            .map_err(|e| format!("无效的工作流 JSON：{}", e))?;
+        let root: Value =
+            serde_json::from_str(workflow_json).map_err(|e| format!("无效的工作流 JSON：{}", e))?;
         if !root["nodes"].is_array() {
             return Err(
                 "请粘贴 ComfyUI 画布保存的标准工作流 JSON（含 nodes 数组），而不是 Export (API) 格式"
                     .to_string(),
             );
         }
-        let nodes = root["nodes"].as_array().unwrap();
+        let nodes = Self::flattened_nodes(&root);
         let inputs = Self::linear_data_inputs(&root)?;
 
         let mut params = Vec::new();
@@ -44,7 +56,8 @@ impl WorkflowManager {
             let (node_id, widget_name) = Self::parse_widget_id(entry)?;
             let node = nodes
                 .iter()
-                .find(|n| Self::node_id_str(n) == node_id)
+                .find(|(nid, _)| nid == &node_id)
+                .map(|(_, n)| *n)
                 .ok_or_else(|| format!("linearData 引用的节点 {} 不存在于工作流中", node_id))?;
 
             let default_value = Self::widget_default_value(node, &widget_name)
@@ -116,12 +129,50 @@ impl WorkflowManager {
         };
         root["extra"]["linearData"]["outputs"]
             .as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
+    /// 展平工作流中的所有节点：根图节点 id 不变，子图内部节点 id 为
+    /// "{实例路径}:{内部id}"（与 standard_to_api 的 API key 一致，
+    /// linearData 的 "docid:实例:内部id:widget" 取最后两段后即可命中）。
+    fn flattened_nodes<'a>(root: &'a Value) -> Vec<(String, &'a Value)> {
+        let def_map = Self::index_subgraphs(root);
+        let mut out = Vec::new();
+        Self::collect_nodes(root, "", &def_map, &mut out);
+        out
+    }
+
+    fn collect_nodes<'a, 'b>(
+        graph: &'a Value,
+        prefix: &str,
+        def_map: &'b HashMap<String, &'a Value>,
+        out: &mut Vec<(String, &'a Value)>,
+    ) {
+        let Some(nodes) = graph["nodes"].as_array() else {
+            return;
+        };
+        for node in nodes {
+            let id = Self::node_id_str(node);
+            if id.is_empty() {
+                continue;
+            }
+            let t = node["type"].as_str().unwrap_or("");
+            if let Some(def) = def_map.get(t).copied() {
+                Self::collect_nodes(def, &format!("{prefix}{id}:"), def_map, out);
+            } else {
+                out.push((format!("{prefix}{id}"), node));
+            }
+        }
+    }
+
     /// 解析 linearData 元素 → (node_id, widget_name)。
-    /// 兼容 `["26","value"]`、`["26:value"]`、`["graph:26:value"]`。
+    /// widgetId 可能带非数字前缀（文档 id、"graph"），剥掉后其余段按 ':'
+    /// 连接为节点路径：根图节点 "26"，子图内部节点 "实例:内部id"。
     fn parse_widget_id(entry: &Value) -> Result<(String, String), String> {
         let arr = entry.as_array().ok_or("linearData.inputs 元素必须是数组")?;
         let first = arr
@@ -130,18 +181,31 @@ impl WorkflowManager {
             .ok_or("linearData.inputs 元素的第一个字段必须是 widgetId 字符串")?;
         let parts: Vec<&str> = first.split(':').collect();
         if parts.len() >= 2 {
-            let node_id = Self::percent_decode(parts[parts.len() - 2]);
             let widget_name = Self::percent_decode(parts[parts.len() - 1]);
+            let mut node_parts = &parts[..parts.len() - 1];
+            while node_parts.len() > 1 && !Self::is_numeric_id(node_parts[0]) {
+                node_parts = &node_parts[1..];
+            }
+            let joined = node_parts.join(":");
+            let node_id = Self::percent_decode(&joined);
             Ok((node_id, widget_name))
         } else {
-            let widget_name = arr
-                .get(1)
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    format!("widgetId '{}' 未包含 widget 名，且元素缺少第二个字段", first)
-                })?;
-            Ok((Self::percent_decode(first), Self::percent_decode(widget_name)))
+            let widget_name = arr.get(1).and_then(|v| v.as_str()).ok_or_else(|| {
+                format!(
+                    "widgetId '{}' 未包含 widget 名，且元素缺少第二个字段",
+                    first
+                )
+            })?;
+            Ok((
+                Self::percent_decode(first),
+                Self::percent_decode(widget_name),
+            ))
         }
+    }
+
+    /// 判断字符串是否为纯数字节点 id（用于剥掉 widgetId 的非数字前缀）。
+    fn is_numeric_id(s: &str) -> bool {
+        !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
     }
 
     fn percent_decode(s: &str) -> String {
@@ -305,102 +369,336 @@ impl WorkflowManager {
 
     /// 将标准画布工作流转换为 `/prompt` 所需的 API 格式。
     ///
-    /// 转换完全由图结构驱动：node.inputs 中 link 输入经 root.links 解析为
-    /// `[from_node, from_slot]`；widget 输入按 node.inputs 位置顺序消费
-    /// widgets_values（丢弃 IMAGEUPLOAD 等前端专属 widget 与尾部多余值，
-    /// 如 KSampler 的 control_after_generate）。object_info 仅用于兜底填充
-    /// 旧格式中未出现在 node.inputs 里的必需 widget 输入。
-    pub fn standard_to_api(
-        workflow_json: &str,
+    /// 支持子图（Subgraph，语义对齐 ComfyUI_frontend ExecutableNodeDTO）：
+    /// 子图实例节点不进入输出，其内部节点以 "{实例id}:{内部id}" 平铺
+    /// （嵌套子图路径冒号累加）；边界连线（inputNode/-10、outputNode/-20）
+    /// 按 ComfyUI 官方语义解析重写。
+    ///
+    /// 非 link 的 widget 输入按 node.inputs 位置顺序消费 widgets_values
+    /// （丢弃 IMAGEUPLOAD 等前端专属 widget 与尾部多余值）；新格式按
+    /// widgets_values_named 取值。object_info 仅用于兜底填充必需输入。
+    pub fn standard_to_api(workflow_json: &str, object_info: &Value) -> Result<Value, String> {
+        let root: Value =
+            serde_json::from_str(workflow_json).map_err(|e| format!("无效的工作流 JSON：{}", e))?;
+        let def_map = Self::index_subgraphs(&root);
+        let mut api = serde_json::Map::new();
+        Self::emit_graph(&root, None, "", &[], &def_map, object_info, &mut api)?;
+        Ok(Value::Object(api))
+    }
+
+    /// 索引 definitions.subgraphs → {id: def}（借用 root 内的定义）。
+    fn index_subgraphs<'a>(root: &'a Value) -> HashMap<String, &'a Value> {
+        root["definitions"]["subgraphs"]
+            .as_array()
+            .map(|defs| {
+                defs.iter()
+                    .filter_map(|d| d["id"].as_str().map(|id| (id.to_string(), d)))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// 判断节点是否为子图实例（type 命中某个子图定义 id）。
+    fn is_subgraph_instance(node: &Value, def_map: &HashMap<String, &Value>) -> bool {
+        node["type"]
+            .as_str()
+            .map_or(false, |t| def_map.contains_key(t))
+    }
+
+    /// 构建 link id → (源节点 id 字符串, 源槽位) 映射。
+    /// 兼容两种格式：根图数组格式 [id, origin_id, origin_slot, ...] 与
+    /// 子图对象格式 {id, origin_id, origin_slot, ...}。
+    /// 保留 -10/-20 边界 link（边界解析时用于识别上溯）。
+    fn build_link_map(links: Option<&Value>) -> HashMap<u64, (String, u64)> {
+        let mut m = HashMap::new();
+        let Some(arr) = links.and_then(|v| v.as_array()) else {
+            return m;
+        };
+        for link in arr {
+            if let Some(a) = link.as_array() {
+                if a.len() >= 3 {
+                    if let (Some(id), Some(o), Some(s)) =
+                        (a[0].as_u64(), a[1].as_u64(), a[2].as_u64())
+                    {
+                        m.insert(id, (o.to_string(), s));
+                    }
+                }
+            } else if let Some(obj) = link.as_object() {
+                if let (Some(id), Some(o), Some(s)) = (
+                    obj.get("id").and_then(|v| v.as_u64()),
+                    // origin_id 可为 -10（inputNode），须按 i64 解析
+                    obj.get("origin_id").and_then(|v| v.as_i64()),
+                    obj.get("origin_slot").and_then(|v| v.as_u64()),
+                ) {
+                    m.insert(id, (o.to_string(), s));
+                }
+            }
+        }
+        m
+    }
+
+    /// 递归解析子图定义的第 slot 个输出槽的内部来源。
+    /// 返回 (相对实例的节点路径如 "5:1", 槽位)；嵌套子图路径冒号累加。
+    fn resolve_output_origin(
+        def: &Value,
+        def_map: &HashMap<String, &Value>,
+        slot: u64,
+        rel: &str,
+    ) -> Option<(String, u64)> {
+        for link in def["links"].as_array()? {
+            let obj = link.as_object()?;
+            if obj.get("target_id").and_then(|v| v.as_i64()) != Some(-20) {
+                continue;
+            }
+            if obj.get("target_slot").and_then(|v| v.as_u64()) != Some(slot) {
+                continue;
+            }
+            let o = obj.get("origin_id").and_then(|v| v.as_u64())?;
+            let s = obj.get("origin_slot").and_then(|v| v.as_u64())?;
+            let node = def["nodes"]
+                .as_array()?
+                .iter()
+                .find(|n| Self::node_id_str(n) == o.to_string())?;
+            let t = node["type"].as_str()?;
+            if let Some(child) = def_map.get(t).copied() {
+                return Self::resolve_output_origin(child, def_map, s, &format!("{rel}{o}:"));
+            }
+            return Some((format!("{rel}{o}"), s));
+        }
+        None
+    }
+
+    /// 解析子图实例的边界输入 bname 的取值。
+    /// 优先沿实例 inputs 的同名插槽查父图连接；连接源自上层的 -10 输入节点时
+    /// 递归上溯到外层实例的同序号边界输入；无连接时取实例 promoted widget 值。
+    fn resolve_boundary(chain: &[SubCtx], bname: &str) -> Option<Value> {
+        let ctx = chain.last()?;
+        let entry = ctx.instance["inputs"]
+            .as_array()?
+            .iter()
+            .find(|e| e["name"].as_str() == Some(bname));
+        if let Some(lid) = entry.and_then(|e| e["link"].as_u64()) {
+            if let Some((origin, slot)) = ctx.lm.get(&lid) {
+                if origin == "-10" {
+                    let up_name = ctx.graph_def?["inputs"].as_array()?.get(*slot as usize)?["name"]
+                        .as_str()?
+                        .to_string();
+                    return Self::resolve_boundary(&chain[..chain.len() - 1], &up_name);
+                }
+                return Some(serde_json::json!([
+                    format!("{}{}", ctx.prefix, origin),
+                    slot
+                ]));
+            }
+        }
+        ctx.instance["widgets_values_named"].get(bname).cloned()
+    }
+
+    /// 发射一张图（根图或子图定义）的 API 节点。
+    /// graph_def 为该图自身的定义（根图为 None）；chain 为外层各层的上下文。
+    fn emit_graph(
+        graph: &Value,
+        graph_def: Option<&Value>,
+        prefix: &str,
+        chain: &[SubCtx],
+        def_map: &HashMap<String, &Value>,
         object_info: &Value,
-    ) -> Result<Value, String> {
-        let root: Value = serde_json::from_str(workflow_json)
-            .map_err(|e| format!("无效的工作流 JSON：{}", e))?;
-        let nodes = root["nodes"]
+        api: &mut serde_json::Map<String, Value>,
+    ) -> Result<(), String> {
+        let nodes = graph["nodes"]
             .as_array()
             .ok_or("标准工作流需包含 nodes 数组")?;
+        let mut lm = Self::build_link_map(graph.get("links"));
 
-        let mut link_map: HashMap<u64, (u64, u64)> = HashMap::new();
-        if let Some(links) = root["links"].as_array() {
-            for link in links {
-                if let Some(arr) = link.as_array() {
-                    if arr.len() >= 3 {
-                        if let (Some(id), Some(from_node), Some(from_slot)) =
-                            (arr[0].as_u64(), arr[1].as_u64(), arr[2].as_u64())
-                        {
-                            link_map.insert(id, (from_node, from_slot));
-                        }
+        // Pass 1: 重写子图实例的输出连线（纯结构解析，不依赖发射顺序）
+        for node in nodes
+            .iter()
+            .filter(|n| Self::is_subgraph_instance(n, def_map))
+        {
+            let def: &Value = def_map[node["type"].as_str().unwrap_or("")];
+            let inst = Self::node_id_str(node);
+            let affected: Vec<u64> = lm
+                .iter()
+                .filter(|(_, v)| v.0 == inst)
+                .map(|(lid, _)| *lid)
+                .collect();
+            for lid in affected {
+                let slot = lm[&lid].1;
+                match Self::resolve_output_origin(def, def_map, slot, "") {
+                    Some((rel, s)) => {
+                        let e = lm.get_mut(&lid).unwrap();
+                        e.0 = format!("{inst}:{rel}");
+                        e.1 = s;
+                    }
+                    // 输出槽无内部来源：丢弃引用，避免残留对未发射节点的指向
+                    None => {
+                        lm.remove(&lid);
                     }
                 }
             }
         }
 
-        let mut api = serde_json::Map::new();
+        // Pass 2: 发射普通节点（连线已全部指向真实节点）
         for node in nodes {
-            let id = Self::node_id_str(node);
-            if id.is_empty() {
+            if Self::is_subgraph_instance(node, def_map) {
                 continue;
             }
-            let class_type = node["type"].as_str().unwrap_or("");
-            let mut inputs = serde_json::Map::new();
-            let wv: Vec<Value> = node["widgets_values"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-            let mut widx = 0usize;
+            Self::emit_node(node, prefix, &lm, object_info, api);
+        }
 
-            let has_named = node["widgets_values_named"].is_object();
-            if let Some(entries) = node["inputs"].as_array() {
-                for entry in entries {
-                    let name = entry["name"].as_str().unwrap_or("");
-                    if name.is_empty() {
-                        continue;
-                    }
-                    if let Some(link_id) = entry["link"].as_u64() {
-                        if let Some((fnode, fslot)) = link_map.get(&link_id) {
+        // Pass 3: 递归发射子图内部节点，再应用边界输入覆盖
+        for node in nodes
+            .iter()
+            .filter(|n| Self::is_subgraph_instance(n, def_map))
+        {
+            let def: &Value = def_map[node["type"].as_str().unwrap_or("")];
+            let inst = Self::node_id_str(node);
+            let child_prefix = format!("{prefix}{inst}:");
+            let mut ch: Vec<SubCtx> = chain.to_vec();
+            ch.push(SubCtx {
+                instance: node,
+                graph_def,
+                lm: &lm,
+                prefix,
+            });
+            Self::emit_graph(
+                def,
+                Some(def),
+                &child_prefix,
+                &ch,
+                def_map,
+                object_info,
+                api,
+            )?;
+
+            // 边界输入：内部 link 中 origin 为 -10 的，按边界定义名解析后
+            // 覆盖写入目标内部节点的对应输入（用户在父级改的值优先）。
+            let Some(inner_links) = def["links"].as_array() else {
+                continue;
+            };
+            for link in inner_links {
+                let Some(obj) = link.as_object() else {
+                    continue;
+                };
+                if obj.get("origin_id").and_then(|v| v.as_i64()) != Some(-10) {
+                    continue;
+                }
+                let (Some(b_idx), Some(target), Some(t_slot)) = (
+                    obj.get("origin_slot").and_then(|v| v.as_u64()),
+                    obj.get("target_id").and_then(|v| v.as_u64()),
+                    obj.get("target_slot").and_then(|v| v.as_u64()),
+                ) else {
+                    continue;
+                };
+                let Some(bname) = def["inputs"]
+                    .as_array()
+                    .and_then(|a| a.get(b_idx as usize))
+                    .and_then(|b| b["name"].as_str())
+                    .map(String::from)
+                else {
+                    continue;
+                };
+                let Some(resolved) = Self::resolve_boundary(&ch, &bname) else {
+                    continue;
+                };
+                let Some(tname) = def["nodes"]
+                    .as_array()
+                    .and_then(|a| {
+                        a.iter()
+                            .find(|n| Self::node_id_str(n) == target.to_string())
+                    })
+                    .and_then(|n| n["inputs"].as_array())
+                    .and_then(|a| a.get(t_slot as usize))
+                    .and_then(|e| e["name"].as_str())
+                    .map(String::from)
+                else {
+                    continue;
+                };
+                if let Some(inputs) = api
+                    .get_mut(&format!("{child_prefix}{target}"))
+                    .and_then(|n| n.get_mut("inputs"))
+                    .and_then(|v| v.as_object_mut())
+                {
+                    inputs.insert(tname, resolved);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 发射单个普通节点（id 加 prefix，连线经 lm 解析）。
+    fn emit_node(
+        node: &Value,
+        prefix: &str,
+        lm: &HashMap<u64, (String, u64)>,
+        object_info: &Value,
+        api: &mut serde_json::Map<String, Value>,
+    ) {
+        let id = Self::node_id_str(node);
+        if id.is_empty() {
+            return;
+        }
+        let class_type = node["type"].as_str().unwrap_or("");
+        let mut inputs = serde_json::Map::new();
+        let wv: Vec<Value> = node["widgets_values"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let mut widx = 0usize;
+
+        let has_named = node["widgets_values_named"].is_object();
+        if let Some(entries) = node["inputs"].as_array() {
+            for entry in entries {
+                let name = entry["name"].as_str().unwrap_or("");
+                if name.is_empty() {
+                    continue;
+                }
+                if let Some(link_id) = entry["link"].as_u64() {
+                    if let Some((fnode, fslot)) = lm.get(&link_id) {
+                        // -10 为子图边界输入，稍后由边界解析覆盖写入，此处跳过
+                        if fnode != "-10" {
                             inputs.insert(
                                 name.to_string(),
-                                serde_json::json!([fnode.to_string(), fslot]),
+                                serde_json::json!([format!("{prefix}{fnode}"), fslot]),
                             );
                         }
                     }
-                    // 旧格式：widget 输入按位置消费 widgets_values（跳过 IMAGEUPLOAD 等前端专属）。
-                    if !has_named && entry["widget"].is_object() {
-                        if widx < wv.len() {
-                            let is_upload = entry["type"].as_str() == Some("IMAGEUPLOAD");
-                            if !is_upload && entry["link"].is_null() && !inputs.contains_key(name) {
-                                inputs.insert(name.to_string(), wv[widx].clone());
-                            }
-                            widx += 1;
+                }
+                // 旧格式：widget 输入按位置消费 widgets_values（跳过 IMAGEUPLOAD 等前端专属）。
+                if !has_named && entry["widget"].is_object() {
+                    if widx < wv.len() {
+                        let is_upload = entry["type"].as_str() == Some("IMAGEUPLOAD");
+                        if !is_upload && entry["link"].is_null() && !inputs.contains_key(name) {
+                            inputs.insert(name.to_string(), wv[widx].clone());
                         }
+                        widx += 1;
                     }
                 }
             }
-
-            // 新格式：widget 值存于 widgets_values_named，按名插入真实 API 输入。
-            if has_named {
-                if let Some(named) = node["widgets_values_named"].as_object() {
-                    for (name, val) in named {
-                        if inputs.contains_key(name) {
-                            continue;
-                        }
-                        if Self::is_real_api_input(object_info, class_type, name) {
-                            inputs.insert(name.clone(), val.clone());
-                        }
-                    }
-                }
-            }
-
-            // 兜底：未出现的必需 widget 输入，用 object_info 默认值补齐。
-            Self::fill_missing_required(&mut inputs, object_info, class_type);
-
-            let mut api_node = serde_json::Map::new();
-            api_node.insert("class_type".into(), Value::String(class_type.into()));
-            api_node.insert("inputs".into(), Value::Object(inputs));
-            api.insert(id, Value::Object(api_node));
         }
 
-        Ok(Value::Object(api))
+        // 新格式：widget 值存于 widgets_values_named，按名插入真实 API 输入。
+        if has_named {
+            if let Some(named) = node["widgets_values_named"].as_object() {
+                for (name, val) in named {
+                    if inputs.contains_key(name) {
+                        continue;
+                    }
+                    if Self::is_real_api_input(object_info, class_type, name) {
+                        inputs.insert(name.clone(), val.clone());
+                    }
+                }
+            }
+        }
+
+        // 兜底：未出现的必需 widget 输入，用 object_info 默认值补齐。
+        Self::fill_missing_required(&mut inputs, object_info, class_type);
+
+        let mut api_node = serde_json::Map::new();
+        api_node.insert("class_type".into(), Value::String(class_type.into()));
+        api_node.insert("inputs".into(), Value::Object(inputs));
+        api.insert(format!("{prefix}{id}"), Value::Object(api_node));
     }
 
     fn fill_missing_required(
@@ -408,7 +706,9 @@ impl WorkflowManager {
         object_info: &Value,
         class_type: &str,
     ) {
-        let Some(info) = object_info.get(class_type) else { return };
+        let Some(info) = object_info.get(class_type) else {
+            return;
+        };
         let ordered = info["input_order"]["required"].as_array();
         let Some(ordered) = ordered else { return };
         for name in ordered.iter().filter_map(|v| v.as_str()) {
@@ -461,8 +761,12 @@ impl WorkflowManager {
             if p.field_type == "image_selector" {
                 continue;
             }
-            let Some(v) = values.get(&p.param_name) else { continue };
-            let Some(node) = api_prompt.get_mut(&p.node_id) else { continue };
+            let Some(v) = values.get(&p.param_name) else {
+                continue;
+            };
+            let Some(node) = api_prompt.get_mut(&p.node_id) else {
+                continue;
+            };
             let Some(inputs) = node.get_mut("inputs").and_then(|i| i.as_object_mut()) else {
                 continue;
             };
@@ -497,34 +801,34 @@ impl WorkflowManager {
             Ok(v) => v,
             Err(_) => return params.to_vec(),
         };
-        let class_by_id: HashMap<String, String> = root["nodes"]
-            .as_array()
-            .map(|nodes| {
-                nodes
-                    .iter()
-                    .filter_map(|n| {
-                        let id = Self::node_id_str(n);
-                        let t = n["type"].as_str().unwrap_or("").to_string();
-                        if id.is_empty() || t.is_empty() {
-                            None
-                        } else {
-                            Some((id, t))
-                        }
-                    })
-                    .collect()
+        let class_by_id: HashMap<String, String> = Self::flattened_nodes(&root)
+            .into_iter()
+            .filter_map(|(id, n)| {
+                let t = n["type"].as_str().unwrap_or("").to_string();
+                if t.is_empty() {
+                    None
+                } else {
+                    Some((id, t))
+                }
             })
-            .unwrap_or_default();
+            .collect();
 
         params
             .iter()
             .map(|p| {
                 let mut p = p.clone();
-                let Some(class_type) = class_by_id.get(&p.node_id) else { return p };
-                let Some(info) = object_info.get(class_type) else { return p };
+                let Some(class_type) = class_by_id.get(&p.node_id) else {
+                    return p;
+                };
+                let Some(info) = object_info.get(class_type) else {
+                    return p;
+                };
                 let spec = info["input"]["required"]
                     .get(&p.widget_name)
                     .or_else(|| info["input"]["optional"].get(&p.widget_name));
-                let Some(spec) = spec.and_then(|s| s.as_array()) else { return p };
+                let Some(spec) = spec.and_then(|s| s.as_array()) else {
+                    return p;
+                };
                 let Some(t) = spec.first() else { return p };
 
                 if t.is_array() {
@@ -652,7 +956,8 @@ mod tests {
 
     #[test]
     fn test_parse_rejects_non_app_workflow() {
-        let json = r#"{"nodes":[{"id":"1","type":"CLIPTextEncode","widgets_values":[""]}],"links":[]}"#;
+        let json =
+            r#"{"nodes":[{"id":"1","type":"CLIPTextEncode","widgets_values":[""]}],"links":[]}"#;
         assert!(WorkflowManager::parse_params(json).is_err());
     }
 
@@ -887,8 +1192,12 @@ mod tests {
                 default_value: "".into(),
                 field_type: "multiline".into(),
                 order_index: 0,
-                min: None, max: None, step: None,
-                options: vec![], multiline: true, description: None,
+                min: None,
+                max: None,
+                step: None,
+                options: vec![],
+                multiline: true,
+                description: None,
             },
             WorkflowParam {
                 node_id: "8".into(),
@@ -898,8 +1207,12 @@ mod tests {
                 default_value: "0".into(),
                 field_type: "seed".into(),
                 order_index: 1,
-                min: None, max: None, step: None,
-                options: vec![], multiline: false, description: None,
+                min: None,
+                max: None,
+                step: None,
+                options: vec![],
+                multiline: false,
+                description: None,
             },
             WorkflowParam {
                 node_id: "8".into(),
@@ -909,8 +1222,12 @@ mod tests {
                 default_value: "20".into(),
                 field_type: "number".into(),
                 order_index: 2,
-                min: None, max: None, step: None,
-                options: vec![], multiline: false, description: None,
+                min: None,
+                max: None,
+                step: None,
+                options: vec![],
+                multiline: false,
+                description: None,
             },
         ];
         let mut values = HashMap::new();
@@ -931,9 +1248,18 @@ mod tests {
     fn test_inject_ignores_unknown_param() {
         let mut api = serde_json::json!({"6":{"class_type":"CLIPTextEncode","inputs":{"text":""}}});
         let params = vec![WorkflowParam {
-            node_id: "6".into(), widget_name: "text".into(), param_name: "6:text".into(),
-            label: "text".into(), default_value: "".into(), field_type: "text".into(),
-            order_index: 0, min: None, max: None, step: None, options: vec![], multiline: false,
+            node_id: "6".into(),
+            widget_name: "text".into(),
+            param_name: "6:text".into(),
+            label: "text".into(),
+            default_value: "".into(),
+            field_type: "text".into(),
+            order_index: 0,
+            min: None,
+            max: None,
+            step: None,
+            options: vec![],
+            multiline: false,
             description: None,
         }];
         let mut values = HashMap::new();
@@ -1038,8 +1364,273 @@ mod tests {
         let enriched = WorkflowManager::enrich_params(&params, &obj, json);
         assert_eq!(enriched[0].field_type, "seed");
         assert_eq!(enriched[1].field_type, "combo");
-        assert_eq!(enriched[1].options, vec!["euler".to_string(), "ddim".to_string()]);
+        assert_eq!(
+            enriched[1].options,
+            vec!["euler".to_string(), "ddim".to_string()]
+        );
         // STRING 节点不在 object_info（PrimitiveStringMultiline 未给出），保持 text
         assert_eq!(enriched[2].field_type, "text");
+    }
+
+    // --- standard_to_api: 子图（Subgraph）展平 ---
+    //
+    // 语义对齐 ComfyUI_frontend ExecutableNodeDTO：
+    // - 子图节点不进 API 输出，内部节点以 "{实例id}:{内部id}" 平铺
+    // - 内部 link 中 origin_id == -10（inputNode）为边界输入，target_id == -20（outputNode）为边界输出
+    // - 边界输入按名称匹配父图实例 inputs 的 link；无连接时取实例 widgets_values_named 的 promoted 值
+    // - 父图从子图实例引出的 link 重写为从内部源节点引出
+
+    /// 最小子图定义（省略画布装饰字段）。
+    fn subgraph_def(id: &str, inputs: Value, outputs: Value, nodes: Value, links: Value) -> Value {
+        serde_json::json!({
+            "id": id,
+            "inputNode": {"id": -10},
+            "outputNode": {"id": -20},
+            "inputs": inputs,
+            "outputs": outputs,
+            "nodes": nodes,
+            "links": links,
+        })
+    }
+
+    #[test]
+    fn test_standard_to_api_subgraph_basic() {
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": 9, "type": "SUB1",
+                 "inputs": [{"name": "image", "type": "IMAGE", "link": null}],
+                 "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [5]}],
+                 "widgets_values": [], "widgets_values_named": {}},
+                {"id": 2, "type": "SaveImage",
+                 "inputs": [{"name": "images", "type": "IMAGE", "link": 5}],
+                 "widgets_values": ["ComfyUI"], "widgets_values_named": {"filename_prefix": "ComfyUI"}}
+            ],
+            "links": [[5, 9, 0, 2, 0, "IMAGE"]],
+            "definitions": {"subgraphs": [subgraph_def(
+                "SUB1",
+                serde_json::json!([{"id": "i1", "name": "image", "type": "IMAGE", "linkIds": []}]),
+                serde_json::json!([{"id": "o1", "name": "IMAGE", "type": "IMAGE", "linkIds": [7]}]),
+                serde_json::json!([
+                    {"id": 1, "type": "LoadImage",
+                     "inputs": [
+                        {"name":"image","type":"COMBO","widget":{"name":"image"},"link":null},
+                        {"name":"upload","type":"IMAGEUPLOAD","widget":{"name":"upload"},"link":null}
+                     ],
+                     "widgets_values": ["in.png","image"],
+                     "outputs": [{"name":"IMAGE","type":"IMAGE","links":[6]}]},
+                    {"id": 2, "type": "ImageInvert",
+                     "inputs": [{"name": "image", "type": "IMAGE", "link": 6}],
+                     "outputs": [{"name":"IMAGE","type":"IMAGE","links":[7]}]}
+                ]),
+                serde_json::json!([
+                    {"id": 6, "origin_id": 1, "origin_slot": 0, "target_id": 2, "target_slot": 0, "type": "IMAGE"},
+                    {"id": 7, "origin_id": 2, "origin_slot": 0, "target_id": -20, "target_slot": 0, "type": "IMAGE"}
+                ])
+            )]}
+        });
+        let api = WorkflowManager::standard_to_api(&graph.to_string(), &obj_info()).unwrap();
+        let v = api.as_object().unwrap();
+        // 子图节点本身不出现；内部节点以 "实例:内部id" 平铺
+        assert!(!v.contains_key("9"));
+        assert_eq!(v["9:1"]["class_type"], "LoadImage");
+        assert_eq!(v["9:1"]["inputs"]["image"], "in.png");
+        assert!(v["9:1"]["inputs"].get("upload").is_none());
+        assert_eq!(v["9:2"]["class_type"], "ImageInvert");
+        assert_eq!(v["9:2"]["inputs"]["image"], serde_json::json!(["9:1", 0]));
+        // 父图消费节点经子图输出重连到内部源节点
+        assert_eq!(v["2"]["inputs"]["images"], serde_json::json!(["9:2", 0]));
+    }
+
+    #[test]
+    fn test_standard_to_api_subgraph_promoted_widget_overrides() {
+        // 边界输入 steps 无父图连接：取父实例 widgets_values_named 的 25，
+        // 覆盖内部节点自己的 widgets_values_named 20；扇出到两个内部节点。
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": 9, "type": "SUB1", "inputs": [], "outputs": [],
+                 "widgets_values": [], "widgets_values_named": {"steps": 25}}
+            ],
+            "links": [],
+            "definitions": {"subgraphs": [subgraph_def(
+                "SUB1",
+                serde_json::json!([{"id": "i1", "name": "steps", "type": "INT", "linkIds": [8, 9]}]),
+                serde_json::json!([]),
+                serde_json::json!([
+                    {"id": 1, "type": "KSampler",
+                     "inputs": [{"name":"steps","type":"INT","widget":{"name":"steps"},"link":8}],
+                     "widgets_values": [20], "widgets_values_named": {"steps": 20}, "outputs": []},
+                    {"id": 2, "type": "KSampler",
+                     "inputs": [{"name":"steps","type":"INT","widget":{"name":"steps"},"link":9}],
+                     "widgets_values": [20], "widgets_values_named": {"steps": 20}, "outputs": []}
+                ]),
+                serde_json::json!([
+                    {"id": 8, "origin_id": -10, "origin_slot": 0, "target_id": 1, "target_slot": 0, "type": "INT"},
+                    {"id": 9, "origin_id": -10, "origin_slot": 0, "target_id": 2, "target_slot": 0, "type": "INT"}
+                ])
+            )]}
+        });
+        let api =
+            WorkflowManager::standard_to_api(&graph.to_string(), &serde_json::json!({})).unwrap();
+        assert_eq!(api["9:1"]["inputs"]["steps"], 25);
+        assert_eq!(api["9:2"]["inputs"]["steps"], 25);
+    }
+
+    #[test]
+    fn test_standard_to_api_subgraph_parent_link() {
+        // 边界输入按名称匹配父实例 inputs 的连接，解析为父图源节点引用
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": 4, "type": "LoadImage",
+                 "inputs": [
+                    {"name":"image","type":"COMBO","widget":{"name":"image"},"link":null},
+                    {"name":"upload","type":"IMAGEUPLOAD","widget":{"name":"upload"},"link":null}
+                 ],
+                 "widgets_values": ["p.png","image"],
+                 "outputs": [{"name":"IMAGE","type":"IMAGE","links":[3]}]},
+                {"id": 9, "type": "SUB1",
+                 "inputs": [{"name": "image", "type": "IMAGE", "link": 3}],
+                 "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [5]}],
+                 "widgets_values": [], "widgets_values_named": {}},
+                {"id": 2, "type": "SaveImage",
+                 "inputs": [{"name": "images", "type": "IMAGE", "link": 5}],
+                 "widgets_values": ["ComfyUI"], "widgets_values_named": {"filename_prefix": "ComfyUI"}}
+            ],
+            "links": [[3, 4, 0, 9, 0, "IMAGE"], [5, 9, 0, 2, 0, "IMAGE"]],
+            "definitions": {"subgraphs": [subgraph_def(
+                "SUB1",
+                serde_json::json!([{"id": "i1", "name": "image", "type": "IMAGE", "linkIds": [8]}]),
+                serde_json::json!([{"id": "o1", "name": "IMAGE", "type": "IMAGE", "linkIds": [7]}]),
+                serde_json::json!([
+                    {"id": 1, "type": "ImageInvert",
+                     "inputs": [{"name": "image", "type": "IMAGE", "link": 8}],
+                     "outputs": [{"name":"IMAGE","type":"IMAGE","links":[7]}]}
+                ]),
+                serde_json::json!([
+                    {"id": 8, "origin_id": -10, "origin_slot": 0, "target_id": 1, "target_slot": 0, "type": "IMAGE"},
+                    {"id": 7, "origin_id": 1, "origin_slot": 0, "target_id": -20, "target_slot": 0, "type": "IMAGE"}
+                ])
+            )]}
+        });
+        let api = WorkflowManager::standard_to_api(&graph.to_string(), &obj_info()).unwrap();
+        assert_eq!(api["9:1"]["inputs"]["image"], serde_json::json!(["4", 0]));
+        assert_eq!(api["2"]["inputs"]["images"], serde_json::json!(["9:1", 0]));
+    }
+
+    #[test]
+    fn test_standard_to_api_subgraph_nested() {
+        // SUB1 内含 SUB2 实例：内部节点展平为 "9:5:1"，
+        // 边界输入跨两层解析（SUB2 → SUB1 → 父图 LoadImage）。
+        let sub2 = subgraph_def(
+            "SUB2",
+            serde_json::json!([{"id": "i2", "name": "image", "type": "IMAGE", "linkIds": [28]}]),
+            serde_json::json!([{"id": "o2", "name": "IMAGE", "type": "IMAGE", "linkIds": [27]}]),
+            serde_json::json!([
+                {"id": 1, "type": "ImageInvert",
+                 "inputs": [{"name": "image", "type": "IMAGE", "link": 28}],
+                 "outputs": [{"name":"IMAGE","type":"IMAGE","links":[27]}]}
+            ]),
+            serde_json::json!([
+                {"id": 28, "origin_id": -10, "origin_slot": 0, "target_id": 1, "target_slot": 0, "type": "IMAGE"},
+                {"id": 27, "origin_id": 1, "origin_slot": 0, "target_id": -20, "target_slot": 0, "type": "IMAGE"}
+            ]),
+        );
+        let sub1 = subgraph_def(
+            "SUB1",
+            serde_json::json!([{"id": "i1", "name": "image", "type": "IMAGE", "linkIds": [18]}]),
+            serde_json::json!([{"id": "o1", "name": "IMAGE", "type": "IMAGE", "linkIds": [19]}]),
+            serde_json::json!([
+                {"id": 5, "type": "SUB2",
+                 "inputs": [{"name": "image", "type": "IMAGE", "link": 18}],
+                 "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [19]}],
+                 "widgets_values": [], "widgets_values_named": {}}
+            ]),
+            serde_json::json!([
+                {"id": 18, "origin_id": -10, "origin_slot": 0, "target_id": 5, "target_slot": 0, "type": "IMAGE"},
+                {"id": 19, "origin_id": 5, "origin_slot": 0, "target_id": -20, "target_slot": 0, "type": "IMAGE"}
+            ]),
+        );
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": 4, "type": "LoadImage",
+                 "inputs": [
+                    {"name":"image","type":"COMBO","widget":{"name":"image"},"link":null},
+                    {"name":"upload","type":"IMAGEUPLOAD","widget":{"name":"upload"},"link":null}
+                 ],
+                 "widgets_values": ["p.png","image"],
+                 "outputs": [{"name":"IMAGE","type":"IMAGE","links":[3]}]},
+                {"id": 9, "type": "SUB1",
+                 "inputs": [{"name": "image", "type": "IMAGE", "link": 3}],
+                 "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [5]}],
+                 "widgets_values": [], "widgets_values_named": {}},
+                {"id": 2, "type": "SaveImage",
+                 "inputs": [{"name": "images", "type": "IMAGE", "link": 5}],
+                 "widgets_values": ["ComfyUI"], "widgets_values_named": {"filename_prefix": "ComfyUI"}}
+            ],
+            "links": [[3, 4, 0, 9, 0, "IMAGE"], [5, 9, 0, 2, 0, "IMAGE"]],
+            "definitions": {"subgraphs": [sub1, sub2]}
+        });
+        let api = WorkflowManager::standard_to_api(&graph.to_string(), &obj_info()).unwrap();
+        assert_eq!(api["9:5:1"]["class_type"], "ImageInvert");
+        assert_eq!(api["9:5:1"]["inputs"]["image"], serde_json::json!(["4", 0]));
+        assert_eq!(
+            api["2"]["inputs"]["images"],
+            serde_json::json!(["9:5:1", 0])
+        );
+    }
+
+    #[test]
+    fn test_standard_to_api_subgraph_unconnected_output_dropped() {
+        // 子图输出槽无内部来源 → 父图引用该输出的输入被丢弃，不残留对未发射节点的引用
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": 9, "type": "SUB1",
+                 "inputs": [], "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [5]}],
+                 "widgets_values": [], "widgets_values_named": {}},
+                {"id": 2, "type": "SaveImage",
+                 "inputs": [{"name": "images", "type": "IMAGE", "link": 5}],
+                 "widgets_values": ["ComfyUI"], "widgets_values_named": {"filename_prefix": "ComfyUI"}}
+            ],
+            "links": [[5, 9, 0, 2, 0, "IMAGE"]],
+            "definitions": {"subgraphs": [subgraph_def(
+                "SUB1",
+                serde_json::json!([]),
+                serde_json::json!([{"id": "o1", "name": "IMAGE", "type": "IMAGE", "linkIds": []}]),
+                serde_json::json!([]),
+                serde_json::json!([])
+            )]}
+        });
+        let api = WorkflowManager::standard_to_api(&graph.to_string(), &obj_info()).unwrap();
+        assert!(api["2"]["inputs"].get("images").is_none());
+    }
+
+    #[test]
+    fn test_parse_params_subgraph_inner_node() {
+        // linearData 引用子图内部节点："docid:实例:内部id:widget" 取最后两段
+        // → node_id "9:1"，须在展平节点中找到并读取其 widgets_values_named 默认值
+        let graph = serde_json::json!({
+            "nodes": [
+                {"id": 9, "type": "SUB1", "inputs": [], "outputs": [],
+                 "widgets_values": [], "widgets_values_named": {}}
+            ],
+            "links": [],
+            "definitions": {"subgraphs": [subgraph_def(
+                "SUB1",
+                serde_json::json!([]),
+                serde_json::json!([]),
+                serde_json::json!([
+                    {"id": 1, "type": "KSampler",
+                     "inputs": [{"name":"steps","type":"INT","widget":{"name":"steps"},"link":null}],
+                     "widgets_values": [20], "widgets_values_named": {"steps": 20}, "outputs": []}
+                ]),
+                serde_json::json!([])
+            )]},
+            "extra": {"linearData": {"inputs": [["doc-uuid:9:1:steps", "步数"]], "outputs": []}}
+        });
+        let params = WorkflowManager::parse_params(&graph.to_string()).unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].node_id, "9:1");
+        assert_eq!(params[0].widget_name, "steps");
+        assert_eq!(params[0].param_name, "9:1:steps");
+        assert_eq!(params[0].default_value, "20");
     }
 }
