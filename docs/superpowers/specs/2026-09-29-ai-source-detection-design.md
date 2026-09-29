@@ -50,8 +50,8 @@ pub fn detect_ai_source(path: &Path) -> Option<&'static str>;
 ### 2. 导入管线集成（`src-tauri/src/media/import.rs`）
 
 - 图片导入流程中，原来 `source: Some("local".to_string())` 处：
-  - 若 `is_video == false` 且 `ext == "png"`（或 magic bytes 为 PNG），调用
-    `detect_ai_source(&dest_path)`
+  - 若 `is_video == false` 且格式检测（`detect_format_from_bytes`）结果为 PNG，调用
+    `detect_ai_source(&dest_path)`（判定依据 magic bytes，与文件扩展名无关）
   - 检测到 → `source: Some("comfyui"/"webui")`
   - 未检测到 → 保持 `source: Some("local")`，行为完全不变
 - 视频导入（`video_import.rs`）不动
