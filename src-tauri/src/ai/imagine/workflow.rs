@@ -405,6 +405,12 @@ impl WorkflowManager {
             .map_or(false, |t| def_map.contains_key(t))
     }
 
+    /// 画布展示类节点（备注/便签），服务端无实现，官方导出 API 时跳过
+    /// （对应前端 isVirtualNode 过滤）。
+    fn is_display_node(node: &Value) -> bool {
+        matches!(node["type"].as_str().unwrap_or(""), "Note" | "MarkdownNote")
+    }
+
     /// 构建 link id → (源节点 id 字符串, 源槽位) 映射。
     /// 兼容两种格式：根图数组格式 [id, origin_id, origin_slot, ...] 与
     /// 子图对象格式 {id, origin_id, origin_slot, ...}。
@@ -540,7 +546,7 @@ impl WorkflowManager {
 
         // Pass 2: 发射普通节点（连线已全部指向真实节点）
         for node in nodes {
-            if Self::is_subgraph_instance(node, def_map) {
+            if Self::is_subgraph_instance(node, def_map) || Self::is_display_node(node) {
                 continue;
             }
             Self::emit_node(node, prefix, &lm, object_info, api);
@@ -1632,5 +1638,26 @@ mod tests {
         assert_eq!(params[0].widget_name, "steps");
         assert_eq!(params[0].param_name, "9:1:steps");
         assert_eq!(params[0].default_value, "20");
+    }
+
+    #[test]
+    fn test_standard_to_api_skips_display_nodes() {
+        // Note / MarkdownNote 为画布备注节点（前端 isVirtualNode），服务端无实现，
+        // 官方导出 API 时跳过；混入会导致 /prompt 报 missing_node_type
+        let graph = r##"{
+            "nodes": [
+                {"id": 1, "type": "MarkdownNote", "inputs": [], "widgets_values": ["# 标题"], "outputs": []},
+                {"id": 2, "type": "Note", "inputs": [], "widgets_values": ["备注"], "outputs": []},
+                {"id": 3, "type": "SaveImage", "inputs": [],
+                 "widgets_values": ["ComfyUI"], "widgets_values_named": {"filename_prefix": "ComfyUI"}}
+            ],
+            "links": [],
+            "extra": {"linearData": {"inputs": [], "outputs": []}}
+        }"##;
+        let api = WorkflowManager::standard_to_api(graph, &serde_json::json!({})).unwrap();
+        let v = api.as_object().unwrap();
+        assert!(!v.contains_key("1"));
+        assert!(!v.contains_key("2"));
+        assert_eq!(v["3"]["class_type"], "SaveImage");
     }
 }
