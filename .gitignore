@@ -20,7 +20,8 @@ build/
 # Tauri
 /src-tauri/target/
 /src-tauri/gen/
-/src-tauri/Cargo.lock
+# /src-tauri/Cargo.lock is tracked: Medix is an application, not a library, so
+# the lockfile belongs in version control to keep builds reproducible.
 
 # IDE
 .idea/
