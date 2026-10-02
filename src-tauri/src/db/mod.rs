@@ -3437,44 +3437,54 @@ pub fn media_recover(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error
 
 pub fn media_permanent_delete(app: &AppHandle, id: &str) -> Result<(), Box<dyn std::error::Error>> {
     let app_dir = app.path().app_data_dir().expect("app data dir");
+    delete_media_files(&app_dir, id);
 
-    // Delete files
-    let library_dir = app_dir.join("library");
-    let thumbs_dir = app_dir.join("thumbnails");
-    let variants_dir = app_dir.join("variants");
-
-    // Find and delete library file
-    if let Ok(entries) = std::fs::read_dir(&library_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            if name.to_string_lossy().starts_with(id) {
-                let _ = std::fs::remove_file(entry.path());
-                break;
-            }
-        }
-    }
-
-    // Delete thumbnails
-    for suffix in &["256", "512"] {
-        let thumb = thumbs_dir.join(format!("{}_{}.jpg", id, suffix));
-        let _ = std::fs::remove_file(&thumb);
-    }
-
-    // Delete variants
-    if let Ok(entries) = std::fs::read_dir(&variants_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            if name.to_string_lossy().starts_with(id) {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
-
-    // Delete DB record (cascades to tags/captions/embeddings/variants)
+    // Delete DB record (cascades to tags/captions/embeddings/lineage)
     let conn = get_conn(app)?;
     conn.execute("DELETE FROM media WHERE id = ?1", params![id])?;
 
     Ok(())
+}
+
+/// True when `file_name` is the on-disk image belonging to media `id`.
+///
+/// Either the media's own file (`{id}.jpg`) or a derivative written by an older
+/// build as `{parent_id}_{id}.png`. Ids are ULIDs — fixed-length Crockford
+/// base32 with no underscore — so splitting on the last `_` is unambiguous and
+/// `{parent}_{child}` is only ever claimed by `child`.
+pub(crate) fn is_file_for_media(file_name: &str, id: &str) -> bool {
+    let stem = file_name
+        .rsplit_once('.')
+        .map(|(stem, _ext)| stem)
+        .unwrap_or(file_name);
+    stem == id || stem.ends_with(&format!("_{}", id))
+}
+
+/// Remove every on-disk artifact of media `id`: its image (from `library/` and
+/// the legacy `variants/`) and both thumbnails.
+///
+/// Note this deliberately does NOT touch `{id}_{child}.ext` — that file belongs
+/// to the derivative, whose own media row survives a parent's deletion.
+fn delete_media_files(app_dir: &Path, id: &str) {
+    for dir in ["library", "variants"] {
+        let Ok(entries) = std::fs::read_dir(app_dir.join(dir)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if is_file_for_media(name, id) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    for suffix in &["256", "512"] {
+        let thumb = app_dir
+            .join("thumbnails")
+            .join(format!("{}_{}.jpg", id, suffix));
+        let _ = std::fs::remove_file(&thumb);
+    }
 }
 
 pub fn media_list_trash(
@@ -3906,6 +3916,84 @@ mod tests {
             )
             .unwrap();
         assert_eq!(confidence, 0.5);
+    }
+
+    #[test]
+    fn test_is_file_for_media() {
+        // The media's own file.
+        assert!(is_file_for_media("01ABC.jpg", "01ABC"));
+        assert!(is_file_for_media("01ABC", "01ABC"));
+
+        // A derivative written by an older build as "{parent}_{child}".
+        assert!(is_file_for_media("01PARENT_01ABC.png", "01ABC"));
+        assert!(is_file_for_media("01PARENT_01ABC.webp", "01ABC"));
+
+        // A parent does not own its derivative's file — that belongs to the child.
+        assert!(!is_file_for_media("01PARENT_01ABC.png", "01PARENT"));
+
+        // No prefix matching: neither a longer id nor a derivative of this id.
+        assert!(!is_file_for_media("01ABCX.jpg", "01ABC"));
+        assert!(!is_file_for_media("01ABC_01CHILD.png", "01ABC"));
+    }
+
+    /// Regression: deleting a derivative used to leave its file on disk, because
+    /// the file was named after the parent and the old matcher only accepted
+    /// names *starting with* the deleted id.
+    #[test]
+    fn test_delete_media_files_removes_own_and_derivative_files() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path();
+        for sub in ["library", "variants", "thumbnails"] {
+            std::fs::create_dir_all(root.join(sub)).unwrap();
+        }
+
+        let id = "01CHILD";
+        let parent = "01PARENT";
+        let other = "01OTHER";
+        let put =
+            |sub: &str, name: String| std::fs::write(root.join(sub).join(name), b"x").unwrap();
+
+        // Belong to `id` — must be removed.
+        put("library", format!("{}.jpg", id));
+        put("variants", format!("{}_{}.png", parent, id)); // old derivative naming
+        put("thumbnails", format!("{}_256.jpg", id));
+        put("thumbnails", format!("{}_512.jpg", id));
+
+        // Belong to someone else — must survive.
+        put("library", format!("{}.jpg", parent));
+        put("library", format!("{}_{}.png", id, other)); // a derivative OF id
+        put("thumbnails", format!("{}_256.jpg", other));
+
+        delete_media_files(root, id);
+
+        assert!(!root.join("library").join(format!("{}.jpg", id)).exists());
+        assert!(!root
+            .join("variants")
+            .join(format!("{}_{}.png", parent, id))
+            .exists());
+        assert!(!root
+            .join("thumbnails")
+            .join(format!("{}_256.jpg", id))
+            .exists());
+        assert!(!root
+            .join("thumbnails")
+            .join(format!("{}_512.jpg", id))
+            .exists());
+
+        assert!(root
+            .join("library")
+            .join(format!("{}.jpg", parent))
+            .exists());
+        assert!(
+            root.join("library")
+                .join(format!("{}_{}.png", id, other))
+                .exists(),
+            "a derivative's file must survive its parent being deleted"
+        );
+        assert!(root
+            .join("thumbnails")
+            .join(format!("{}_256.jpg", other))
+            .exists());
     }
 
     #[test]

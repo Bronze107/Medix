@@ -653,7 +653,10 @@ pub fn image_queue_import(
             let ext = find_staged_ext(&staging_dir, &img.id)?;
             let src = staging_dir.join(format!("{}.{}", img.id, ext));
             let new_id = ulid::Ulid::new().to_string();
-            let dest = library_dir.join(format!("{}_{}.{}", source_media_ids[0], new_id, ext));
+            // Named after the derivative's own id, like every other media file.
+            // The old "{parent}_{child}" form meant a derivative's file did not
+            // start with its own id, so deleting it never found the file.
+            let dest = library_dir.join(format!("{}.{}", new_id, ext));
 
             if let Err(e) = fs::copy(&src, &dest) {
                 results.push(crate::media::MediaImportResult {

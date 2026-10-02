@@ -90,7 +90,10 @@ pub async fn image_generate(
     Ok(results)
 }
 
-/// Confirm import — move staged images into the library (generation) or variants (editing).
+/// Confirm import — move staged images into the library.
+///
+/// Both modes land in `library/`: editing creates a new media row linked to the
+/// source via `media_lineage`, so a derivative is an ordinary media file.
 #[command]
 pub async fn image_confirm_import(
     app: AppHandle,
