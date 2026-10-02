@@ -136,7 +136,7 @@ fn bench_find_items_with_tags(c: &mut Criterion) {
                     duration: None,
                     video_codec: None,
                     video_fps: None,
-                    has_derivatives: false,
+                    child_count: 0,
                     parent_count: 0,
                 })
             })

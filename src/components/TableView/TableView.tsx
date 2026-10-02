@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { BrowseItem } from "@/types/browse";
+import { LineageBadge } from "@/components/shared/LineageBadge";
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -92,10 +93,11 @@ function TableView({
     <div ref={parentRef} className="h-full overflow-y-auto overflow-x-hidden">
       {/* Header */}
       <div
-        className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-[10px] font-medium uppercase"
+        className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-[11px] font-medium uppercase"
       >
         <div className="w-8 shrink-0" />
         <div className="flex-1 text-[var(--color-text-muted)]">文件</div>
+        <div className="w-14 shrink-0 text-center text-[var(--color-text-muted)]">关系</div>
         <button onClick={() => onSortChange("width")} className={`w-24 text-right hover:text-[var(--color-text-primary)] ${sortBy === "width" || sortBy === "height" ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>类型/时长{sortBy === "width" ? sortArrow("width") : sortBy === "height" ? sortArrow("height") : ""}</button>
         <button onClick={() => onSortChange("file_size")} className={`w-20 text-right hover:text-[var(--color-text-primary)] ${sortBy === "file_size" ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>大小{sortArrow("file_size")}</button>
         <button onClick={() => onSortChange("imported_at")} className={`w-28 text-right hover:text-[var(--color-text-primary)] ${sortBy === "imported_at" ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>日期{sortArrow("imported_at")}</button>
@@ -264,9 +266,14 @@ function TableRow({
         </p>
       </div>
 
-      {/* Parent count / source indicator */}
+      {/* Lineage — 与网格视图同一语义：出边 + 入边 */}
       <div className="w-14 text-center text-[11px] text-[var(--color-text-muted)]">
-        {item.parent_count && item.parent_count > 0 ? `${item.parent_count} 个来源` : "原始"}
+        <LineageBadge
+          childCount={item.child_count}
+          parentCount={item.parent_count}
+          className="text-[var(--color-text-muted)]"
+        />
+        {item.child_count <= 0 && item.parent_count <= 0 && "原始"}
       </div>
 
       {/* Dimensions */}

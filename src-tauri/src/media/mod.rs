@@ -67,7 +67,7 @@ pub struct BrowseItem {
     pub duration: Option<f64>,
     pub video_codec: Option<String>,
     pub video_fps: Option<f64>,
-    pub has_derivatives: bool,
+    pub child_count: i32,
     pub parent_count: i32,
 }
 

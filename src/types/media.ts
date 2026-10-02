@@ -18,7 +18,7 @@ export interface Media {
   duration: number | null;
   video_codec: string | null;
   video_fps: number | null;
-  has_derivatives?: boolean;
+  child_count?: number;
   parent_count?: number;
 }
 

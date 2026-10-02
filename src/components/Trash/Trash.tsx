@@ -16,7 +16,7 @@ function mediaToBrowseItem(m: Media): BrowseItem {
     thumb_256: m.thumb_256, lqip: m.lqip,
     media_type: m.media_type, duration: m.duration,
     video_codec: m.video_codec, video_fps: m.video_fps,
-    has_derivatives: false, parent_count: 0,
+    child_count: 0, parent_count: 0,
   };
 }
 

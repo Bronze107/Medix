@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { BrowseItem } from "@/types/browse";
+import { LineageBadge } from "@/components/shared/LineageBadge";
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -27,6 +28,8 @@ interface GalleryProps {
   groups?: GroupInfo[];
   selectedIds: string[];
   onToggleSelect: (media: BrowseItem, index: number, shiftKey: boolean) => void;
+  /** 点击衍生标记时触发（选中该媒体并跳到详情面板的「衍生」标签页） */
+  onOpenLineage?: (media: BrowseItem) => void;
   gap?: number;
   scale?: number;
   scrollToKey?: number;
@@ -112,6 +115,7 @@ function Gallery({
   groups,
   selectedIds,
   onToggleSelect,
+  onOpenLineage,
   gap = 12,
   scale = 1,
   scrollToKey,
@@ -242,6 +246,7 @@ function Gallery({
                         onDoubleClick={onDoubleClick ? () => onDoubleClick(item) : undefined}
                         onContextMenu={onContextMenu ? (e: React.MouseEvent) => onContextMenu(e, item) : undefined}
                         onToggleSelect={(shiftKey: boolean) => onToggleSelect(item, absIndex, shiftKey)}
+                        onOpenLineage={onOpenLineage ? () => onOpenLineage(item) : undefined}
                       />
                     </div>
                   );
@@ -265,6 +270,7 @@ function ThumbnailCard({
   onDoubleClick,
   onContextMenu,
   onToggleSelect,
+  onOpenLineage,
 }: {
   item: BrowseItem;
   isSelected: boolean;
@@ -273,6 +279,7 @@ function ThumbnailCard({
   onDoubleClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   onToggleSelect: (shiftKey: boolean) => void;
+  onOpenLineage?: () => void;
 }) {
   const thumbUrl = item.thumb_256
     ? convertFileSrc(item.thumb_256)
@@ -367,12 +374,15 @@ function ThumbnailCard({
             {item.id.slice(0, 8)}…
           </p>
         </div>
-        {/* Derivatives badge */}
-        {item.has_derivatives && (
-          <div className="absolute left-2 top-2 z-10 rounded bg-[var(--color-accent)]/80 px-1.5 py-0.5 text-[10px] font-medium text-white">
-            衍生
-          </div>
-        )}
+        {/* Lineage badge — 出边（衍生出 N 张）+ 入边（源自 N 张） */}
+        <div className="absolute left-2 top-2 z-10">
+          <LineageBadge
+            childCount={item.child_count}
+            parentCount={item.parent_count}
+            onActivate={onOpenLineage}
+            className="rounded bg-[var(--color-accent)]/80 px-1.5 py-0.5 text-white backdrop-blur-sm"
+          />
+        </div>
         {/* Duration badge for video */}
         {item.media_type === "video" && item.duration != null && (
           <div className="absolute right-2 bottom-2 z-10 rounded bg-black/60 px-1.5 py-0.5 text-[11px] tabular-nums text-white">

@@ -40,9 +40,13 @@ import {
 } from "@/lib/tauri";
 import type { EmbeddingInfo } from "@/types/ai";
 
+export type DetailTab = "details" | "captions" | "tags" | "lineage";
+
 interface DetailPanelProps {
   media: Media | null;
   collapsed: boolean;
+  activeTab: DetailTab;
+  onTabChange: (tab: DetailTab) => void;
   onToggleCollapse: () => void;
   onDeleted?: () => void;
   onNavigate?: (mediaId: string) => void;
@@ -195,8 +199,15 @@ function LineageThumb({ mediaId }: { mediaId: string }) {
   );
 }
 
-function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate }: DetailPanelProps) {
-  const [activeTab, setActiveTab] = useState<"details" | "captions" | "tags" | "lineage">("details");
+function DetailPanel({
+  media,
+  collapsed,
+  activeTab,
+  onTabChange,
+  onToggleCollapse,
+  onDeleted,
+  onNavigate,
+}: DetailPanelProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showClearTagsConfirm, setShowClearTagsConfirm] = useState(false);
 
@@ -540,7 +551,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
           return (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => onTabChange(tab)}
               className={`flex items-center gap-1.5 text-xs transition-colors ${
                 active
                   ? "font-semibold text-[var(--color-text-primary)]"
@@ -978,7 +989,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
                           className="group flex flex-col items-center gap-0.5"
                         >
                           <LineageThumb mediaId={p.media_id} />
-                          <span className="text-[10px] text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)] transition-colors">
+                          <span className="text-[11px] text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)] transition-colors">
                             {relationLabel(p.relation_type)}
                           </span>
                         </button>
@@ -992,7 +1003,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
                 {/* Current indicator */}
                 <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] px-3 py-0.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
-                  <span className="text-[10px] font-medium text-[var(--color-accent)]">当前</span>
+                  <span className="text-[11px] font-medium text-[var(--color-accent)]">当前</span>
                 </div>
                 {/* Children */}
                 {lineage.children.length > 0 && (
@@ -1011,7 +1022,7 @@ function DetailPanel({ media, collapsed, onToggleCollapse, onDeleted, onNavigate
                           className="group flex flex-col items-center gap-0.5"
                         >
                           <LineageThumb mediaId={c.media_id} />
-                          <span className="text-[10px] text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)] transition-colors">
+                          <span className="text-[11px] text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)] transition-colors">
                             {relationLabel(c.relation_type)}
                           </span>
                         </button>

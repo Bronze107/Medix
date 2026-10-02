@@ -1936,9 +1936,7 @@ pub fn list_browse_items_path(
             m.duration,
             m.video_codec,
             m.video_fps,
-            CASE WHEN EXISTS (
-                SELECT 1 FROM media_lineage WHERE parent_media_id = m.id
-            ) THEN 1 ELSE 0 END AS has_derivatives,
+            (SELECT COUNT(*) FROM media_lineage WHERE parent_media_id = m.id) AS child_count,
             (SELECT COUNT(*) FROM media_lineage WHERE child_media_id = m.id) AS parent_count
         FROM media m
         WHERE m.deleted_at IS NULL
@@ -1970,7 +1968,7 @@ pub fn list_browse_items_path(
             duration: row.get(15)?,
             video_codec: row.get(16)?,
             video_fps: row.get(17)?,
-            has_derivatives: row.get::<_, i32>(18)? != 0,
+            child_count: row.get(18)?,
             parent_count: row.get(19)?,
             thumb_256: None,
         })
@@ -2073,9 +2071,7 @@ pub fn browse_query_filtered_path(
             m.duration,
             m.video_codec,
             m.video_fps,
-            CASE WHEN EXISTS (
-                SELECT 1 FROM media_lineage WHERE parent_media_id = m.id
-            ) THEN 1 ELSE 0 END AS has_derivatives,
+            (SELECT COUNT(*) FROM media_lineage WHERE parent_media_id = m.id) AS child_count,
             (SELECT COUNT(*) FROM media_lineage WHERE child_media_id = m.id) AS parent_count
         FROM media m
         WHERE m.deleted_at IS NULL
@@ -2117,7 +2113,7 @@ pub fn browse_query_filtered_path(
             duration: row.get(15)?,
             video_codec: row.get(16)?,
             video_fps: row.get(17)?,
-            has_derivatives: row.get::<_, i32>(18)? != 0,
+            child_count: row.get(18)?,
             parent_count: row.get(19)?,
             thumb_256: None,
         })
@@ -3114,24 +3110,6 @@ pub fn lineage_insert_safe(
         workflow_id,
     )
     .map_err(|e| e.to_string())
-}
-
-pub fn media_is_root(conn: &Connection, media_id: &str) -> Result<bool, rusqlite::Error> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM media_lineage WHERE child_media_id = ?1",
-        params![media_id],
-        |r| r.get(0),
-    )?;
-    Ok(count == 0)
-}
-
-pub fn media_has_derivatives(conn: &Connection, media_id: &str) -> Result<bool, rusqlite::Error> {
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM media_lineage WHERE parent_media_id = ?1",
-        params![media_id],
-        |r| r.get(0),
-    )?;
-    Ok(count > 0)
 }
 
 // --- Caption operations ---
@@ -4429,7 +4407,7 @@ mod tests {
                 duration: None,
                 video_codec: None,
                 video_fps: None,
-                has_derivatives: false,
+                child_count: 0,
                 parent_count: 0,
             }
         }

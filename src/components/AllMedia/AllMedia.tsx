@@ -26,7 +26,7 @@ import {
 import DropZone from "@/components/DropZone/DropZone";
 import Gallery from "@/components/Gallery/Gallery";
 import TableView from "@/components/TableView/TableView";
-import DetailPanel from "@/components/DetailPanel/DetailPanel";
+import DetailPanel, { type DetailTab } from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import Lightbox from "@/components/Lightbox/Lightbox";
@@ -74,6 +74,9 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [dropHover, setDropHover] = useState(false);
   const [galleryScrollKey, setGalleryScrollKey] = useState(0);
   const [detailPanelKey, setDetailPanelKey] = useState(0);
+  // Lifted out of DetailPanel so clicking a card's lineage badge can jump to the
+  // 「衍生」 tab even when that click also remounts the panel (null → item).
+  const [detailTab, setDetailTab] = useState<DetailTab>("details");
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [debouncedSearch, setDebouncedSearch] = useState(initialQuery);
   const [savedFilterName, setSavedFilterName] = useState("");
@@ -919,12 +922,19 @@ function AllMedia({ collectionId }: AllMediaProps) {
               }}
               selectedIds={Array.from(selectedIds)}
               onToggleSelect={(item, index, shiftKey) => handleToggleSelect(item, index, shiftKey)}
+              onOpenLineage={(item) => {
+                selectItem(item);
+                setDetailTab("lineage");
+                if (detailCollapsed) setDetailCollapsed(false);
+              }}
               scrollToKey={galleryScrollKey}
             />
           )}
         </div>
         <DetailPanel
           key={detailPanelKey}
+          activeTab={detailTab}
+          onTabChange={setDetailTab}
           media={selectedItem ? { id: selectedItem.media_id, source_path: selectedItem.source_path, width: selectedItem.width, height: selectedItem.height, file_size: selectedItem.file_size, created_at: selectedItem.created_at, modified_at: selectedItem.modified_at, imported_at: selectedItem.imported_at, source_url: selectedItem.source_url, page_url: selectedItem.page_url, source: selectedItem.source, sha256: selectedItem.sha256, deleted_at: selectedItem.deleted_at, thumb_256: selectedItem.thumb_256, lqip: selectedItem.lqip, media_type: selectedItem.media_type, duration: selectedItem.duration, video_codec: selectedItem.video_codec, video_fps: selectedItem.video_fps } as Media : null}
           collapsed={detailCollapsed}
           onToggleCollapse={() => {

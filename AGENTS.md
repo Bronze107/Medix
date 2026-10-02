@@ -188,7 +188,7 @@ Medix/
 | 后端 CLI | 回归测试 | `medix-cli` + `tests/*.sh` | 8 脚本, 143 断言 |
 | Rust 核心 | 单元测试 | `cargo test` | 43 tests (parser + db + search + media + export) |
 | Rust 核心 | 性能基准 | `cargo bench` (criterion) | 4 套件 (phash, parser, import, search) |
-| 前端组件 | 单元测试 | Vitest + @testing-library/react | 26 tests (SearchBar, ConfirmDialog, appStore) |
+| 前端组件 | 单元测试 | Vitest + @testing-library/react | 39 tests (SearchBar, ConfirmDialog, appStore, ComfyUIForm, LineageBadge) |
 | Rust 核心 | Fuzz 测试 | proptest | 4 property tests (parser 随机输入) |
 
 ### CLI 回归测试（优先级最高）
@@ -250,7 +250,7 @@ open target/criterion/report/index.html  # HTML 报告
 ### 前端单元测试
 
 ```bash
-npm test            # 26 tests
+npm test            # 39 tests
 npm run test:watch  # 交互模式
 ```
 
@@ -259,6 +259,8 @@ npm run test:watch  # 交互模式
 | SearchBar | `SearchBar.test.tsx` | 13 | 渲染、pill 解析/删除、tag/width/height/date/size、大小写 |
 | ConfirmDialog | `ConfirmDialog.test.tsx` | 8 | 渲染/隐藏、确认/取消/遮罩点击、自定义文本、danger 样式 |
 | appStore | `appStore.test.ts` | 5 | 初始状态、sidebar/detail 切换、选中媒体 |
+| LineageBadge | `shared/LineageBadge.test.tsx` | 10 | 出/入边单独与同时渲染、两侧皆无返回 null、title 拼接、点击回调与阻止冒泡 |
+| ComfyUIForm | `shared/ComfyUIForm.test.tsx` | 3 | image_selector 提示语、seed 随机按钮 |
 
 ### CLI 命令速查
 
