@@ -2,7 +2,9 @@
 node_modules/
 .pnp
 .pnp.js
-package-lock.json
+# package-lock.json is tracked: devDependencies (vitest, @testing-library, jsdom)
+# drifted out of sync with package.json while it was ignored, which left
+# `npm test` and `npm run build` broken on a fresh clone.
 
 # Superpowers (brainstorming mockups)
 .superpowers/
