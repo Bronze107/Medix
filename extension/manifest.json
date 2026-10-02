@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Medix",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "description": "一键添加图片到 Medix 媒体库",
   "permissions": ["contextMenus", "storage", "notifications"],
   "host_permissions": ["http://localhost:*/*"],

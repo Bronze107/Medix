@@ -19,13 +19,19 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   await importImage(imageUrl, pageUrl);
 });
 
-// Relay imports from content scripts (e.g. Xiaohongshu alt+click).
+// Relay imports from content scripts (Alt+click, any site).
 // The local Medix server has no CORS headers, so content scripts cannot
 // fetch localhost directly — the service worker's fetch is not origin-bound.
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === "medix-import" && msg.url) {
-    importImage(msg.url, msg.page_url || "");
-  }
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== "medix-import" || !msg.url) return;
+  console.log("[Medix] background received import request", msg.url);
+  importImage(msg.url, msg.page_url || "")
+    .then(sendResponse)
+    .catch((e) => sendResponse({ ok: false, error: String(e) }));
+  // Return true to answer asynchronously. Besides giving the content script
+  // the real result, holding the channel open keeps the MV3 service worker
+  // alive for the duration of the download.
+  return true;
 });
 
 async function importImage(imageUrl, pageUrl) {
@@ -49,16 +55,20 @@ async function importImage(imageUrl, pageUrl) {
       const data = await resp.json();
       if (data.ok) {
         showSuccess();
-      } else {
-        showError(data.error || "未知错误");
+        return { ok: true };
       }
-    } else {
-      let msg = `HTTP ${resp.status}`;
-      try { const body = await resp.json(); msg = body.error || msg; } catch {}
-      showError(msg);
+      const err = data.error || "未知错误";
+      showError(err);
+      return { ok: false, error: err };
     }
+
+    let msg = `HTTP ${resp.status}`;
+    try { const body = await resp.json(); msg = body.error || msg; } catch {}
+    showError(msg);
+    return { ok: false, error: msg };
   } catch (e) {
     showError(e.message);
+    return { ok: false, error: e.message };
   }
 }
 
