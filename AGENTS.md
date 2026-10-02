@@ -86,7 +86,9 @@ Medix/
 │   ├── operations.sh
 │   ├── tags-collections.sh
 │   ├── cascade.sh
-│   └── variants-browse.sh
+│   ├── variants-browse.sh
+│   ├── migrations.sh
+│   └── comfyui.sh
 ├── extension/              # Chrome/Firefox 浏览器插件
 │   ├── manifest.json
 │   ├── background.js
@@ -183,7 +185,7 @@ Medix/
 
 | 层级 | 类型 | 工具 | 当前规模 |
 |------|------|------|----------|
-| 后端 CLI | 回归测试 | `medix-cli` + `tests/*.sh` | 6 脚本, 120 断言 |
+| 后端 CLI | 回归测试 | `medix-cli` + `tests/*.sh` | 8 脚本, 143 断言 |
 | Rust 核心 | 单元测试 | `cargo test` | 43 tests (parser + db + search + media + export) |
 | Rust 核心 | 性能基准 | `cargo bench` (criterion) | 4 套件 (phash, parser, import, search) |
 | 前端组件 | 单元测试 | Vitest + @testing-library/react | 26 tests (SearchBar, ConfirmDialog, appStore) |
@@ -200,11 +202,13 @@ cd src-tauri && bash ../tests/<name>.sh
 | 脚本 | 用例 | DB 模式 | 覆盖范围 |
 |------|------|---------|----------|
 | `tests/search.sh` | 19 | 隔离 + seed 30 条 | 标签、尺寸、文件大小、media_type、混合、精确断言 |
-| `tests/integrity.sh` | 26 | 生产(只读) | 6 表孤儿记录、schema 版本、视频迁移、迁移幂等 |
-| `tests/operations.sh` | 26 | 隔离 | 软删除→恢复、集合、SHA256、视频导入(条件) |
+| `tests/integrity.sh` | 25 | 生产(只读) | 6 表孤儿记录、schema 版本、视频迁移、迁移幂等 |
+| `tests/operations.sh` | 27 | 隔离 | 软删除→恢复、集合、SHA256、视频导入(条件) |
 | `tests/tags-collections.sh` | 15 | 隔离 | 标签 CRUD、批量标签、交集、集合置顶、集合内搜索 |
 | `tests/cascade.sh` | 21 | 隔离 | FK 级联删除(5 表)、caption/variant CRUD |
 | `tests/variants-browse.sh` | 13 | 隔离 | variant 浏览模式 (representative/all)、display_variant 回退 |
+| `tests/migrations.sh` | 16 | 隔离 | 迁移多次启动幂等、无残留 `variants` 外键、打标签/永久删除写路径、0033 损坏库修复 |
+| `tests/comfyui.sh` | 7 | 隔离 | ComfyUI 设置、0024 迁移 |
 
 **开发规范**：后端功能变更必须在对应测试脚本追加用例，提交前 `bash tests/*.sh` 全量通过。
 

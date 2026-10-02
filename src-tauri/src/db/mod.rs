@@ -71,14 +71,30 @@ pub fn setup_test_db(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::Error>> {
+    // The ledger is created up front because we must consult it before deciding
+    // whether the legacy `variants` table should exist at all.
     conn.execute_batch(
-        "
-        CREATE TABLE IF NOT EXISTS _migrations (
+        "CREATE TABLE IF NOT EXISTS _migrations (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+        );",
+    )?;
 
+    // Once 0028_drop_variants is recorded, the `variants` table is intentionally
+    // gone and must never be re-created. Migrations 0003/0011/0013/0014/0019 all
+    // reference it; without this flag they resurrect the table and leave dangling
+    // foreign keys behind (see 0033_repair_dangling_variant_fks).
+    let variants_dropped: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0028_drop_variants'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    conn.execute_batch(
+        "
         INSERT OR IGNORE INTO _migrations (name) VALUES ('0001_initial');
 
         CREATE TABLE IF NOT EXISTS media (
@@ -120,22 +136,6 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
 
         INSERT OR IGNORE INTO _migrations (name) VALUES ('0003_variants');
 
-        CREATE TABLE IF NOT EXISTS variants (
-            id TEXT PRIMARY KEY,
-            media_id TEXT NOT NULL,
-            preset_name TEXT NOT NULL,
-            format TEXT NOT NULL,
-            width INTEGER,
-            height INTEGER,
-            quality INTEGER,
-            file_size INTEGER,
-            file_path TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_variants_media ON variants(media_id);
-
         INSERT OR IGNORE INTO _migrations (name) VALUES ('0004_captions');
 
         CREATE TABLE IF NOT EXISTS captions (
@@ -173,6 +173,29 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
 
         ",
     )?;
+
+    // 0003_variants DDL — only on databases where 0028_drop_variants has not run.
+    // Applying it unconditionally re-created the table on every startup, which let
+    // 0011/0013/0014 re-attach foreign keys to it right before 0028 dropped it again.
+    if !variants_dropped {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS variants (
+                id TEXT PRIMARY KEY,
+                media_id TEXT NOT NULL,
+                preset_name TEXT NOT NULL,
+                format TEXT NOT NULL,
+                width INTEGER,
+                height INTEGER,
+                quality INTEGER,
+                file_size INTEGER,
+                file_path TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_variants_media ON variants(media_id);",
+        )?;
+    }
 
     // 0007: add source column to captions (conditional — SQLite can't do IF NOT EXISTS on ALTER TABLE)
     let has_source: bool = conn
@@ -249,7 +272,7 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
         )
         .unwrap_or(false);
 
-    if !has_label {
+    if !has_label && !variants_dropped {
         conn.execute_batch(
             "INSERT OR IGNORE INTO _migrations (name) VALUES ('0011_variant_versioning');
              ALTER TABLE variants ADD COLUMN label TEXT;
@@ -310,7 +333,7 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
             |row| row.get(0),
         )
         .unwrap_or(false);
-    if !has_display_variant {
+    if !has_display_variant && !variants_dropped {
         conn.execute_batch(
             "INSERT OR IGNORE INTO _migrations (name) VALUES ('0013_variant_annotation');
              ALTER TABLE captions ADD COLUMN variant_id TEXT REFERENCES variants(id) ON DELETE CASCADE;
@@ -334,11 +357,19 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
             |row| row.get(0),
         )
         .unwrap_or(false);
-    if !has_variant_tags {
+    if !has_variant_tags && !variants_dropped {
         conn.execute_batch(
             "INSERT OR IGNORE INTO _migrations (name) VALUES ('0014_variant_tags');
              ALTER TABLE media_tags ADD COLUMN variant_id TEXT REFERENCES variants(id) ON DELETE CASCADE;
              CREATE INDEX IF NOT EXISTS idx_media_tags_variant ON media_tags(variant_id);",
+        )?;
+    } else {
+        // Ensure the migration entry exists so subsequent passes don't re-try.
+        // Without this else branch, 0029-0032 deleting media_tags.variant_id made
+        // this block re-add the column (and its FK to the dropped variants table)
+        // on the very next startup.
+        conn.execute_batch(
+            "INSERT OR IGNORE INTO _migrations (name) VALUES ('0014_variant_tags');",
         )?;
     }
 
@@ -444,27 +475,37 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
             )
             .unwrap_or(false);
         if !mig_applied {
-            let columns: Vec<String> = {
-                let mut stmt = conn.prepare("PRAGMA table_info('variants')")?;
-                let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-                rows.filter_map(|r| r.ok()).collect()
-            };
-            let mut sql = String::from(
-                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0019_video_variants');",
-            );
-            if !columns.contains(&"media_type".to_string()) {
-                sql.push_str("ALTER TABLE variants ADD COLUMN media_type TEXT DEFAULT 'image';");
+            if variants_dropped {
+                // `variants` is gone — record the migration instead of ALTERing a
+                // missing table.
+                conn.execute_batch(
+                    "INSERT OR IGNORE INTO _migrations (name) VALUES ('0019_video_variants');",
+                )?;
+            } else {
+                let columns: Vec<String> = {
+                    let mut stmt = conn.prepare("PRAGMA table_info('variants')")?;
+                    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+                    rows.filter_map(|r| r.ok()).collect()
+                };
+                let mut sql = String::from(
+                    "INSERT OR IGNORE INTO _migrations (name) VALUES ('0019_video_variants');",
+                );
+                if !columns.contains(&"media_type".to_string()) {
+                    sql.push_str(
+                        "ALTER TABLE variants ADD COLUMN media_type TEXT DEFAULT 'image';",
+                    );
+                }
+                if !columns.contains(&"duration".to_string()) {
+                    sql.push_str("ALTER TABLE variants ADD COLUMN duration REAL;");
+                }
+                if !columns.contains(&"video_codec".to_string()) {
+                    sql.push_str("ALTER TABLE variants ADD COLUMN video_codec TEXT;");
+                }
+                if !columns.contains(&"video_fps".to_string()) {
+                    sql.push_str("ALTER TABLE variants ADD COLUMN video_fps REAL;");
+                }
+                conn.execute_batch(&sql)?;
             }
-            if !columns.contains(&"duration".to_string()) {
-                sql.push_str("ALTER TABLE variants ADD COLUMN duration REAL;");
-            }
-            if !columns.contains(&"video_codec".to_string()) {
-                sql.push_str("ALTER TABLE variants ADD COLUMN video_codec TEXT;");
-            }
-            if !columns.contains(&"video_fps".to_string()) {
-                sql.push_str("ALTER TABLE variants ADD COLUMN video_fps REAL;");
-            }
-            conn.execute_batch(&sql)?;
         }
     }
 
@@ -1130,7 +1171,7 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
 
             // media_tags: drop variant_id column entirely
             if media_tags_has_variant {
-                let _ = conn.execute_batch(
+                conn.execute_batch(
                     "CREATE TABLE IF NOT EXISTS media_tags_new_0032 (
                          media_id TEXT NOT NULL,
                          tag_id TEXT NOT NULL,
@@ -1147,12 +1188,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                      ALTER TABLE media_tags_new_0032 RENAME TO media_tags;
                      CREATE INDEX IF NOT EXISTS idx_media_tags_media ON media_tags(media_id);
                      CREATE INDEX IF NOT EXISTS idx_media_tags_tag ON media_tags(tag_id);",
-                );
+                )?;
             }
 
             // captions: drop variant_id column entirely
             if captions_has_variant {
-                let _ = conn.execute_batch(
+                conn.execute_batch(
                     "CREATE TABLE IF NOT EXISTS captions_new_0032 (
                          id TEXT PRIMARY KEY,
                          media_id TEXT NOT NULL,
@@ -1167,12 +1208,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                      DROP TABLE IF EXISTS captions;
                      ALTER TABLE captions_new_0032 RENAME TO captions;
                      CREATE INDEX IF NOT EXISTS idx_captions_media ON captions(media_id);",
-                );
+                )?;
             }
 
             // embeddings: drop variant_id column entirely
             if embeddings_has_variant {
-                let _ = conn.execute_batch(
+                conn.execute_batch(
                     "CREATE TABLE IF NOT EXISTS embeddings_new_0032 (
                          media_id TEXT NOT NULL,
                          model TEXT NOT NULL,
@@ -1188,12 +1229,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                      CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_unique ON embeddings(media_id, model, content_type);
                      CREATE INDEX IF NOT EXISTS idx_embeddings_media ON embeddings(media_id);
                      CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);",
-                );
+                )?;
             }
 
             // media: keep display_variant_id column but drop FK constraint
             if media_has_display_variant {
-                let _ = conn.execute_batch(
+                conn.execute_batch(
                     "CREATE TABLE IF NOT EXISTS media_new_0032 (
                          id TEXT PRIMARY KEY, source_path TEXT, phash BLOB,
                          width INTEGER, height INTEGER, file_size INTEGER,
@@ -1214,7 +1255,7 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                      CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
                      CREATE INDEX IF NOT EXISTS idx_media_deleted_at ON media(deleted_at);
                      CREATE INDEX IF NOT EXISTS idx_media_deleted_imported ON media(deleted_at, imported_at);",
-                );
+                )?;
             }
 
             conn.execute_batch("PRAGMA foreign_keys = ON;")?;
@@ -1225,7 +1266,192 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
         }
     }
 
+    // 0033_repair_dangling_variant_fks
+    // 0003/0011/0014 could re-attach foreign keys to a `variants` table that 0028
+    // had already dropped, and 0029-0032 never ran again once recorded. A database
+    // corrupted that way keeps a dangling FK indefinitely: with foreign_keys ON,
+    // every INSERT/DELETE against the affected table fails at prepare time with
+    // "no such table: main.variants" — which is what broke tagging and trash
+    // emptying. This one-shot migration rebuilds any table whose DDL still
+    // mentions `variants`.
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0033_repair_dangling_variant_fks'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            let media_tags_broken = table_has_column(conn, "media_tags", "variant_id")
+                || table_ddl_mentions_variants(conn, "media_tags");
+            let captions_broken = table_has_column(conn, "captions", "variant_id")
+                || table_ddl_mentions_variants(conn, "captions");
+            let embeddings_broken = table_has_column(conn, "embeddings", "variant_id")
+                || table_ddl_mentions_variants(conn, "embeddings");
+            // media deliberately keeps its display_variant_id column (it is still
+            // selected into Media::display_variant_id); only the FK goes away.
+            let media_broken = table_ddl_mentions_variants(conn, "media");
+
+            if media_tags_broken || captions_broken || embeddings_broken || media_broken {
+                // PRAGMA foreign_keys is a no-op inside a transaction, so it has to
+                // be toggled outside the one below.
+                conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+                {
+                    // One transaction for the whole repair: SQLite DDL is
+                    // transactional, so a failure rolls back to the original tables
+                    // instead of leaving them dropped between DROP and RENAME.
+                    let tx = conn.transaction()?;
+
+                    if media_tags_broken {
+                        tx.execute_batch(
+                            "DROP TABLE IF EXISTS media_tags_new_0033;
+                             CREATE TABLE media_tags_new_0033 (
+                                 media_id TEXT NOT NULL,
+                                 tag_id TEXT NOT NULL,
+                                 confidence REAL,
+                                 source TEXT,
+                                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                 PRIMARY KEY (media_id, tag_id),
+                                 FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE,
+                                 FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+                             );
+                             INSERT INTO media_tags_new_0033
+                                 (media_id, tag_id, confidence, source, created_at)
+                                 SELECT media_id, tag_id, confidence, source, created_at
+                                 FROM media_tags;
+                             DROP TABLE media_tags;
+                             ALTER TABLE media_tags_new_0033 RENAME TO media_tags;
+                             CREATE INDEX IF NOT EXISTS idx_media_tags_media ON media_tags(media_id);
+                             CREATE INDEX IF NOT EXISTS idx_media_tags_tag ON media_tags(tag_id);",
+                        )?;
+                    }
+
+                    if captions_broken {
+                        tx.execute_batch(
+                            "DROP TABLE IF EXISTS captions_new_0033;
+                             CREATE TABLE captions_new_0033 (
+                                 id TEXT PRIMARY KEY,
+                                 media_id TEXT NOT NULL,
+                                 text TEXT NOT NULL,
+                                 source TEXT,
+                                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                 FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+                             );
+                             INSERT INTO captions_new_0033
+                                 (id, media_id, text, source, created_at, updated_at)
+                                 SELECT id, media_id, text, source, created_at, updated_at
+                                 FROM captions;
+                             DROP TABLE captions;
+                             ALTER TABLE captions_new_0033 RENAME TO captions;
+                             CREATE INDEX IF NOT EXISTS idx_captions_media ON captions(media_id);",
+                        )?;
+                    }
+
+                    if embeddings_broken {
+                        tx.execute_batch(
+                            "DROP TABLE IF EXISTS embeddings_new_0033;
+                             CREATE TABLE embeddings_new_0033 (
+                                 media_id TEXT NOT NULL,
+                                 model TEXT NOT NULL,
+                                 content_type TEXT NOT NULL,
+                                 vector BLOB NOT NULL,
+                                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                 FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+                             );
+                             INSERT INTO embeddings_new_0033
+                                 (media_id, model, content_type, vector, created_at)
+                                 SELECT media_id, model, content_type, vector, created_at
+                                 FROM embeddings;
+                             DROP TABLE embeddings;
+                             ALTER TABLE embeddings_new_0033 RENAME TO embeddings;
+                             CREATE UNIQUE INDEX IF NOT EXISTS idx_embeddings_unique ON embeddings(media_id, model, content_type);
+                             CREATE INDEX IF NOT EXISTS idx_embeddings_media ON embeddings(media_id);
+                             CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);",
+                        )?;
+                    }
+
+                    // Rebuilt last: other tables reference media, so its own
+                    // rebuild waits until their dangling DDL is gone.
+                    if media_broken {
+                        tx.execute_batch(
+                            "DROP TABLE IF EXISTS media_new_0033;
+                             CREATE TABLE media_new_0033 (
+                                 id TEXT PRIMARY KEY, source_path TEXT, phash BLOB,
+                                 width INTEGER, height INTEGER, file_size INTEGER,
+                                 created_at TIMESTAMP, modified_at TIMESTAMP,
+                                 imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                 source_url TEXT, page_url TEXT, source TEXT,
+                                 deleted_at TEXT, sha256 TEXT,
+                                 display_variant_id TEXT, lqip TEXT,
+                                 media_type TEXT DEFAULT 'image',
+                                 duration REAL, video_codec TEXT, video_fps REAL
+                             );
+                             INSERT INTO media_new_0033
+                                 SELECT id, source_path, phash, width, height, file_size,
+                                        created_at, modified_at, imported_at,
+                                        source_url, page_url, source,
+                                        deleted_at, sha256, display_variant_id,
+                                        lqip, media_type, duration, video_codec, video_fps
+                                 FROM media;
+                             DROP TABLE media;
+                             ALTER TABLE media_new_0033 RENAME TO media;
+                             CREATE INDEX IF NOT EXISTS idx_media_imported_at ON media(imported_at);
+                             CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at);
+                             CREATE INDEX IF NOT EXISTS idx_media_type ON media(media_type);
+                             CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
+                             CREATE INDEX IF NOT EXISTS idx_media_deleted_at ON media(deleted_at);
+                             CREATE INDEX IF NOT EXISTS idx_media_deleted_imported ON media(deleted_at, imported_at);",
+                        )?;
+                    }
+
+                    tx.commit()?;
+                }
+                conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+            }
+
+            // 0020's index is dropped by every media rebuild and never restored.
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_media_display_variant ON media(display_variant_id);",
+            )?;
+
+            // Recorded only once the rebuilds above actually succeeded.
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0033_repair_dangling_variant_fks');",
+            )?;
+        }
+    }
+
     Ok(())
+}
+
+/// True when the live DDL of `table` mentions the legacy `variants` table.
+///
+/// Reads `sqlite_master.sql` rather than `pragma_foreign_key_list`, because the
+/// latter resolves the foreign-key parent and fails with "no such table:
+/// variants" — the very failure this module is trying to recover from.
+fn table_ddl_mentions_variants(conn: &Connection, table: &str) -> bool {
+    conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master
+         WHERE type = 'table' AND name = ?1 AND sql LIKE '%variants%'",
+        params![table],
+        |row| row.get(0),
+    )
+    .unwrap_or(false)
+}
+
+/// True when `table` currently has a column named `column`.
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> bool {
+    conn.query_row(
+        &format!(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('{}') WHERE name = ?1",
+            table
+        ),
+        params![column],
+        |row| row.get(0),
+    )
+    .unwrap_or(false)
 }
 
 // --- Collection operations ---
@@ -3545,6 +3771,163 @@ mod tests {
             .unwrap();
 
         assert_eq!(before, after, "migrations should be idempotent");
+    }
+
+    /// Regression guard for the `variants` saga: migrations 0003/0011/0013/0014
+    /// used to re-attach foreign keys to the `variants` table after 0028 dropped
+    /// it, leaving a dangling FK that broke INSERT/DELETE on `media_tags` and
+    /// therefore tagging and trash emptying. A single extra boot was enough.
+    #[test]
+    fn test_no_variants_references_after_repeated_migrations() {
+        let (_dir, db_path) = new_test_db();
+        let mut conn = open(&db_path);
+
+        run_migrations(&mut conn).expect("second run_migrations");
+        run_migrations(&mut conn).expect("third run_migrations");
+
+        // No table DDL may mention `variants` — that is strictly stronger than
+        // checking pragma_foreign_key_list, which cannot even be queried reliably
+        // while the parent table is missing.
+        let mentioning: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND sql LIKE '%variants%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(mentioning, 0, "no table should reference `variants`");
+
+        let variants_table: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='variants'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(variants_table, 0, "`variants` must stay dropped");
+
+        assert!(!table_has_column(&conn, "media_tags", "variant_id"));
+        assert!(!table_has_column(&conn, "captions", "variant_id"));
+        assert!(!table_has_column(&conn, "embeddings", "variant_id"));
+        // media keeps the column, only its FK is gone.
+        assert!(table_has_column(&conn, "media", "display_variant_id"));
+    }
+
+    /// The user-visible symptom: `media_permanent_delete` runs
+    /// `DELETE FROM media` on a connection with foreign keys enabled.
+    #[test]
+    fn test_media_delete_with_fk_on_after_migrations() {
+        let (_dir, db_path) = new_test_db();
+        let conn = open(&db_path);
+
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at)
+             VALUES ('m1', '/tmp/x.png', 10, 10, 100, '2026-01-01T00:00:00')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO tags (id, name) VALUES ('t1', 'cat')", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO media_tags (media_id, tag_id) VALUES ('m1', 't1')",
+            [],
+        )
+        .unwrap();
+
+        // Pre-fix this failed with "in prepare, no such table: main.variants".
+        conn.execute("DELETE FROM media WHERE id = 'm1'", [])
+            .expect("DELETE FROM media must succeed");
+
+        assert_eq!(count(&conn, "media"), 0);
+        assert_eq!(count(&conn, "media_tags"), 0, "cascade must still work");
+    }
+
+    /// Repairs a database already corrupted by the 0003/0014 interplay, and
+    /// must not lose any rows while rebuilding the tables.
+    #[test]
+    fn test_repairs_corrupted_legacy_state() {
+        let (_dir, db_path) = new_test_db();
+        let mut conn = open(&db_path);
+
+        // Seed real data first so we can prove the rebuild preserves it.
+        conn.execute(
+            "INSERT INTO media (id, source_path, width, height, file_size, imported_at)
+             VALUES ('m1', '/tmp/x.png', 10, 10, 100, '2026-01-01T00:00:00')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO tags (id, name) VALUES ('t1', 'cat')", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO media_tags (media_id, tag_id, confidence) VALUES ('m1', 't1', 0.5)",
+            [],
+        )
+        .unwrap();
+
+        // Reproduce the corrupted state: media_tags carries an FK to `variants`,
+        // which no longer exists.
+        conn.execute_batch("PRAGMA foreign_keys = OFF;").unwrap();
+        conn.execute_batch(
+            // A database in this state predates 0033, so forget that it ran.
+            "DELETE FROM _migrations WHERE name = '0033_repair_dangling_variant_fks';
+             CREATE TABLE variants (id TEXT PRIMARY KEY, media_id TEXT NOT NULL);
+             DROP TABLE media_tags;
+             CREATE TABLE media_tags (
+                 media_id TEXT NOT NULL,
+                 tag_id TEXT NOT NULL,
+                 confidence REAL,
+                 source TEXT,
+                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                 variant_id TEXT REFERENCES variants(id) ON DELETE CASCADE,
+                 PRIMARY KEY (media_id, tag_id),
+                 FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE,
+                 FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+             );
+             INSERT INTO media_tags (media_id, tag_id, confidence) VALUES ('m1', 't1', 0.5);
+             DROP TABLE variants;",
+        )
+        .unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+
+        // Sanity: the corruption reproduces the reported failure.
+        assert!(table_ddl_mentions_variants(&conn, "media_tags"));
+        assert!(
+            conn.execute("DELETE FROM media_tags WHERE 0", []).is_err(),
+            "corrupted DB should reject media_tags writes"
+        );
+
+        run_migrations(&mut conn).expect("repair");
+
+        assert!(!table_has_column(&conn, "media_tags", "variant_id"));
+        assert!(!table_ddl_mentions_variants(&conn, "media_tags"));
+        conn.execute("DELETE FROM media_tags WHERE 0", [])
+            .expect("media_tags must accept writes again after repair");
+
+        let recorded: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM _migrations WHERE name = '0033_repair_dangling_variant_fks'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            recorded, 1,
+            "0033 should be recorded after a successful repair"
+        );
+
+        // Row preservation.
+        assert_eq!(count(&conn, "media"), 1);
+        assert_eq!(count(&conn, "media_tags"), 1);
+        assert_eq!(count(&conn, "tags"), 1);
+        let confidence: f64 = conn
+            .query_row(
+                "SELECT confidence FROM media_tags WHERE media_id = 'm1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(confidence, 0.5);
     }
 
     #[test]
