@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 
@@ -10,8 +10,6 @@ use image::ImageEncoder;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Semaphore;
-
-use rusqlite::params;
 
 use super::{create_provider, EditParams, GenerateParams, StagedImage};
 
@@ -255,16 +253,6 @@ async fn process_task(
                 "2k" => 2048,
                 _ => 1024,
             };
-            let conn = match crate::db::get_conn(&app) {
-                Ok(c) => c,
-                Err(e) => {
-                    if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
-                        t.status = "failed".to_string();
-                        t.error = Some(e);
-                    }
-                    return;
-                }
-            };
             if source_media_ids.is_empty() {
                 if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
                     t.status = "failed".to_string();
@@ -274,7 +262,7 @@ async fn process_task(
             }
             let mut image_data_urls = Vec::new();
             for sid in &source_media_ids {
-                let path = match resolve_media_source(&app, &*conn, sid) {
+                let path = match crate::db::resolve_media_file(&app, sid) {
                     Ok(p) => p,
                     Err(e) => {
                         if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
@@ -384,65 +372,13 @@ async fn process_task(
     }
 }
 
-/// Look up the source_path from the media table.
-fn find_media_path(conn: &rusqlite::Connection, media_id: &str) -> Result<String, String> {
-    let path: String = conn
-        .query_row(
-            "SELECT source_path FROM media WHERE id = ?1",
-            params![media_id],
-            |r| r.get(0),
-        )
-        .map_err(|e| format!("media {} not found: {}", media_id, e))?;
-    Ok(path)
-}
-
-/// source_path 为网络链接时不能作为本地文件读取（浏览器插件导入的 Web 图片）。
-fn is_remote_url(path: &str) -> bool {
-    path.starts_with("http://")
-        || path.starts_with("https://")
-        || path.starts_with("asset://")
-        || path.starts_with("file://")
-}
-
-/// 解析媒体实际本地文件路径。
-/// 历史 Web 导入记录的 source_path 是 URL，但文件实际在 library/{id}.{ext}，
-/// 这里回退到按 media id 前缀在 library 目录中查找真实文件。
-fn resolve_media_source(
-    app: &AppHandle,
-    conn: &rusqlite::Connection,
-    media_id: &str,
-) -> Result<String, String> {
-    let path = find_media_path(conn, media_id)?;
-    if !is_remote_url(&path) {
-        return Ok(path);
-    }
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let library_dir = app_dir.join("library");
-    let prefix = format!("{}.", media_id);
-    let entries = std::fs::read_dir(&library_dir).map_err(|e| e.to_string())?;
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with(&prefix) {
-            return Ok(entry.path().to_string_lossy().replace('\\', "/"));
-        }
-    }
-    Err(format!(
-        "该媒体是网络链接（{}）且未在本地 library 中找到文件，无法用于本地图像编辑",
-        path
-    ))
-}
-
 /// Read an image from disk, optionally resize, and encode as data URL.
-fn read_and_encode_image(source_path: &str, max_dim: u32) -> Result<String, String> {
-    if is_remote_url(source_path) {
-        return Err(format!(
-            "该媒体是网络链接（source_path: {}），没有本地文件，无法用于本地图像编辑。\
-             请先将其下载到本地再操作。",
-            source_path
-        ));
-    }
-    let img =
-        image::open(source_path).map_err(|e| format!("无法读取源图片 {}：{}", source_path, e))?;
+///
+/// `source_path` is always a resolved local file (see
+/// [`crate::db::resolve_media_file`]), so there is no remote-URL case here.
+fn read_and_encode_image(source_path: &Path, max_dim: u32) -> Result<String, String> {
+    let img = image::open(source_path)
+        .map_err(|e| format!("无法读取源图片 {}：{}", source_path.to_string_lossy(), e))?;
     let (w, h) = (img.width(), img.height());
     let image_data_url = if w.max(h) > max_dim {
         let ratio = max_dim as f64 / w.max(h) as f64;
@@ -466,8 +402,8 @@ fn read_and_encode_image(source_path: &str, max_dim: u32) -> Result<String, Stri
     Ok(image_data_url)
 }
 
-fn image_to_data_url(img: &image::DynamicImage, source_path: &str) -> Result<String, String> {
-    let ext = std::path::Path::new(source_path)
+fn image_to_data_url(img: &image::DynamicImage, source_path: &Path) -> Result<String, String> {
+    let ext = source_path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("jpg")

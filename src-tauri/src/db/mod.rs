@@ -3487,6 +3487,93 @@ fn delete_media_files(app_dir: &Path, id: &str) {
     }
 }
 
+/// True for `source_path` values that are not local files (browser-plugin imports).
+fn is_remote_url(path: &str) -> bool {
+    ["http://", "https://", "asset://", "file://"]
+        .iter()
+        .any(|scheme| path.starts_with(scheme))
+}
+
+fn file_stem(file_name: &str) -> &str {
+    file_name
+        .rsplit_once('.')
+        .map(|(stem, _ext)| stem)
+        .unwrap_or(file_name)
+}
+
+/// First file in `dir` belonging to media `id`, preferring an exact `{id}.{ext}`
+/// name over a legacy `{parent}_{id}.{ext}` one so the result does not depend on
+/// `read_dir` order.
+fn find_file_in_dir(dir: &Path, id: &str) -> Option<PathBuf> {
+    let mut legacy: Option<PathBuf> = None;
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !is_file_for_media(name, id) {
+            continue;
+        }
+        if file_stem(name) == id {
+            return Some(entry.path());
+        }
+        if legacy.is_none() {
+            legacy = Some(entry.path());
+        }
+    }
+    legacy
+}
+
+/// The on-disk file backing media `id`.
+///
+/// The library copy is authoritative — thumbnails, export, the viewer and AI
+/// editing all read it — so it wins over `source_path`. For locally imported
+/// media `source_path` still records the *original* location the file was
+/// imported from, which may have moved or been deleted since, so it is only a
+/// fallback for media whose library copy is gone.
+pub fn resolve_media_file_path(
+    app_dir: &Path,
+    conn: &Connection,
+    id: &str,
+) -> Result<PathBuf, String> {
+    for dir in ["library", "variants"] {
+        if let Some(path) = find_file_in_dir(&app_dir.join(dir), id) {
+            return Ok(path);
+        }
+    }
+
+    let source_path: Option<String> = conn
+        .query_row(
+            "SELECT source_path FROM media WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten();
+
+    if let Some(source_path) = source_path {
+        if !source_path.is_empty() && !is_remote_url(&source_path) {
+            let path = PathBuf::from(&source_path);
+            if path.exists() {
+                return Ok(path);
+            }
+        }
+        if is_remote_url(&source_path) {
+            return Err(format!(
+                "该媒体是网络链接（{}）且未在本地 library 中找到文件，无法用于本地图像编辑",
+                source_path
+            ));
+        }
+    }
+
+    Err(format!("未找到媒体 {} 的本地文件", id))
+}
+
+/// Tauri-facing wrapper around [`resolve_media_file_path`].
+pub fn resolve_media_file(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let conn = get_conn(app)?;
+    resolve_media_file_path(&app_dir, &conn, id)
+}
+
 pub fn media_list_trash(
     app: &AppHandle,
     sort_by: &str,
@@ -3994,6 +4081,143 @@ mod tests {
             .join("thumbnails")
             .join(format!("{}_256.jpg", other))
             .exists());
+    }
+
+    /// Temp app dir + migrated DB + one media row, for the resolver tests.
+    /// Returns (keep-alive dir, connection, app_dir, db_path).
+    fn resolver_env(
+        id: &str,
+        source_path: Option<&str>,
+    ) -> (tempfile::TempDir, Connection, PathBuf, PathBuf) {
+        let (dir, db_path) = new_test_db();
+        let app_dir = dir.path().to_path_buf();
+        let conn = open(&db_path);
+        conn.execute(
+            "INSERT INTO media (id, source_path, imported_at)
+             VALUES (?1, ?2, '2026-01-01T00:00:00')",
+            params![id, source_path],
+        )
+        .unwrap();
+        (dir, conn, app_dir, db_path)
+    }
+
+    fn touch(app_dir: &Path, sub: &str, name: &str) -> PathBuf {
+        let dir = app_dir.join(sub);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, b"x").unwrap();
+        path
+    }
+
+    fn set_source_path(conn: &Connection, id: &str, path: &Path) {
+        conn.execute(
+            "UPDATE media SET source_path = ?1 WHERE id = ?2",
+            params![path.to_string_lossy().to_string(), id],
+        )
+        .unwrap();
+    }
+
+    /// The reported bug: AI editing read the original import location instead of
+    /// the library copy.
+    #[test]
+    fn test_resolve_prefers_library_copy_over_source_path() {
+        let (dir, conn, app_dir, _db) = resolver_env("01M", None);
+        let original = dir.path().join("original.jpg");
+        std::fs::write(&original, b"orig").unwrap();
+        set_source_path(&conn, "01M", &original);
+
+        let in_library = touch(&app_dir, "library", "01M.jpg");
+
+        assert_eq!(
+            resolve_media_file_path(&app_dir, &conn, "01M").unwrap(),
+            in_library
+        );
+    }
+
+    #[test]
+    fn test_resolve_finds_legacy_derivative_in_variants() {
+        let (_dir, conn, app_dir, _db) = resolver_env("01CHILD", None);
+        conn.execute(
+            "INSERT INTO media (id, imported_at) VALUES ('01PARENT', '2026-01-01T00:00:00')",
+            [],
+        )
+        .unwrap();
+
+        let file = touch(&app_dir, "variants", "01PARENT_01CHILD.png");
+
+        assert_eq!(
+            resolve_media_file_path(&app_dir, &conn, "01CHILD").unwrap(),
+            file
+        );
+        // The derivative's file belongs to the child, not to the parent.
+        assert!(resolve_media_file_path(&app_dir, &conn, "01PARENT").is_err());
+    }
+
+    #[test]
+    fn test_resolve_falls_back_to_source_path() {
+        let (dir, conn, app_dir, _db) = resolver_env("01M", None);
+        let original = dir.path().join("original.jpg");
+        std::fs::write(&original, b"orig").unwrap();
+        set_source_path(&conn, "01M", &original);
+
+        std::fs::create_dir_all(app_dir.join("library")).unwrap();
+
+        assert_eq!(
+            resolve_media_file_path(&app_dir, &conn, "01M").unwrap(),
+            original
+        );
+    }
+
+    #[test]
+    fn test_resolve_remote_url_without_local_copy_errors() {
+        let (_dir, conn, app_dir, _db) = resolver_env("01M", Some("https://example.com/a.jpg"));
+        std::fs::create_dir_all(app_dir.join("library")).unwrap();
+
+        let err = resolve_media_file_path(&app_dir, &conn, "01M").unwrap_err();
+        assert!(err.contains("网络链接"), "unexpected message: {}", err);
+    }
+
+    /// Guards the `starts_with` bug the old export resolver had.
+    #[test]
+    fn test_resolve_does_not_match_a_longer_id() {
+        let (_dir, conn, app_dir, _db) = resolver_env("01ABC", None);
+        touch(&app_dir, "library", "01ABCX.jpg");
+
+        assert!(resolve_media_file_path(&app_dir, &conn, "01ABC").is_err());
+    }
+
+    #[test]
+    fn test_resolve_ignores_derivatives_of_this_media() {
+        let (_dir, conn, app_dir, _db) = resolver_env("01M", None);
+        touch(&app_dir, "library", "01M_01OTHER.png");
+
+        assert!(resolve_media_file_path(&app_dir, &conn, "01M").is_err());
+    }
+
+    /// Web-import shape: source_path is the URL, the bytes are in library/.
+    #[test]
+    fn test_resolve_library_wins_over_a_remote_source_path() {
+        let (_dir, conn, app_dir, _db) = resolver_env("01M", Some("https://example.com/a.jpg"));
+        let in_library = touch(&app_dir, "library", "01M.jpg");
+
+        assert_eq!(
+            resolve_media_file_path(&app_dir, &conn, "01M").unwrap(),
+            in_library
+        );
+    }
+
+    /// An exact `{id}.{ext}` must win over `{parent}_{id}.{ext}` regardless of
+    /// the order `read_dir` happens to return them in.
+    #[test]
+    fn test_resolve_prefers_exact_stem_within_a_directory() {
+        let (_dir, conn, app_dir, _db) = resolver_env("01M", None);
+        touch(&app_dir, "library", "01PARENT_01M.jpg");
+        let exact = touch(&app_dir, "library", "01M.jpg");
+
+        assert_eq!(
+            resolve_media_file_path(&app_dir, &conn, "01M").unwrap(),
+            exact
+        );
     }
 
     #[test]

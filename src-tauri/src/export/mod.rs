@@ -31,17 +31,7 @@ pub fn is_ai_source(source: Option<&str>) -> bool {
 }
 
 fn find_media_file(app: &AppHandle, media_id: &str) -> Result<PathBuf, String> {
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let library_dir = app_dir.join("library");
-    for entry in fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if name_str.starts_with(media_id) {
-            return Ok(entry.path());
-        }
-    }
-    Err(format!("media file not found in library: {}", media_id))
+    crate::db::resolve_media_file(app, media_id)
 }
 
 #[derive(Serialize, Deserialize)]

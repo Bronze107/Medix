@@ -2,7 +2,6 @@ use tauri::{command, AppHandle, Emitter, Manager};
 
 use crate::db;
 use crate::media::{import, Media, MediaImportResult};
-use rusqlite::params;
 
 #[command]
 pub async fn media_import(
@@ -143,34 +142,13 @@ pub struct MediaPaths {
 pub fn media_get_paths(app: AppHandle, id: String) -> Result<MediaPaths, String> {
     let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
 
-    let original = {
-        let library_dir = app_dir.join("library");
-        let mut found = None;
-        if library_dir.exists() {
-            for entry in std::fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with(&format!("{}.", &id)) {
-                    found = Some(entry.path().to_string_lossy().replace('\\', "/"));
-                    break;
-                }
-            }
-        }
-        // Fallback: check source_path in DB (derivative media may be in other directories)
-        if found.is_none() {
-            if let Ok(conn) = crate::db::get_conn(&app) {
-                found = conn
-                    .query_row(
-                        "SELECT source_path FROM media WHERE id = ?1",
-                        params![&id],
-                        |r| r.get::<_, String>(0),
-                    )
-                    .ok()
-                    .map(|p| p.replace('\\', "/"));
-            }
-        }
-        found
+    // The viewer shows whatever the app considers authoritative — never the
+    // original import location, which may have moved.
+    let original = match crate::db::get_conn(&app) {
+        Ok(conn) => crate::db::resolve_media_file_path(&app_dir, &conn, &id)
+            .ok()
+            .map(|p| p.to_string_lossy().replace('\\', "/")),
+        Err(_) => None,
     };
 
     let thumb_dir = app_dir.join("thumbnails");
@@ -187,24 +165,7 @@ pub fn media_get_paths(app: AppHandle, id: String) -> Result<MediaPaths, String>
 
 #[command]
 pub fn media_ai_annotate(app: AppHandle, id: String) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-
-    // Find original file in library
-    let library_dir = app_dir.join("library");
-    let mut file_path = None;
-    if library_dir.exists() {
-        for entry in std::fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with(&format!("{}.", &id)) {
-                file_path = Some(entry.path());
-                break;
-            }
-        }
-    }
-
-    let file_path = file_path.ok_or("Original file not found in library")?;
+    let file_path = crate::db::resolve_media_file(&app, &id)?;
 
     // Check media type — video uses multi-frame VLM, image uses single-frame
     let media = crate::db::media_get_by_id(&app, &id)

@@ -7,38 +7,6 @@ use ulid::Ulid;
 use crate::db;
 use crate::media;
 
-/// Resolve a media item's source file path from DB or library directory.
-fn resolve_source_path(app: &AppHandle, media_id: &str) -> Result<std::path::PathBuf, String> {
-    // First try DB source_path
-    let conn = db::get_conn(app)?;
-    let db_path: Option<String> = conn
-        .query_row(
-            "SELECT source_path FROM media WHERE id = ?1",
-            rusqlite::params![media_id],
-            |r| r.get(0),
-        )
-        .ok();
-    if let Some(p) = db_path {
-        if !p.is_empty() {
-            let path = Path::new(&p);
-            if path.exists() {
-                return Ok(path.to_path_buf());
-            }
-        }
-    }
-    // Fallback: scan library directory
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let library_dir = app_dir.join("library");
-    for entry in fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with(&format!("{}.", media_id)) {
-            return Ok(entry.path());
-        }
-    }
-    Err("Source file not found".to_string())
-}
-
 #[command]
 pub async fn media_generate_derivative(
     app: AppHandle,
@@ -51,7 +19,7 @@ pub async fn media_generate_derivative(
     resize_filter: Option<String>,
 ) -> Result<media::Media, String> {
     tokio::task::spawn_blocking(move || {
-        let source_path = resolve_source_path(&app, &source_media_id)?;
+        let source_path = db::resolve_media_file(&app, &source_media_id)?;
         let result = media::transform::generate_derivative(
             &app,
             &source_media_id,

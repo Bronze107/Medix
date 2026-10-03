@@ -1,12 +1,10 @@
-use base64::Engine;
-use image::ImageEncoder;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
 use tauri::{command, AppHandle, Manager};
 use ulid::Ulid;
 
-use crate::ai::imagine::{self, EditParams, GenerateParams, StagedImage};
+use crate::ai::imagine::{self, GenerateParams, StagedImage};
 use crate::settings;
 
 fn staging_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -14,20 +12,6 @@ fn staging_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let staging = app_dir.join("staging");
     fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
     Ok(staging)
-}
-
-fn resolve_media_path(app: &AppHandle, media_id: &str) -> Result<std::path::PathBuf, String> {
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let library_dir = app_dir.join("library");
-    for entry in fs::read_dir(&library_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if name_str.starts_with(&format!("{}.", media_id)) {
-            return Ok(entry.path());
-        }
-    }
-    Err("Original file not found".to_string())
 }
 
 /// Generate images from a text prompt. Results are staged — call confirm_import to finalize.
@@ -335,39 +319,4 @@ fn find_staged_ext(staging: &Path, id: &str) -> Result<String, String> {
         }
     }
     Err(format!("Staged file not found for {}", id))
-}
-
-fn image_to_data_url(img: &image::DynamicImage, source_path: &Path) -> Result<String, String> {
-    let ext = source_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
-        .to_lowercase();
-
-    let (mime, bytes) = match ext.as_str() {
-        "png" => {
-            let rgba = img.to_rgba8();
-            let mut buf = Vec::new();
-            let encoder = image::codecs::png::PngEncoder::new(&mut buf);
-            encoder
-                .write_image(
-                    &rgba,
-                    img.width(),
-                    img.height(),
-                    image::ExtendedColorType::Rgba8,
-                )
-                .map_err(|e| e.to_string())?;
-            ("image/png", buf)
-        }
-        _ => {
-            let mut buf = Vec::new();
-            let rgb = img.to_rgb8();
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85);
-            encoder.encode_image(&rgb).map_err(|e| e.to_string())?;
-            ("image/jpeg", buf)
-        }
-    };
-
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Ok(format!("data:{};base64,{}", mime, b64))
 }

@@ -88,6 +88,7 @@ Medix/
 │   ├── cascade.sh
 │   ├── variants-browse.sh
 │   ├── migrations.sh
+│   ├── paths.sh
 │   └── comfyui.sh
 ├── extension/              # Chrome/Firefox 浏览器插件
 │   ├── manifest.json
@@ -177,6 +178,7 @@ Medix/
 - **视图分组**: 网格和列表视图可按日期分组显示，带分组标题和计数
 - **导入进度**: 批量导入时前端实时显示进度条（Tauri event `import-progress`）
 - **文件服务**: 图片和视频通过 `asset://` 协议直出（`convertFileSrc`），不经过 base64 编解码；视频支持 Range 请求实现 seek
+- **媒体文件解析**: 「按 media id 找本地文件」一律走 `db::resolve_media_file`（内部 `resolve_media_file_path`），顺序是 `library/` → `variants/` → `source_path` 兜底。**library 副本是权威来源**；`source_path` 对本地导入的媒体记录的是原始导入位置（UI 里显示为「原始路径」），原始文件可能已被移动或删除，不能当作工作副本。不要在业务模块里另写一份扫描 `library/` 的逻辑 —— 历史上六处重复实现各自不一致，导致 AI 编辑读到原图、衍生图标注/导出失败、`01ABC` 误配 `01ABCX.jpg`。同一目录内精确 `{id}.{ext}` 优先于老式 `{父id}_{子id}.{ext}`
 - **向后兼容**: 数据库 schema 变更采用 `pragma_table_info` 条件检查，不丢失用户数据
 
 ## 测试策略
@@ -185,7 +187,7 @@ Medix/
 
 | 层级 | 类型 | 工具 | 当前规模 |
 |------|------|------|----------|
-| 后端 CLI | 回归测试 | `medix-cli` + `tests/*.sh` | 8 脚本, 143 断言 |
+| 后端 CLI | 回归测试 | `medix-cli` + `tests/*.sh` | 9 脚本, 152 断言 |
 | Rust 核心 | 单元测试 | `cargo test` | 43 tests (parser + db + search + media + export) |
 | Rust 核心 | 性能基准 | `cargo bench` (criterion) | 4 套件 (phash, parser, import, search) |
 | 前端组件 | 单元测试 | Vitest + @testing-library/react | 39 tests (SearchBar, ConfirmDialog, appStore, ComfyUIForm, LineageBadge) |
@@ -208,6 +210,7 @@ cd src-tauri && bash ../tests/<name>.sh
 | `tests/cascade.sh` | 21 | 隔离 | FK 级联删除(5 表)、caption/variant CRUD |
 | `tests/variants-browse.sh` | 13 | 隔离 | variant 浏览模式 (representative/all)、display_variant 回退 |
 | `tests/migrations.sh` | 16 | 隔离 | 迁移多次启动幂等、无残留 `variants` 外键、打标签/永久删除写路径、0033 损坏库修复 |
+| `tests/paths.sh` | 9 | 隔离 | 本地文件解析优先级（library 副本 > source_path）、老衍生图、前缀误配、远程链接 |
 | `tests/comfyui.sh` | 7 | 隔离 | ComfyUI 设置、0024 迁移 |
 
 **开发规范**：后端功能变更必须在对应测试脚本追加用例，提交前 `bash tests/*.sh` 全量通过。
@@ -278,6 +281,7 @@ cargo run --bin medix-cli -- list-tags                          # 列出标签
 cargo run --bin medix-cli -- list-tags -n                       # 标签数
 cargo run --bin medix-cli -- list-collections                   # 列出集合
 cargo run --bin medix-cli -- list-variants <media_id>           # 列出版本
+cargo run --bin medix-cli -- path <media_id>                    # 解析该媒体实际读取的本地文件
 
 # 数据查询与写入
 cargo run --bin medix-cli -- query "SELECT ..."                 # 只读 SQL

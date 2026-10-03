@@ -97,6 +97,13 @@ enum Command {
         child_id: String,
     },
 
+    /// Resolve the on-disk file backing a media item (library copy wins over
+    /// source_path — the original import location)
+    Path {
+        /// Media ID
+        media_id: String,
+    },
+
     /// Count root media (media with no parents)
     ListRootsCount,
 
@@ -499,6 +506,47 @@ fn main() {
                 }
                 Err(e) => {
                     eprintln!("Error removing lineage link: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Command::Path { media_id } => {
+            let conn = match rusqlite::Connection::open(&db_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error opening DB: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            // The DB lives at <app_dir>/medix.db, and the isolated test DBs put
+            // their library/variants next to it — so the parent is the app dir.
+            let app_dir = std::path::Path::new(&db_path)
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."));
+            match db::resolve_media_file_path(app_dir, &conn, &media_id) {
+                Ok(path) => {
+                    if cli.json {
+                        println!(
+                            "{}",
+                            json_obj(&[
+                                ("status", json_str("found")),
+                                ("path", json_str(&path.to_string_lossy())),
+                            ])
+                        );
+                    } else {
+                        println!("{}", path.to_string_lossy());
+                    }
+                }
+                Err(e) => {
+                    if cli.json {
+                        println!(
+                            "{}",
+                            json_obj(&[("status", json_str("missing")), ("error", json_str(&e))])
+                        );
+                    } else {
+                        eprintln!("{}", e);
+                    }
                     std::process::exit(1);
                 }
             }
