@@ -424,23 +424,32 @@ impl WorkflowManager {
             if let Some(a) = link.as_array() {
                 if a.len() >= 3 {
                     if let (Some(id), Some(o), Some(s)) =
-                        (a[0].as_u64(), a[1].as_u64(), a[2].as_u64())
+                        (a[0].as_u64(), Self::link_node_id(&a[1]), a[2].as_u64())
                     {
-                        m.insert(id, (o.to_string(), s));
+                        m.insert(id, (o, s));
                     }
                 }
             } else if let Some(obj) = link.as_object() {
                 if let (Some(id), Some(o), Some(s)) = (
                     obj.get("id").and_then(|v| v.as_u64()),
-                    // origin_id 可为 -10（inputNode），须按 i64 解析
-                    obj.get("origin_id").and_then(|v| v.as_i64()),
+                    obj.get("origin_id").and_then(Self::link_node_id),
                     obj.get("origin_slot").and_then(|v| v.as_u64()),
                 ) {
-                    m.insert(id, (o.to_string(), s));
+                    m.insert(id, (o, s));
                 }
             }
         }
         m
+    }
+
+    /// 读取 link 的源节点 id，兼容数字与字符串两种写法。
+    /// 新版前端展平子图后会产出 "459_451" 这类字符串 id（旧版为数字）；
+    /// 边界节点 -10/-20 也经此按 i64 解析保留。
+    fn link_node_id(v: &Value) -> Option<String> {
+        if let Some(s) = v.as_str() {
+            return Some(s.to_string());
+        }
+        v.as_i64().map(|n| n.to_string())
     }
 
     /// 递归解析子图定义的第 slot 个输出槽的内部来源。
@@ -1133,6 +1142,36 @@ mod tests {
         // SaveImage
         assert_eq!(v["3"]["inputs"]["images"], serde_json::json!(["2", 0]));
         assert_eq!(v["3"]["inputs"]["filename_prefix"], "out");
+    }
+
+    #[test]
+    fn test_standard_to_api_string_node_ids() {
+        // 新版前端展平子图后部分 node id 为字符串（"459_451"），link 数组形如
+        // [49, "459_457", 0, 499, 0, "IMAGE"]。字符串 origin 若按数字解析会失败，
+        // link 被静默丢弃，目标节点缺少必填输入 → ComfyUI "Required input is missing"。
+        let graph = r#"{
+            "nodes": [
+                {"id": "459_451", "type": "ImageInvert",
+                 "inputs": [{"name": "image", "type": "IMAGE", "link": 40}],
+                 "widgets_values": []},
+                {"id": 485, "type": "LoadImage", "inputs": [], "widgets_values": ["p.png"],
+                 "widgets_values_named": {"image": "p.png"}},
+                {"id": 499, "type": "SaveImage",
+                 "inputs": [{"name": "images", "type": "IMAGE", "link": 49}],
+                 "widgets_values": ["medix"], "widgets_values_named": {"filename_prefix": "medix"}}
+            ],
+            "links": [[40, 485, 0, "459_451", 0, "IMAGE"], [49, "459_451", 0, 499, 0, "IMAGE"]],
+            "extra": {"linearData": {"inputs": [], "outputs": ["499"]}}
+        }"#;
+        let api = WorkflowManager::standard_to_api(graph, &obj_info()).unwrap();
+        assert_eq!(
+            api["459_451"]["inputs"]["image"],
+            serde_json::json!(["485", 0])
+        );
+        assert_eq!(
+            api["499"]["inputs"]["images"],
+            serde_json::json!(["459_451", 0])
+        );
     }
 
     #[test]
