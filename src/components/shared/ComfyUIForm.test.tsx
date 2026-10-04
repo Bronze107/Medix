@@ -64,4 +64,43 @@ describe("ComfyUIDynamicField", () => {
     expect(Number.isInteger(num)).toBe(true);
     expect(num).toBeGreaterThanOrEqual(0);
   });
+
+  function renderSlider(initial: string) {
+    let values: Record<string, string> = { "8:seed": initial };
+    render(
+      <ComfyUIDynamicField
+        param={makeParam({ field_type: "slider", label: "strength", min: 0, max: 10, step: 0.5 })}
+        values={values}
+        setValues={(fn) => {
+          values = fn(values);
+        }}
+        mode="generate"
+      />,
+    );
+    return {
+      input: () => screen.getByRole("spinbutton", { name: "strength" }) as HTMLInputElement,
+      values: () => values,
+    };
+  }
+
+  it("slider 渲染可编辑的数字输入框并回写值", () => {
+    const { input, values } = renderSlider("0.5");
+    expect(input().value).toBe("0.5");
+    fireEvent.change(input(), { target: { value: "3.5" } });
+    expect(values()["8:seed"]).toBe("3.5");
+  });
+
+  it("slider 失焦时按 max 夹取", () => {
+    const { input, values } = renderSlider("1");
+    fireEvent.change(input(), { target: { value: "99" } });
+    fireEvent.blur(input());
+    expect(values()["8:seed"]).toBe("10");
+  });
+
+  it("slider 失焦时按 min 夹取", () => {
+    const { input, values } = renderSlider("1");
+    fireEvent.change(input(), { target: { value: "-5" } });
+    fireEvent.blur(input());
+    expect(values()["8:seed"]).toBe("0");
+  });
 });

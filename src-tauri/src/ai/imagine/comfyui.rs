@@ -63,9 +63,15 @@ impl ComfyuiProvider {
         values: HashMap<String, String>,
         image_data_urls: Vec<String>,
     ) -> Result<Vec<GeneratedImage>, ImagineError> {
-        let params = WorkflowManager::parse_params(&self.workflow.workflow_json)
-            .map_err(ImagineError::Api)?;
         let object_info = self.fetch_object_info().await;
+        // 必须 enrich：inject 依赖 field_type 区分 number/boolean/combo，
+        // 而 combo 选项的原始 JSON 类型只有在 object_info 增强后才可还原。
+        let params = WorkflowManager::enrich_params(
+            &WorkflowManager::parse_params(&self.workflow.workflow_json)
+                .map_err(ImagineError::Api)?,
+            &object_info,
+            &self.workflow.workflow_json,
+        );
 
         let mut api_prompt =
             WorkflowManager::standard_to_api(&self.workflow.workflow_json, &object_info)
@@ -94,7 +100,7 @@ impl ComfyuiProvider {
             }
         }
 
-        WorkflowManager::inject(&mut api_prompt, &values, &params);
+        WorkflowManager::inject(&mut api_prompt, &values, &params, &object_info);
 
         // 先建立 WebSocket，再提交，避免快速任务在 WS 连接前就完成而错过执行事件。
         let ws = self.connect_ws().await;

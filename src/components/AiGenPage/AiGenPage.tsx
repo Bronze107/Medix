@@ -13,6 +13,12 @@ import {
   settingsGet,
 } from "@/lib/tauri";
 import { usePromptHistory } from "@/hooks/usePromptHistory";
+import {
+  clearWorkflowValues,
+  defaultWorkflowValues,
+  mergeWorkflowValues,
+  rememberWorkflowValues,
+} from "@/lib/workflowValueMemory";
 import type { ImageTaskInfo } from "@/lib/tauri";
 import type { ComfyWorkflow, WorkflowParam } from "@/types/comfyui";
 import { ComfyUIWorkflowForm, ComfyUIWorkflowParams } from "@/components/shared/ComfyUIForm";
@@ -232,11 +238,7 @@ function AiGenPage() {
     setWorkflowParamsLoading(true);
     comfyuiWorkflowGet(selectedWorkflowId).then((detail) => {
       setWorkflowParams(detail.params);
-      const init: Record<string, string> = {};
-      for (const p of detail.params) {
-        init[p.param_name] = p.default_value;
-      }
-      setWorkflowValues(init);
+      setWorkflowValues(mergeWorkflowValues(detail.id, detail.params));
       setWorkflowParamsError(null);
     }).catch((e) => {
       setWorkflowParamsError("加载工作流参数失败: " + (e?.message || e));
@@ -302,6 +304,10 @@ function AiGenPage() {
         n,
         isComfy ? selectedWorkflowId : null,
       );
+      // 提交成功后才记住本次参数（「上一次」= 上一次真正跑过的值）
+      if (isComfy && selectedWorkflowId) {
+        rememberWorkflowValues(selectedWorkflowId, workflowParams, workflowValues);
+      }
       record(finalPrompt, aspectRatio, resolution);
       if (!isComfy) setPrompt("");
       await loadTasks();
@@ -415,6 +421,10 @@ function AiGenPage() {
                     values={workflowValues}
                     setValues={setWorkflowValues}
                     mode="generate"
+                    onReset={() => {
+                      clearWorkflowValues(selectedWorkflowId);
+                      setWorkflowValues(defaultWorkflowValues(workflowParams));
+                    }}
                   />
                 )}
               </>

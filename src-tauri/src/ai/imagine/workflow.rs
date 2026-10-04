@@ -736,6 +736,21 @@ impl WorkflowManager {
         }
     }
 
+    /// 读取 combo 输入的候选选项，兼容 object_info 的两种序列化形式：
+    /// 旧格式 `[["a","b"], {...}]`（内联选项数组）与新版
+    /// `["COMBO", {"options": [...]}]`（`io.Combo`，较新自定义节点使用）。
+    /// 非 combo 输入返回 None。
+    fn combo_options(spec: &Value) -> Option<&Vec<Value>> {
+        let t = spec.as_array()?.first()?;
+        if let Some(a) = t.as_array() {
+            return Some(a);
+        }
+        if t.as_str() == Some("COMBO") {
+            return spec.get(1)?.get("options")?.as_array();
+        }
+        None
+    }
+
     /// 从 object_info 读取 widget 输入的默认值；非 widget 类型返回 None。
     fn widget_default(object_info: &Value, class_type: &str, name: &str) -> Option<Value> {
         let info = object_info.get(class_type)?;
@@ -758,6 +773,9 @@ impl WorkflowManager {
             Some("FLOAT") => Some(Value::from(0.0)),
             Some("STRING") => Some(Value::String(String::new())),
             Some("BOOLEAN") => Some(Value::Bool(false)),
+            // 新版 combo：spec 的显式 default 已在上方尝试，这里回落到首个候选选项，
+            // 否则必填的 combo 输入会被漏补 → /prompt 报 Required input is missing。
+            Some("COMBO") => Self::combo_options(spec).and_then(|a| a.first()).cloned(),
             _ => None,
         }
     }
@@ -765,10 +783,15 @@ impl WorkflowManager {
     // --- 注入用户值 ---
 
     /// 将前端表单值按 param_name（"nodeId:widgetName"）覆盖到 API prompt 对应节点。
+    ///
+    /// object_info 用于还原 combo 选项的原始 JSON 类型：表单值一律是字符串，
+    /// 而 ComfyUI 的 combo 校验是类型敏感的（`val not in options`），若原选项是
+    /// 数字/布尔（如 `["auto", 8, 10]`），直接提交字符串会报 value_not_in_list。
     pub fn inject(
         api_prompt: &mut Value,
         values: &HashMap<String, String>,
         params: &[WorkflowParam],
+        object_info: &Value,
     ) {
         for p in params {
             // image_selector 参数由编辑上传流程绑定（上传的文件名），
@@ -779,12 +802,8 @@ impl WorkflowManager {
             let Some(v) = values.get(&p.param_name) else {
                 continue;
             };
-            let Some(node) = api_prompt.get_mut(&p.node_id) else {
-                continue;
-            };
-            let Some(inputs) = node.get_mut("inputs").and_then(|i| i.as_object_mut()) else {
-                continue;
-            };
+            // 先只读地解析出待写入的值（combo 需查 class_type 与 object_info），
+            // 再取可变借用插入，避免同时持有可变与不可变借用。
             let coerced = if Self::is_numeric_field(&p.field_type) {
                 v.parse::<f64>()
                     .ok()
@@ -793,11 +812,40 @@ impl WorkflowManager {
             } else if p.field_type == "boolean" {
                 // 必须以 JSON 布尔提交；字符串 "false" 会被 ComfyUI 的 bool("false") 判为 True。
                 Value::Bool(v == "true")
+            } else if p.field_type == "combo" {
+                Self::combo_typed_value(api_prompt, object_info, &p.node_id, &p.widget_name, v)
+                    .unwrap_or_else(|| Value::String(v.clone()))
             } else {
                 Value::String(v.clone())
             };
+            let Some(node) = api_prompt.get_mut(&p.node_id) else {
+                continue;
+            };
+            let Some(inputs) = node.get_mut("inputs").and_then(|i| i.as_object_mut()) else {
+                continue;
+            };
             inputs.insert(p.widget_name.clone(), coerced);
         }
+    }
+
+    /// 在 object_info 中查找 combo 参数当前值对应的原始选项值，保留其 JSON 类型
+    /// （数字/布尔选项不能被字符串化提交）。未命中返回 None，调用方回落到字符串。
+    fn combo_typed_value(
+        api_prompt: &Value,
+        object_info: &Value,
+        node_id: &str,
+        widget_name: &str,
+        value: &str,
+    ) -> Option<Value> {
+        let class_type = api_prompt.get(node_id)?.get("class_type")?.as_str()?;
+        let info = object_info.get(class_type)?;
+        let spec = info["input"]["required"]
+            .get(widget_name)
+            .or_else(|| info["input"]["optional"].get(widget_name))?;
+        Self::combo_options(spec)?
+            .iter()
+            .find(|o| Self::value_to_string(o) == value)
+            .cloned()
     }
 
     fn is_numeric_field(field_type: &str) -> bool {
@@ -841,25 +889,30 @@ impl WorkflowManager {
                 let spec = info["input"]["required"]
                     .get(&p.widget_name)
                     .or_else(|| info["input"]["optional"].get(&p.widget_name));
-                let Some(spec) = spec.and_then(|s| s.as_array()) else {
+                let Some(spec) = spec else { return p };
+                let Some(spec_fields) = spec.as_array() else {
                     return p;
                 };
-                let Some(t) = spec.first() else { return p };
+                let Some(t) = spec_fields.first() else {
+                    return p;
+                };
 
-                if t.is_array() {
-                    // combo 枚举
-                    if class_type == "LoadImage" && p.widget_name == "image" {
-                        p.field_type = "image_selector".into();
-                    } else {
-                        p.field_type = "combo".into();
-                        p.options = t
-                            .as_array()
-                            .map(|a| {
-                                a.iter()
-                                    .filter_map(|v| v.as_str().map(String::from))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
+                if class_type == "LoadImage" && p.widget_name == "image" {
+                    p.field_type = "image_selector".into();
+                } else if let Some(opts) = Self::combo_options(spec) {
+                    // combo 枚举：旧格式内联数组，或新版 ["COMBO", {"options":[...]}]。
+                    // 选项可能含数字/布尔（combo 校验类型敏感），统一字符串化供下拉框显示。
+                    p.field_type = "combo".into();
+                    p.options = opts.iter().map(Self::value_to_string).collect();
+                    if p.default_value.is_empty() {
+                        // 工作流未给默认值：优先 spec 的显式 default，其次首个候选选项
+                        let fallback = spec_fields
+                            .get(1)
+                            .and_then(|o| o.get("default"))
+                            .or_else(|| opts.first());
+                        if let Some(d) = fallback {
+                            p.default_value = Self::value_to_string(d);
+                        }
                     }
                 } else if let Some(ts) = t.as_str() {
                     match ts {
@@ -875,7 +928,7 @@ impl WorkflowManager {
                         "BOOLEAN" => p.field_type = "boolean".into(),
                         _ => {}
                     }
-                    if let Some(opts) = spec.get(1).and_then(|o| o.as_object()) {
+                    if let Some(opts) = spec_fields.get(1).and_then(|o| o.as_object()) {
                         if let Some(d) = opts.get("default") {
                             if p.default_value.is_empty() {
                                 p.default_value = Self::value_to_string(d);
@@ -1280,7 +1333,7 @@ mod tests {
         values.insert("8:seed".to_string(), "-1".to_string());
         values.insert("8:steps".to_string(), "30".to_string());
 
-        WorkflowManager::inject(&mut api, &values, &params);
+        WorkflowManager::inject(&mut api, &values, &params, &serde_json::json!({}));
 
         assert_eq!(api["6"]["inputs"]["text"], "a cat");
         assert_eq!(api["8"]["inputs"]["seed"].as_f64(), Some(-1.0));
@@ -1309,7 +1362,7 @@ mod tests {
         }];
         let mut values = HashMap::new();
         values.insert("9:other".to_string(), "x".to_string()); // 不在 params 中
-        WorkflowManager::inject(&mut api, &values, &params);
+        WorkflowManager::inject(&mut api, &values, &params, &serde_json::json!({}));
         assert_eq!(api["6"]["inputs"]["text"], "");
     }
 
@@ -1336,7 +1389,7 @@ mod tests {
         }];
         let mut values = HashMap::new();
         values.insert("28:image".to_string(), "saved_default.png".to_string());
-        WorkflowManager::inject(&mut api, &values, &params);
+        WorkflowManager::inject(&mut api, &values, &params, &serde_json::json!({}));
         assert_eq!(api["28"]["inputs"]["image"], "uploaded_xxx.png");
     }
 
@@ -1363,12 +1416,67 @@ mod tests {
         let mut values = HashMap::new();
         // 关闭 → 必须提交 JSON false，否则 ComfyUI 的 bool("false") 会判为 True。
         values.insert("5:bool_value".to_string(), "false".to_string());
-        WorkflowManager::inject(&mut api, &values, &params);
+        WorkflowManager::inject(&mut api, &values, &params, &serde_json::json!({}));
         assert_eq!(api["5"]["inputs"]["bool_value"], serde_json::json!(false));
 
         values.insert("5:bool_value".to_string(), "true".to_string());
-        WorkflowManager::inject(&mut api, &values, &params);
+        WorkflowManager::inject(&mut api, &values, &params, &serde_json::json!({}));
         assert_eq!(api["5"]["inputs"]["bool_value"], serde_json::json!(true));
+    }
+
+    /// combo 类型的 WorkflowParam（inject 测试用）。
+    fn combo_param(node_id: &str, widget_name: &str) -> WorkflowParam {
+        WorkflowParam {
+            node_id: node_id.into(),
+            widget_name: widget_name.into(),
+            param_name: format!("{node_id}:{widget_name}"),
+            label: widget_name.into(),
+            default_value: String::new(),
+            field_type: "combo".into(),
+            order_index: 0,
+            min: None,
+            max: None,
+            step: None,
+            options: vec![],
+            multiline: false,
+            description: None,
+        }
+    }
+
+    #[test]
+    fn test_inject_combo_preserves_numeric_option_type() {
+        // 选项为数字（create_video 的 bit_depth = ["auto", 8, 10]）时，表单提交的
+        // 字符串 "8" 必须还原为 JSON 8；ComfyUI 的 combo 校验类型敏感
+        // （8 not in ["auto",8,10] 若按字符串比较会报 value_not_in_list）。
+        let mut api = serde_json::json!({
+            "5": {"class_type": "CreateVideo", "inputs": {}}
+        });
+        let obj = serde_json::json!({
+            "CreateVideo": {"input": {"required": {"bit_depth": [["auto", 8, 10]]}},
+                            "input_order": {"required": ["bit_depth"], "optional": []}}
+        });
+        let params = vec![combo_param("5", "bit_depth")];
+        let mut values = HashMap::new();
+        values.insert("5:bit_depth".to_string(), "8".to_string());
+        WorkflowManager::inject(&mut api, &values, &params, &obj);
+        assert_eq!(api["5"]["inputs"]["bit_depth"], serde_json::json!(8));
+    }
+
+    #[test]
+    fn test_inject_combo_preserves_boolean_option_type() {
+        // 选项为布尔（[false, true]）时，"false" 须还原为 JSON false
+        let mut api = serde_json::json!({
+            "5": {"class_type": "BoolCombo", "inputs": {}}
+        });
+        let obj = serde_json::json!({
+            "BoolCombo": {"input": {"required": {"flag": [[false, true]]}},
+                          "input_order": {"required": ["flag"], "optional": []}}
+        });
+        let params = vec![combo_param("5", "flag")];
+        let mut values = HashMap::new();
+        values.insert("5:flag".to_string(), "false".to_string());
+        WorkflowManager::inject(&mut api, &values, &params, &obj);
+        assert_eq!(api["5"]["inputs"]["flag"], serde_json::json!(false));
     }
 
     #[test]
@@ -1415,6 +1523,102 @@ mod tests {
         );
         // STRING 节点不在 object_info（PrimitiveStringMultiline 未给出），保持 text
         assert_eq!(enriched[2].field_type, "text");
+    }
+
+    #[test]
+    fn test_enrich_params_v2_combo() {
+        // 新版 io.Combo 序列化 ["COMBO", {"options": [...]}]，须识别为 combo 下拉框，
+        // 否则 aspect_ratio 这类参数会退化成纯文本框。
+        let obj = serde_json::json!({
+            "ResolutionSelector": {"input": {"required": {
+                "aspect_ratio": ["COMBO", {"options": ["1:1 (Square)", "16:9 (Landscape)"]}]
+            }}, "input_order": {"required": ["aspect_ratio"], "optional": []}}
+        });
+        let json = r#"{"nodes":[
+            {"id":493,"type":"ResolutionSelector","inputs":[],"widgets_values":["1:1 (Square)"],
+             "widgets_values_named":{"aspect_ratio":"1:1 (Square)"}}
+        ],"links":[],"extra":{"linearData":{"inputs":[["493","aspect_ratio"]],"outputs":[]}}}"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        let enriched = WorkflowManager::enrich_params(&params, &obj, json);
+        assert_eq!(enriched[0].field_type, "combo");
+        assert_eq!(
+            enriched[0].options,
+            vec!["1:1 (Square)".to_string(), "16:9 (Landscape)".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_enrich_params_v2_combo_loadimage_image_selector() {
+        // LoadImage.image 即使工作在旧格式也须保持 image_selector（编辑模式运行时绑定）
+        let obj = serde_json::json!({
+            "LoadImage": {"input": {"required": {
+                "image": ["COMBO", {"options": ["a.png", "b.png"]}]
+            }}, "input_order": {"required": ["image"], "optional": []}}
+        });
+        let json = r#"{"nodes":[
+            {"id":28,"type":"LoadImage","inputs":[],"widgets_values":["a.png"],
+             "widgets_values_named":{"image":"a.png"}}
+        ],"links":[],"extra":{"linearData":{"inputs":[["28","image"]],"outputs":[]}}}"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        let enriched = WorkflowManager::enrich_params(&params, &obj, json);
+        assert_eq!(enriched[0].field_type, "image_selector");
+    }
+
+    #[test]
+    fn test_enrich_params_combo_numeric_options_stringified() {
+        // 旧格式选项可含数字（create_video 的 bit_depth 为 ["auto", 8, 10]），
+        // 字符串化供下拉框显示，不能被 filter_map(as_str) 丢掉。
+        let obj = serde_json::json!({
+            "CreateVideo": {"input": {"required": {"bit_depth": [["auto", 8, 10]]}},
+                            "input_order": {"required": ["bit_depth"], "optional": []}}
+        });
+        let json = r#"{"nodes":[
+            {"id":5,"type":"CreateVideo","inputs":[],"widgets_values":[8],
+             "widgets_values_named":{"bit_depth":8}}
+        ],"links":[],"extra":{"linearData":{"inputs":[["5","bit_depth"]],"outputs":[]}}}"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        let enriched = WorkflowManager::enrich_params(&params, &obj, json);
+        assert_eq!(enriched[0].field_type, "combo");
+        assert_eq!(
+            enriched[0].options,
+            vec!["auto".to_string(), "8".to_string(), "10".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_enrich_params_v2_combo_default_falls_back_to_first_option() {
+        // 工作流未给默认值且 spec 无显式 default 时，回落首个候选选项
+        let obj = serde_json::json!({
+            "Foo": {"input": {"required": {"mode": ["COMBO", {"options": ["fast", "slow"]}]}},
+                    "input_order": {"required": ["mode"], "optional": []}}
+        });
+        let json = r#"{"nodes":[
+            {"id":7,"type":"Foo","inputs":[],"widgets_values":[""],
+             "widgets_values_named":{"mode":""}}
+        ],"links":[],"extra":{"linearData":{"inputs":[["7","mode"]],"outputs":[]}}}"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        assert_eq!(params[0].default_value, "");
+        let enriched = WorkflowManager::enrich_params(&params, &obj, json);
+        assert_eq!(enriched[0].default_value, "fast");
+    }
+
+    #[test]
+    fn test_standard_to_api_fills_v2_combo_required_input() {
+        // 必填的新版 combo 输入未出现在 widgets 里：fill_missing_required 须用
+        // options[0] 补齐，否则 ComfyUI 报 Required input is missing。
+        let graph = r#"{
+            "nodes": [
+                {"id": 7, "type": "Foo", "inputs": [], "widgets_values": [], "widgets_values_named": {}}
+            ],
+            "links": [],
+            "extra": {"linearData": {"inputs": [], "outputs": []}}
+        }"#;
+        let obj = serde_json::json!({
+            "Foo": {"input": {"required": {"mode": ["COMBO", {"options": ["fast", "slow"]}]}},
+                    "input_order": {"required": ["mode"], "optional": []}}
+        });
+        let api = WorkflowManager::standard_to_api(graph, &obj).unwrap();
+        assert_eq!(api["7"]["inputs"]["mode"], "fast");
     }
 
     // --- standard_to_api: 子图（Subgraph）展平 ---
