@@ -1077,7 +1077,9 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
               </div>
               <div className="flex gap-3 items-end">
                 <div>
-                  <label className="mb-1 block text-xs text-[var(--color-text-muted)]">超时(秒)</label>
+                  <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
+                    无响应超时(秒)
+                  </label>
                   <input
                     type="number"
                     value={comfyuiTimeout}
@@ -1085,6 +1087,7 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                     onBlur={() => settingsSet("comfyui_timeout_secs", String(comfyuiTimeout))}
                     min={30}
                     max={3600}
+                    title="ComfyUI 连续多久没有推送进度/预览才判定卡死；任务只要还在跑就不会被中断"
                     className="w-24 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none"
                   />
                 </div>

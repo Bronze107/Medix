@@ -72,6 +72,23 @@ fn preview_data_url(bytes: &[u8]) -> Option<String> {
     Some(format!("data:image/jpeg;base64,{}", b64))
 }
 
+/// 判断 /queue 的响应里是否含有该 prompt。
+/// ComfyUI 的 /queue 返回 `{queue_running: [...], queue_pending: [...]}`，
+/// 每个条目是 `(number, prompt_id, prompt, extra_data, outputs)` 元组
+/// （server.py 的 `_remove_sensitive_from_queue` 取 `item[:5]`），
+/// 因此 prompt_id 固定在下标 1。
+fn queue_contains(json: &Value, prompt_id: &str) -> bool {
+    ["queue_running", "queue_pending"].iter().any(|key| {
+        json[*key]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .any(|e| e.get(1).and_then(|v| v.as_str()) == Some(prompt_id))
+            })
+            .unwrap_or(false)
+    })
+}
+
 /// 预览推送节流。以局部可变状态在 submit_and_wait → wait_ws 之间传递，
 /// 不放进 ComfyuiProvider —— `#[async_trait]` 要求结构体 Sync，Cell 会破坏它。
 #[derive(Default)]
@@ -110,8 +127,12 @@ impl ComfyuiProvider {
         app: AppHandle,
         task_id: String,
     ) -> Self {
+        // 单次 HTTP 请求的超时跟随「超时(秒)」设置，但不低于 300s：上传源图、
+        // 下载结果图都是单次请求，不该被一个很小的采样超时掐断（此前这里硬编码
+        // 300s，导致把设置调大后单个请求仍会在 300s 被切断）。
+        let request_timeout = Duration::from_secs(timeout_secs.max(300));
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(300))
+            .timeout(request_timeout)
             .connect_timeout(Duration::from_secs(10))
             .build()
             .expect("failed to build ComfyUI HTTP client");
@@ -308,23 +329,28 @@ impl ComfyuiProvider {
         prompt_id: &str,
         throttle: &mut PreviewThrottle,
     ) -> Result<(), ImagineError> {
-        let deadline = Instant::now() + Duration::from_secs(self.timeout_secs);
+        let idle = Duration::from_secs(self.timeout_secs);
+        // 空闲超时：只要还在收到 ComfyUI 的帧就续期，真正卡死（服务端不再说话）
+        // 才中断。此前是「进入本函数起的固定墙钟预算」，排队等待、加载模型、
+        // 长节点都会吃掉它，正常但耗时的工作流会被误杀。
+        let mut last_activity = Instant::now();
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                let _ = ws.close(None).await;
-                return Err(ImagineError::Api(format!(
-                    "任务在 {}s 内未完成",
-                    self.timeout_secs
-                )));
-            }
-            let next = tokio::time::timeout(remaining, ws.next())
-                .await
-                .map_err(|_| {
-                    ImagineError::Api(format!("任务在 {}s 内未完成", self.timeout_secs))
-                })?;
+            let remaining = (last_activity + idle).saturating_duration_since(Instant::now());
+            let next = match tokio::time::timeout(remaining, ws.next()).await {
+                Ok(next) => next,
+                Err(_) => {
+                    let _ = ws.close(None).await;
+                    return Err(ImagineError::Api(format!(
+                        "ComfyUI 已 {}s 无响应，任务判定卡死",
+                        self.timeout_secs
+                    )));
+                }
+            };
             let Some(frame) = next else { break };
             let frame = frame.map_err(|e| ImagineError::WebSocket(e.to_string()))?;
+            // 收到任何一帧都说明服务端还活着（ComfyUI 不会发心跳，帧都是实打实的
+            // 进度/预览/状态消息）
+            last_activity = Instant::now();
 
             match frame {
                 tokio_tungstenite::tungstenite::protocol::Message::Text(text) => {
@@ -393,12 +419,16 @@ impl ComfyuiProvider {
     /// 注意：这条路拿不到采样预览 —— 预览只走 WebSocket 二进制帧，HTTP
     /// /history 里没有；此路径下前端只会显示进度条。
     async fn wait_poll(&self, prompt_id: &str) -> Result<(), ImagineError> {
-        let start = Instant::now();
+        let idle = Duration::from_secs(self.timeout_secs);
+        // 与 wait_ws 同样的空闲语义：prompt 只要还在 ComfyUI 的队列里（排队或
+        // 执行中）就算活着。不再用固定墙钟预算，否则长任务会在这个兜底路径上
+        // 被误杀 —— 而这条路本就只在 WS 连不上时才走。
+        let mut last_activity = Instant::now();
         let history_url = format!("{}/history/{}", self.base_url, prompt_id);
         loop {
-            if start.elapsed() > Duration::from_secs(self.timeout_secs) {
+            if last_activity.elapsed() > idle {
                 return Err(ImagineError::Api(format!(
-                    "任务在 {}s 内未完成",
+                    "ComfyUI 已 {}s 无响应，任务判定卡死",
                     self.timeout_secs
                 )));
             }
@@ -421,8 +451,21 @@ impl ComfyuiProvider {
                     }
                 }
             }
+            if self.prompt_in_queue(prompt_id).await == Some(true) {
+                last_activity = Instant::now();
+            }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
+    }
+
+    /// 该 prompt 是否仍在 /queue 的排队或执行列表中。
+    /// 返回 None 表示无法判断（接口异常或结构变化），调用方按「不续期」处理，
+    /// 使空闲超时仍然生效而不是无限等待。
+    async fn prompt_in_queue(&self, prompt_id: &str) -> Option<bool> {
+        let url = format!("{}/queue", self.base_url);
+        let resp = self.client.get(&url).send().await.ok()?;
+        let json: Value = resp.json().await.ok()?;
+        Some(queue_contains(&json, prompt_id))
     }
 
     /// 修复：history.status.messages 是 ["execution_error", {...}] 元组数组，
@@ -754,6 +797,28 @@ mod tests {
     fn test_preview_data_url_rejects_garbage() {
         assert!(preview_data_url(b"definitely not an image").is_none());
         assert!(preview_data_url(&[]).is_none());
+    }
+
+    #[test]
+    fn test_queue_contains() {
+        // /queue 的真实形状：两个数组，条目为 (number, prompt_id, prompt, extra_data, outputs)
+        let json = serde_json::json!({
+            "queue_running": [[0, "running-id", {}, {}, []]],
+            "queue_pending": [[1, "pending-id", {}, {}, []], [2, "other-id", {}, {}, []]]
+        });
+        assert!(queue_contains(&json, "running-id"));
+        assert!(queue_contains(&json, "pending-id"));
+        assert!(!queue_contains(&json, "not-here"));
+        // 空队列 / 字段缺失 / 结构异常都不能误判为「在里面」
+        assert!(!queue_contains(&serde_json::json!({}), "x"));
+        assert!(!queue_contains(
+            &serde_json::json!({ "queue_running": [], "queue_pending": [] }),
+            "x"
+        ));
+        assert!(!queue_contains(
+            &serde_json::json!({ "queue_running": "unexpected" }),
+            "x"
+        ));
     }
 
     #[test]
