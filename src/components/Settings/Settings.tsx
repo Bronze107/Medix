@@ -81,6 +81,7 @@ function Settings() {
   const [imageApiProxy, setImageApiProxy] = useState(""); // legacy, synced with globalProxy
   const [comfyuiBaseUrl, setComfyuiBaseUrl] = useState("http://127.0.0.1:8188");
   const [comfyuiTimeout, setComfyuiTimeout] = useState(300);
+  const [comfyuiPreviewEnabled, setComfyuiPreviewEnabled] = useState(true);
   const [comfyuiWorkflows, setComfyuiWorkflows] = useState<ComfyWorkflow[]>([]);
   const [comfyuiTesting, setComfyuiTesting] = useState(false);
   const [comfyuiTestResult, setComfyuiTestResult] = useState<string | null>(null);
@@ -138,6 +139,7 @@ function Settings() {
       if (settings.image_api_model) setImageApiModel(settings.image_api_model);
       if (settings.comfyui_base_url) setComfyuiBaseUrl(settings.comfyui_base_url);
       if (settings.comfyui_timeout_secs) setComfyuiTimeout(Number(settings.comfyui_timeout_secs));
+      if (settings.comfyui_preview_enabled) setComfyuiPreviewEnabled(settings.comfyui_preview_enabled !== "false");
       if (settings.image_api_proxy) setImageApiProxy(settings.image_api_proxy);
       if (settings.global_proxy) {
         setGlobalProxy(settings.global_proxy);
@@ -1110,6 +1112,25 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
                   </span>
                 )}
               </div>
+
+              <label className="flex items-start gap-2 text-xs text-[var(--color-text-primary)]">
+                <input
+                  type="checkbox"
+                  checked={comfyuiPreviewEnabled}
+                  onChange={(e) => {
+                    setComfyuiPreviewEnabled(e.target.checked);
+                    settingsSet("comfyui_preview_enabled", e.target.checked ? "true" : "false");
+                  }}
+                  className="mt-0.5 accent-[var(--color-accent)]"
+                />
+                <span>
+                  生成中显示采样预览
+                  <span className="mt-0.5 block text-[11px] text-[var(--color-text-muted)]">
+                    ComfyUI 的 --preview-method 默认为 none，开启后 Medix 会在提交时按 prompt
+                    临时请求 preview_method=auto（不影响 ComfyUI 的启动参数）。
+                  </span>
+                </span>
+              </label>
             </div>
 
             {/* Workflow list */}

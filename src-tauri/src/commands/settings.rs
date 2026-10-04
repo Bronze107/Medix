@@ -52,6 +52,10 @@ pub fn settings_get_all(app: AppHandle) -> HashMap<String, String> {
         settings::KEY_IMAGE_API_MODEL,
         settings::KEY_IMAGE_API_PROXY,
         settings::KEY_GLOBAL_PROXY,
+        // ComfyUI 配置：此前遗漏，导致设置页保存的服务地址/超时读不回来
+        settings::KEY_COMFYUI_BASE_URL,
+        settings::KEY_COMFYUI_TIMEOUT_SECS,
+        settings::KEY_COMFYUI_PREVIEW_ENABLED,
         settings::KEY_EMBEDDING_MODEL,
         settings::KEY_EMBEDDING_PORT,
         settings::KEY_EMBEDDING_THREADS,

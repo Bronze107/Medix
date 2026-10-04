@@ -26,8 +26,9 @@ import { ComfyUIWorkflowForm, ComfyUIWorkflowParams } from "@/components/shared/
 const ASPECT_RATIOS = ["auto", "1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "1:2", "2:1"];
 const RESOLUTIONS = ["1k", "2k"];
 
-function TaskCard({
+export function TaskCard({
   task,
+  preview,
   onImport,
   onDiscard,
   onDismiss,
@@ -36,10 +37,13 @@ function TaskCard({
   showCancel,
 }: {
   task: ImageTaskInfo;
+  /** 采样预览（data URL），生成中才有；点击可放大 */
+  preview?: string | null;
   onImport: (taskId: string, selectedIds: string[]) => void;
   onDiscard: (taskId: string) => void;
   onDismiss: (taskId: string) => void;
-  onPreview: (path: string) => void;
+  /** 传入已可直接用作 img src 的地址（本地路径经 convertFileSrc，预览是 data URL） */
+  onPreview: (src: string) => void;
   onCancel?: (taskId: string) => void;
   showCancel?: boolean;
 }) {
@@ -96,6 +100,17 @@ function TaskCard({
         )}
       </div>
 
+      {/* Sampling preview (live) */}
+      {isRunning && preview && (
+        <img
+          src={preview}
+          onClick={() => onPreview(preview)}
+          alt="采样预览"
+          className="mb-2 max-h-40 w-full cursor-zoom-in rounded-lg bg-[var(--color-bg-tertiary)] object-contain animate-fade-in"
+          draggable={false}
+        />
+      )}
+
       {/* Progress bar */}
       {isRunning && task.progress && task.progress.max > 0 && (
         <div className="mb-2 h-1 w-full overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
@@ -129,7 +144,7 @@ function TaskCard({
                   className="aspect-square bg-[var(--color-bg-tertiary)]"
                   onDoubleClick={(e) => {
                     e.stopPropagation();
-                    onPreview(img.path);
+                    onPreview(convertFileSrc(img.path));
                   }}
                 >
                   <img
@@ -205,6 +220,9 @@ function AiGenPage() {
   const [workflowParamsLoading, setWorkflowParamsLoading] = useState(false);
   const [workflowParamsError, setWorkflowParamsError] = useState<string | null>(null);
   const [workflowValues, setWorkflowValues] = useState<Record<string, string>>({});
+  // 采样预览（data URL），按 task_id 存。刻意独立于 tasks：loadTasks() 会用
+  // Rust 返回值整体替换 tasks，挂在任务对象上的预览会被每次刷新抹掉。
+  const [previews, setPreviews] = useState<Record<string, string>>({});
   const { items: history, record, clear } = usePromptHistory("generate");
 
   const loadTasks = useCallback(async () => {
@@ -272,11 +290,30 @@ function AiGenPage() {
         );
       },
     );
+    const unlistenPreview = listen<{ task_id: string; data_url: string }>(
+      "image-queue-preview",
+      (e) => {
+        const { task_id, data_url } = e.payload;
+        setPreviews((prev) => ({ ...prev, [task_id]: data_url }));
+      },
+    );
     return () => {
       unlistenUpdated.then((fn) => fn());
       unlistenProgress.then((fn) => fn());
+      unlistenPreview.then((fn) => fn());
     };
   }, [loadTasks]);
+
+  // 丢弃已不在运行任务的预览，避免 base64 常驻内存
+  useEffect(() => {
+    const liveIds = new Set(
+      tasks.filter((t) => t.status === "pending" || t.status === "running").map((t) => t.task_id),
+    );
+    setPreviews((prev) => {
+      const kept = Object.entries(prev).filter(([id]) => liveIds.has(id));
+      return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept);
+    });
+  }, [tasks]);
 
   const isComfy = provider === "comfyui";
   const comfyReady = !isComfy || (isComfy && selectedWorkflowId && !providerLoading);
@@ -499,6 +536,7 @@ function AiGenPage() {
                   <TaskCard
                     key={task.task_id}
                     task={task}
+                    preview={previews[task.task_id]}
                     onImport={handleImport}
                     onDiscard={handleDiscard}
                     onDismiss={handleDismiss}
@@ -524,7 +562,7 @@ function AiGenPage() {
           onClick={() => setPreview(null)}
         >
           <img
-            src={convertFileSrc(preview)}
+            src={preview}
             alt=""
             className="max-h-[90vh] max-w-[90vw] object-contain select-none"
             draggable={false}

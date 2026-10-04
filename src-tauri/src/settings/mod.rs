@@ -285,6 +285,7 @@ pub const KEY_IMAGE_API_MODEL: &str = "image_api_model";
 pub const KEY_IMAGE_API_PROXY: &str = "image_api_proxy"; // legacy, migrated to global_proxy
 pub const KEY_COMFYUI_BASE_URL: &str = "comfyui_base_url";
 pub const KEY_COMFYUI_TIMEOUT_SECS: &str = "comfyui_timeout_secs";
+pub const KEY_COMFYUI_PREVIEW_ENABLED: &str = "comfyui_preview_enabled";
 
 // --- Global proxy ---
 
@@ -354,6 +355,13 @@ pub fn get_comfyui_timeout_secs(app: &AppHandle) -> u64 {
     get(app, KEY_COMFYUI_TIMEOUT_SECS)
         .and_then(|v| v.parse().ok())
         .unwrap_or(300)
+}
+
+/// 是否在生成过程中显示采样预览。默认开启；存储里只有显式写入 "false" 才关闭。
+pub fn get_comfyui_preview_enabled(app: &AppHandle) -> bool {
+    get(app, KEY_COMFYUI_PREVIEW_ENABLED)
+        .map(|v| v != "false")
+        .unwrap_or(true)
 }
 
 // --- Video ---

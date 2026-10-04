@@ -14,6 +14,85 @@ use crate::db::comfyui::ComfyWorkflow;
 type ComfyWs =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
+// --- 采样预览 ---
+//
+// 服务端在每个采样步的回调里把当前 latent 解码成一张 JPEG 推给客户端
+// （latent_preview.py 把 preview_format 硬编码为 "JPEG"，最大尺寸 --preview-size，
+// 默认 512）。二进制 WS 帧格式为 [4 字节大端事件号][payload]（server.py 的
+// encode_bytes），预览相关事件有两种：
+//   1 PREVIEW_IMAGE               payload = [4 字节大端类型][图片字节]
+//   4 PREVIEW_IMAGE_WITH_METADATA payload = [4 字节大端 JSON 长度][JSON][图片字节]
+// 发哪一种取决于客户端是否在连接后声明 supports_preview_metadata。Medix 不声明，
+// 实际走事件 1；事件 4 仅为防御性兼容（例如将来声明了该能力）。
+
+/// ComfyUI 二进制事件号（protocol.py 的 BinaryEventTypes）。
+const PREVIEW_EVENT_IMAGE: u32 = 1;
+const PREVIEW_EVENT_WITH_METADATA: u32 = 4;
+
+/// 预览推送的最小间隔。ComfyUI 每个采样步都会推一帧（25 步 ≈ 25 帧），
+/// 全量转发会在几秒内灌出上千 KB 的 IPC，因此限到 ~5fps。
+const PREVIEW_MIN_INTERVAL: Duration = Duration::from_millis(200);
+
+/// 推给前端的预览最长边（服务端最大 512px，再缩一道以压低 IPC 体积）。
+const PREVIEW_MAX_DIM: u32 = 384;
+
+/// 从一条二进制 WS 帧里取出预览图片字节。
+/// 非预览事件、长度不足或空图片一律返回 None —— 绝不 panic（帧来自网络）。
+fn parse_preview_frame(frame: &[u8]) -> Option<Vec<u8>> {
+    let event = u32::from_be_bytes(frame.get(..4)?.try_into().ok()?);
+    let body: &[u8] = match event {
+        // 跳过 4 字节图片类型（1=JPEG / 2=PNG），其余为图片本体
+        PREVIEW_EVENT_IMAGE => frame.get(8..)?,
+        PREVIEW_EVENT_WITH_METADATA => {
+            let meta_len = u32::from_be_bytes(frame.get(4..8)?.try_into().ok()?) as usize;
+            frame.get(8usize.checked_add(meta_len)?..)?
+        }
+        _ => return None,
+    };
+    if body.is_empty() {
+        None
+    } else {
+        Some(body.to_vec())
+    }
+}
+
+/// 预览图字节 → 缩到最长边 PREVIEW_MAX_DIM 的 JPEG(q80) data URL。
+/// 解码失败（截断/非图片）返回 None。
+fn preview_data_url(bytes: &[u8]) -> Option<String> {
+    let img = image::load_from_memory(bytes).ok()?;
+    let resized = img.resize(
+        PREVIEW_MAX_DIM,
+        PREVIEW_MAX_DIM,
+        image::imageops::FilterType::Triangle,
+    );
+    let mut buf = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 80);
+    encoder.encode_image(&resized.to_rgb8()).ok()?;
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf);
+    Some(format!("data:image/jpeg;base64,{}", b64))
+}
+
+/// 预览推送节流。以局部可变状态在 submit_and_wait → wait_ws 之间传递，
+/// 不放进 ComfyuiProvider —— `#[async_trait]` 要求结构体 Sync，Cell 会破坏它。
+#[derive(Default)]
+struct PreviewThrottle {
+    last_sent: Option<Instant>,
+}
+
+impl PreviewThrottle {
+    /// 距上次发送是否已达最小间隔（只读判断，不改变状态）。
+    fn allow(&self, now: Instant) -> bool {
+        match self.last_sent {
+            Some(last) => now.saturating_duration_since(last) >= PREVIEW_MIN_INTERVAL,
+            None => true,
+        }
+    }
+
+    fn mark_sent(&mut self, now: Instant) {
+        self.last_sent = Some(now);
+    }
+}
+
 pub struct ComfyuiProvider {
     base_url: String,
     timeout_secs: u64,
@@ -112,14 +191,17 @@ impl ComfyuiProvider {
         }
 
         match ws {
-            Ok(mut stream) => match self.wait_ws(&mut stream, &prompt_id).await {
-                Ok(()) => {}
-                Err(ImagineError::WebSocket(msg)) => {
-                    eprintln!("[comfyui] ws lost ({}), falling back to polling", msg);
-                    self.wait_poll(&prompt_id).await?;
+            Ok(mut stream) => {
+                let mut throttle = PreviewThrottle::default();
+                match self.wait_ws(&mut stream, &prompt_id, &mut throttle).await {
+                    Ok(()) => {}
+                    Err(ImagineError::WebSocket(msg)) => {
+                        eprintln!("[comfyui] ws lost ({}), falling back to polling", msg);
+                        self.wait_poll(&prompt_id).await?;
+                    }
+                    Err(e) => return Err(e),
                 }
-                Err(e) => return Err(e),
-            },
+            }
             Err(msg) => {
                 eprintln!("[comfyui] ws connect failed ({}), polling", msg);
                 self.wait_poll(&prompt_id).await?;
@@ -138,10 +220,18 @@ impl ComfyuiProvider {
     }
 
     async fn submit(&self, api_prompt: &Value) -> Result<String, ImagineError> {
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "prompt": api_prompt,
             "client_id": self.task_id,
         });
+        // 采样预览。ComfyUI 的 --preview-method 默认是 none，不会产生任何预览；
+        // 但 /prompt 的 extra_data.preview_method 可按 prompt 覆盖
+        // （execution.py 的 set_preview_method）。"auto" → Latent2RGB，只需
+        // latent format 带 latent_rgb_factors（Qwen Image / Flux 等都有），
+        // 不依赖 vae_approx 模型。旧版 ComfyUI 不认识该键时会忽略，无副作用。
+        if crate::settings::get_comfyui_preview_enabled(&self.app) {
+            body["extra_data"] = serde_json::json!({ "preview_method": "auto" });
+        }
         let url = format!("{}/prompt", self.base_url);
         let resp = self
             .client
@@ -211,8 +301,13 @@ impl ComfyuiProvider {
         msg
     }
 
-    /// 通过 WebSocket 等待执行结果，实时透出进度。
-    async fn wait_ws(&self, ws: &mut ComfyWs, prompt_id: &str) -> Result<(), ImagineError> {
+    /// 通过 WebSocket 等待执行结果，实时透出进度与采样预览。
+    async fn wait_ws(
+        &self,
+        ws: &mut ComfyWs,
+        prompt_id: &str,
+        throttle: &mut PreviewThrottle,
+    ) -> Result<(), ImagineError> {
         let deadline = Instant::now() + Duration::from_secs(self.timeout_secs);
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -273,14 +368,30 @@ impl ComfyuiProvider {
                         _ => {}
                     }
                 }
+                tokio_tungstenite::tungstenite::protocol::Message::Binary(bytes) => {
+                    // 采样预览帧。先判节流再做解码：preview_data_url 要做
+                    // JPEG 解码 + 缩放 + 重编码，比 should_send 贵得多。
+                    let now = Instant::now();
+                    if throttle.allow(now) {
+                        if let Some(url) = parse_preview_frame(bytes.as_ref())
+                            .as_deref()
+                            .and_then(preview_data_url)
+                        {
+                            throttle.mark_sent(now);
+                            self.emit_preview(url);
+                        }
+                    }
+                }
                 tokio_tungstenite::tungstenite::protocol::Message::Close(_) => break,
-                _ => {} // binary/ping/pong 忽略
+                _ => {} // ping/pong 忽略
             }
         }
         Err(ImagineError::WebSocket("连接提前关闭".into()))
     }
 
     /// WS 连接失败时的兜底：轮询 history。
+    /// 注意：这条路拿不到采样预览 —— 预览只走 WebSocket 二进制帧，HTTP
+    /// /history 里没有；此路径下前端只会显示进度条。
     async fn wait_poll(&self, prompt_id: &str) -> Result<(), ImagineError> {
         let start = Instant::now();
         let history_url = format!("{}/history/{}", self.base_url, prompt_id);
@@ -499,6 +610,15 @@ impl ComfyuiProvider {
         );
     }
 
+    /// 推送一帧采样预览。预览是纯展示态，刻意不入 ImageQueue 的任务状态 ——
+    /// 否则 base64 会随 image_queue_list 的返回值反复回传，白白撑爆列表。
+    fn emit_preview(&self, data_url: String) {
+        let _ = self.app.emit(
+            "image-queue-preview",
+            serde_json::json!({ "task_id": self.task_id, "data_url": data_url }),
+        );
+    }
+
     fn ws_url(base_url: &str, client_id: &str) -> String {
         let scheme = if base_url.starts_with("https") {
             "wss"
@@ -553,5 +673,99 @@ impl ImageProvider for ComfyuiProvider {
             Ok(resp) => Ok(resp.status().is_success()),
             Err(_) => Ok(false),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::ImageEncoder;
+
+    /// 构造一张真实的小 PNG，用作预览帧的图片本体。
+    fn tiny_png() -> Vec<u8> {
+        let img = image::RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30]));
+        let mut png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(&img, 8, 8, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        png
+    }
+
+    #[test]
+    fn test_parse_preview_frame_event1() {
+        // [事件 1][图片类型 1 = JPEG][图片字节]
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&1u32.to_be_bytes());
+        frame.extend_from_slice(&1u32.to_be_bytes());
+        frame.extend_from_slice(&[0xFF, 0xD8, 0xFF, 0x11, 0x22]);
+        assert_eq!(
+            parse_preview_frame(&frame),
+            Some(vec![0xFF, 0xD8, 0xFF, 0x11, 0x22])
+        );
+    }
+
+    #[test]
+    fn test_parse_preview_frame_with_metadata() {
+        // [事件 4][JSON 长度][JSON][图片字节]
+        let meta = br#"{"prompt_id":"abc"}"#;
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&4u32.to_be_bytes());
+        frame.extend_from_slice(&(meta.len() as u32).to_be_bytes());
+        frame.extend_from_slice(meta);
+        frame.extend_from_slice(&[0xFF, 0xD8, 0xFF]);
+        assert_eq!(parse_preview_frame(&frame), Some(vec![0xFF, 0xD8, 0xFF]));
+    }
+
+    #[test]
+    fn test_parse_preview_frame_ignores_other_events() {
+        // 事件 3 是 TEXT，事件 2/9 不是预览
+        for event in [2u32, 3, 9] {
+            let mut frame = event.to_be_bytes().to_vec();
+            frame.extend_from_slice(&[1, 2, 3, 4, 5]);
+            assert_eq!(parse_preview_frame(&frame), None, "event {event}");
+        }
+    }
+
+    #[test]
+    fn test_parse_preview_frame_truncated_or_empty_does_not_panic() {
+        assert_eq!(parse_preview_frame(&[]), None);
+        assert_eq!(parse_preview_frame(&[0, 0]), None);
+        // 事件 1 但只有类型字段，没有图片本体
+        assert_eq!(parse_preview_frame(&[0, 0, 0, 1, 0, 0, 0, 1]), None);
+        // 事件 4 声明的 metadata 长度超过帧长
+        assert_eq!(
+            parse_preview_frame(&[0, 0, 0, 4, 0, 0, 0xFF, 0xFF, 1, 2]),
+            None
+        );
+    }
+
+    #[test]
+    fn test_preview_data_url_encodes_jpeg() {
+        let url = preview_data_url(&tiny_png()).expect("PNG 应能解码并转成 data URL");
+        assert!(url.starts_with("data:image/jpeg;base64,"), "got {url}");
+        let b64 = url.strip_prefix("data:image/jpeg;base64,").unwrap();
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)
+            .expect("payload 应是合法 base64");
+        // JPEG 魔数 FF D8 FF
+        assert_eq!(&bytes[..3], &[0xFF, 0xD8, 0xFF]);
+    }
+
+    #[test]
+    fn test_preview_data_url_rejects_garbage() {
+        assert!(preview_data_url(b"definitely not an image").is_none());
+        assert!(preview_data_url(&[]).is_none());
+    }
+
+    #[test]
+    fn test_preview_throttle() {
+        let mut throttle = PreviewThrottle::default();
+        let t0 = Instant::now();
+        // 第一帧总是放行
+        assert!(throttle.allow(t0));
+        throttle.mark_sent(t0);
+        // 间隔内丢弃
+        assert!(!throttle.allow(t0 + Duration::from_millis(50)));
+        // 达到最小间隔后放行
+        assert!(throttle.allow(t0 + PREVIEW_MIN_INTERVAL));
     }
 }
