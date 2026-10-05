@@ -32,11 +32,12 @@ use commands::{
     media_crop_derivative, media_empty_trash, media_find_duplicates, media_generate_derivative,
     media_get_paths, media_import, media_import_derivative, media_lineage_add, media_lineage_list,
     media_lineage_remove, media_list, media_list_by_collection, media_list_roots_count,
-    media_list_trash, media_permanent_delete, media_recover, media_search, media_soft_delete,
-    media_tag_add, media_tag_add_batch, media_tag_remove, media_tag_remove_batch, media_tags_clear,
-    media_tags_get, media_tags_intersect, media_thumbnail, media_thumbnail_batch, model_list,
-    saved_filters_delete, saved_filters_list, saved_filters_save, settings_get, settings_get_all,
-    settings_set, tag_create, tag_delete, tag_list, tag_rename, test_proxy,
+    media_list_trash, media_permanent_delete, media_recover, media_save_canvas_derivative,
+    media_search, media_soft_delete, media_tag_add, media_tag_add_batch, media_tag_remove,
+    media_tag_remove_batch, media_tags_clear, media_tags_get, media_tags_intersect,
+    media_thumbnail, media_thumbnail_batch, model_list, saved_filters_delete, saved_filters_list,
+    saved_filters_save, settings_get, settings_get_all, settings_set, tag_create, tag_delete,
+    tag_list, tag_rename, test_proxy,
 };
 
 fn main() {
@@ -129,6 +130,7 @@ fn main() {
             media_generate_derivative,
             media_get_paths,
             media_import_derivative,
+            media_save_canvas_derivative,
             media_search,
             media_tag_add,
             media_tag_add_batch,

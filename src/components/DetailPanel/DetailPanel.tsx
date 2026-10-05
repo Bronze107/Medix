@@ -36,6 +36,7 @@ import {
   embeddingDelete,
   mediaAiAnnotate,
   mediaCropDerivative,
+  mediaSaveCanvasDerivative,
   mediaLineageList,
   aiPendingCount,
   mediaSoftDelete,
@@ -1174,13 +1175,18 @@ function DetailPanel({
       <ImageEditor
         mediaId={media.id}
         onCancel={() => setShowCropEditor(false)}
-        onConfirm={async (rect) => {
+        onConfirm={async (result) => {
           try {
-            await mediaCropDerivative(media.id, rect.x, rect.y, rect.w, rect.h);
+            if (result.kind === "crop") {
+              const { x, y, w, h } = result.rect;
+              await mediaCropDerivative(media.id, x, y, w, h);
+            } else {
+              await mediaSaveCanvasDerivative(media.id, result.dataUrl);
+            }
             setLineage(await mediaLineageList(media.id));
             // 让网格/列表刷新，新版本才会出现
             window.dispatchEvent(new Event("derivative-changed"));
-            showToast("已裁剪为新版本");
+            showToast("已保存为新版本");
             setShowCropEditor(false);
           } catch (e) {
             showToast(String(e));

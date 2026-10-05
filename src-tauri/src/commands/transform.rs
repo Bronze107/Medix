@@ -66,6 +66,56 @@ pub async fn media_crop_derivative(
     .map_err(|e| e.to_string())?
 }
 
+/// 把画布导出的 PNG（data URL）存为新版本。
+///
+/// 前端用 canvas 合成（裁剪 + 笔迹）后直接给出 PNG，Rust 只负责落库 + 缩略图，
+/// 不重新编码 —— PNG 是无损的，重编码只会白白劣化。
+#[command]
+pub async fn media_save_canvas_derivative(
+    app: AppHandle,
+    source_media_id: String,
+    data_url: String,
+) -> Result<media::Media, String> {
+    let png_bytes = decode_png_data_url(&data_url)?;
+    tokio::task::spawn_blocking(move || {
+        let result = media::edit::save_png_bytes_as_derivative(
+            &app,
+            &source_media_id,
+            &png_bytes,
+            "paint",
+            "edited",
+        )
+        .map_err(|e| e.to_string())?;
+
+        if let Some(ref path) = result.source_path {
+            if let Err(e) = media::thumbnail::generate_thumbnails(&app, &result.id, Path::new(path))
+            {
+                eprintln!("[canvas] thumbnail failed for {}: {}", result.id, e);
+            }
+        }
+
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 解析 `data:image/png;base64,...`。只接受 PNG —— 画布导出的就是 PNG，
+/// 接受其它类型只会掩盖调用方的错误。
+fn decode_png_data_url(data_url: &str) -> Result<Vec<u8>, String> {
+    let comma = data_url
+        .find(',')
+        .ok_or_else(|| "无效的 data URL".to_string())?;
+    if !data_url[..comma].contains("image/png") {
+        return Err("只接受 PNG data URL".to_string());
+    }
+    base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &data_url[comma + 1..],
+    )
+    .map_err(|e| format!("base64 解码失败：{}", e))
+}
+
 #[command]
 pub async fn media_generate_derivative(
     app: AppHandle,

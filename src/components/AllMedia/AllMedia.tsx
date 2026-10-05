@@ -32,7 +32,7 @@ import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import Lightbox from "@/components/Lightbox/Lightbox";
 import { ImageEditor } from "@/components/ImageEditor/ImageEditor";
 import { showToast } from "@/components/Toast/Toast";
-import { aiPendingCount, collectionAddBatch, collectionGetItemIds, collectionList as loadCollections, collectionRemoveItem as removeFromCollection, mediaCropDerivative, mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
+import { aiPendingCount, collectionAddBatch, collectionGetItemIds, collectionList as loadCollections, collectionRemoveItem as removeFromCollection, mediaCropDerivative, mediaFindDuplicates, mediaSaveCanvasDerivative, mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
@@ -1565,10 +1565,15 @@ function AllMedia({ collectionId }: AllMediaProps) {
         <ImageEditor
           mediaId={cropMediaId}
           onCancel={() => setCropMediaId(null)}
-          onConfirm={async (rect) => {
+          onConfirm={async (result) => {
             try {
-              await mediaCropDerivative(cropMediaId, rect.x, rect.y, rect.w, rect.h);
-              showToast("已裁剪为新版本");
+              if (result.kind === "crop") {
+                const { x, y, w, h } = result.rect;
+                await mediaCropDerivative(cropMediaId, x, y, w, h);
+              } else {
+                await mediaSaveCanvasDerivative(cropMediaId, result.dataUrl);
+              }
+              showToast("已保存为新版本");
               setCropMediaId(null);
               loadMedia();
             } catch (e) {

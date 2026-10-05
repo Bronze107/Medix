@@ -56,6 +56,40 @@ pub fn clamp_crop_rect(
     Some((x, y, x1 - x, y1 - y))
 }
 
+/// 组装一条衍生 `media` 记录（不落库）。
+fn derivative_row(
+    id: &str,
+    file_path: &Path,
+    width: u32,
+    height: u32,
+    file_size: i64,
+    source_tag: &str,
+) -> Media {
+    Media {
+        id: id.to_string(),
+        source_path: Some(file_path.to_string_lossy().replace('\\', "/")),
+        width: Some(width as i32),
+        height: Some(height as i32),
+        file_size: Some(file_size),
+        created_at: None,
+        modified_at: None,
+        imported_at: chrono::Utc::now().to_rfc3339(),
+        source_url: None,
+        page_url: None,
+        source: Some(source_tag.into()),
+        phash: None,
+        sha256: None,
+        deleted_at: None,
+        display_variant_id: None,
+        thumb_256: None,
+        lqip: None,
+        media_type: Some("image".into()),
+        duration: None,
+        video_codec: None,
+        video_fps: None,
+    }
+}
+
 /// 把一张已解码的图编码写入 `library/`，插 media 行并记 lineage，返回新记录。
 ///
 /// 从 `generate_derivative` 抽出的公共尾部：两种输出格式的编码方式保持不变
@@ -95,32 +129,52 @@ pub fn save_image_as_derivative(
     }
 
     fs::write(&file_path, &output)?;
-    let file_size = output.len() as i64;
+    let media = derivative_row(
+        &id,
+        &file_path,
+        width,
+        height,
+        output.len() as i64,
+        source_tag,
+    );
 
-    let now = chrono::Utc::now().to_rfc3339();
-    let media = Media {
-        id: id.clone(),
-        source_path: Some(file_path.to_string_lossy().replace('\\', "/")),
-        width: Some(width as i32),
-        height: Some(height as i32),
-        file_size: Some(file_size),
-        created_at: None,
-        modified_at: None,
-        imported_at: now,
-        source_url: None,
-        page_url: None,
-        source: Some(source_tag.into()),
-        phash: None,
-        sha256: None,
-        deleted_at: None,
-        display_variant_id: None,
-        thumb_256: None,
-        lqip: None,
-        media_type: Some("image".into()),
-        duration: None,
-        video_codec: None,
-        video_fps: None,
-    };
+    db::insert_media(app, &media)?;
+    db::lineage_insert(app, parent_media_id, &id, relation, None)
+        .map_err(|e| format!("lineage insert: {}", e))?;
+
+    Ok(media)
+}
+
+/// 把画布导出的 PNG 字节**原样**写入 `library/` 并存为新版本。
+///
+/// 刻意不重新编码：画布输出的就是 PNG（无损），重编码只会白费 CPU 并可能
+/// 改变色彩。尺寸仅用于建 media 行。
+pub fn save_png_bytes_as_derivative(
+    app: &AppHandle,
+    parent_media_id: &str,
+    png_bytes: &[u8],
+    relation: &str,
+    source_tag: &str,
+) -> Result<Media, Box<dyn std::error::Error>> {
+    let app_dir = app.path().app_data_dir()?;
+    let library_dir = app_dir.join("library");
+    fs::create_dir_all(&library_dir)?;
+
+    let img = image::load_from_memory(png_bytes)?;
+    let (width, height) = (img.width(), img.height());
+
+    let id = ulid::Ulid::new().to_string();
+    let file_path = library_dir.join(format!("{}.png", id));
+    fs::write(&file_path, png_bytes)?;
+
+    let media = derivative_row(
+        &id,
+        &file_path,
+        width,
+        height,
+        png_bytes.len() as i64,
+        source_tag,
+    );
 
     db::insert_media(app, &media)?;
     db::lineage_insert(app, parent_media_id, &id, relation, None)

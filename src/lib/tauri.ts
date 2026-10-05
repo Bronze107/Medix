@@ -496,6 +496,17 @@ export async function mediaImportDerivative(
 }
 
 /**
+ * 把画布导出的 PNG（data URL）存为新版本。
+ * 前端负责合成（裁剪 + 笔迹），后端只落库 + 生成缩略图，不重新编码。
+ */
+export async function mediaSaveCanvasDerivative(
+  sourceMediaId: string,
+  dataUrl: string,
+): Promise<Media> {
+  return invoke("media_save_canvas_derivative", { sourceMediaId, dataUrl });
+}
+
+/**
  * 裁剪原图并存为新版本。`x/y/width/height` 是**原图像素空间**的整数矩形。
  * `format` 留空则沿用源文件格式（非 jpg/png 时后端回退 PNG）。
  */
