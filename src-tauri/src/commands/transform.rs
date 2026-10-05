@@ -7,6 +7,65 @@ use ulid::Ulid;
 use crate::db;
 use crate::media;
 
+/// 裁剪原图并存为新版本。
+///
+/// `format` 留空则沿用源文件格式；源格式不在 jpg/png 内（webp/gif/bmp）时回退 PNG，
+/// 因为编码器只能处理这两种。区域越界会返回错误而不是 panic —— 校验在
+/// `media::edit::clamp_crop_rect` 里。
+#[command]
+pub async fn media_crop_derivative(
+    app: AppHandle,
+    source_media_id: String,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    format: Option<String>,
+    quality: Option<u8>,
+) -> Result<media::Media, String> {
+    tokio::task::spawn_blocking(move || {
+        let source_path = db::resolve_media_file(&app, &source_media_id)?;
+
+        let requested = format.filter(|f| !f.is_empty()).unwrap_or_else(|| {
+            source_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("png")
+                .to_lowercase()
+        });
+        let format = match requested.as_str() {
+            "jpg" | "jpeg" | "png" => requested,
+            _ => "png".to_string(),
+        };
+
+        // JPEG 重新编码是有损的（`image` crate 无法做 DCT 级裁剪），
+        // 所以默认质量取高一些，尽量少掉画质。
+        let result = media::edit::crop_to_derivative(
+            &app,
+            &source_media_id,
+            &source_path,
+            x,
+            y,
+            width,
+            height,
+            &format,
+            quality.unwrap_or(92),
+        )
+        .map_err(|e| e.to_string())?;
+
+        if let Some(ref path) = result.source_path {
+            if let Err(e) = media::thumbnail::generate_thumbnails(&app, &result.id, Path::new(path))
+            {
+                eprintln!("[crop] thumbnail failed for {}: {}", result.id, e);
+            }
+        }
+
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[command]
 pub async fn media_generate_derivative(
     app: AppHandle,

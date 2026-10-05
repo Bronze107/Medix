@@ -495,6 +495,30 @@ export async function mediaImportDerivative(
   return invoke("media_import_derivative", { sourceMediaId, filePath });
 }
 
+/**
+ * 裁剪原图并存为新版本。`x/y/width/height` 是**原图像素空间**的整数矩形。
+ * `format` 留空则沿用源文件格式（非 jpg/png 时后端回退 PNG）。
+ */
+export async function mediaCropDerivative(
+  sourceMediaId: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  format?: string | null,
+  quality?: number | null,
+): Promise<Media> {
+  return invoke("media_crop_derivative", {
+    sourceMediaId,
+    x,
+    y,
+    width,
+    height,
+    format: format ?? null,
+    quality: quality ?? null,
+  });
+}
+
 // --- ComfyUI ---
 
 export function comfyuiWorkflowList(workflowType?: string): Promise<ComfyWorkflow[]> {

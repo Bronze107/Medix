@@ -16,6 +16,7 @@ import { useThumbnail } from "@/hooks/useThumbnail";
 import ImagineDialog from "@/components/ImagineDialog/ImagineDialog";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import DerivativeDialog from "@/components/DerivativeDialog/DerivativeDialog";
+import { ImageEditor } from "@/components/ImageEditor/ImageEditor";
 import type { Media } from "@/types/media";
 import type { Tag } from "@/types/tag";
 import type { LineageGraph } from "@/types/lineage";
@@ -34,6 +35,7 @@ import {
   embeddingInfo,
   embeddingDelete,
   mediaAiAnnotate,
+  mediaCropDerivative,
   mediaLineageList,
   aiPendingCount,
   mediaSoftDelete,
@@ -119,6 +121,7 @@ function relationLabel(type: string): string {
     edit: "AI 编辑",
     generate: "生成",
     import: "导入",
+    crop: "裁剪",
   };
   return map[type] ?? type;
 }
@@ -225,6 +228,7 @@ function DetailPanel({
 
   // Derivative generation state
   const [showDerivativeDialog, setShowDerivativeDialog] = useState(false);
+  const [showCropEditor, setShowCropEditor] = useState(false);
 
   // Captions state
   const [captions, setCaptions] = useState<Caption[]>([]);
@@ -1050,6 +1054,17 @@ function DetailPanel({
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
             </svg>
           </button>
+          {media.media_type !== "video" && (
+          <button
+            onClick={() => setShowCropEditor(true)}
+            className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)] transition-colors"
+            title="裁剪"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 3v13.5A1.5 1.5 0 0 0 9 18h13.5M3 7.5h13.5A1.5 1.5 0 0 1 18 9v13.5" />
+            </svg>
+          </button>
+          )}
           <button
             onClick={() => setShowAiEdit(true)}
             className="rounded-lg p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)] transition-colors"
@@ -1153,6 +1168,24 @@ function DetailPanel({
         media={media}
         onClose={() => setShowDerivativeDialog(false)}
         onDone={(g) => setLineage(g)}
+      />
+    )}
+    {showCropEditor && media && (
+      <ImageEditor
+        mediaId={media.id}
+        onCancel={() => setShowCropEditor(false)}
+        onConfirm={async (rect) => {
+          try {
+            await mediaCropDerivative(media.id, rect.x, rect.y, rect.w, rect.h);
+            setLineage(await mediaLineageList(media.id));
+            // 让网格/列表刷新，新版本才会出现
+            window.dispatchEvent(new Event("derivative-changed"));
+            showToast("已裁剪为新版本");
+            setShowCropEditor(false);
+          } catch (e) {
+            showToast(String(e));
+          }
+        }}
       />
     )}
   </>

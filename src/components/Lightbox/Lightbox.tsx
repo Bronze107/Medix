@@ -9,6 +9,8 @@ interface LightboxProps {
   currentIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
+  /** 请求裁剪某张图。由父组件渲染编辑器（本组件在关闭时会卸载）。 */
+  onCrop: (mediaId: string) => void;
 }
 
 type CompareMode = "side-by-side" | "slider";
@@ -83,7 +85,7 @@ function Filmstrip({
   );
 }
 
-function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
+function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: LightboxProps) {
   const item = media[currentIndex];
   const [fileUrlCache, setFileUrlCache] = useState<Record<string, string>>({});
   const [viewState, setViewState] = useState<ViewState>({ type: "single", activeId: null });
@@ -338,6 +340,22 @@ function Lightbox({ media, currentIndex, onClose, onNavigate }: LightboxProps) {
           <span className="text-sm text-white/60">
             {currentIndex + 1} / {media.length}
           </span>
+
+          {/* 裁剪 — 单张图片时可用。编辑器是独立全屏层，必须先把 Lightbox 关掉：
+              它的图像容器带 translate/scale 变换，嵌进去指针坐标会全部错位。 */}
+          {viewState.type === "single" && item?.media_type !== "video" && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (item?.id) onCrop(item.id);
+                onClose();
+              }}
+              className="rounded border-l border-white/20 px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+              title="裁剪"
+            >
+              裁剪
+            </button>
+          )}
 
           {/* Zoom controls — single view only */}
           {viewState.type === "single" && (

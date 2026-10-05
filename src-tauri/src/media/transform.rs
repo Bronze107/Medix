@@ -1,11 +1,8 @@
-use image::ImageEncoder;
-use std::fs;
 use std::io::Read;
 use std::path::Path;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use super::Media;
-use crate::db;
 
 /// Detect JPEG by magic bytes (FF D8 FF).
 pub fn is_jpeg(bytes: &[u8]) -> bool {
@@ -72,10 +69,6 @@ pub fn generate_derivative(
     quality: u8,
     resize_filter: Option<&str>,
 ) -> Result<Media, Box<dyn std::error::Error>> {
-    let app_dir = app.path().app_data_dir()?;
-    let library_dir = app_dir.join("library");
-    fs::create_dir_all(&library_dir)?;
-
     // Decode source
     let mut magic = [0u8; 3];
     let source_is_jpeg = std::fs::File::open(source_path)
@@ -107,63 +100,13 @@ pub fn generate_derivative(
         (None, None) => img.clone(),
     };
 
-    let id = ulid::Ulid::new().to_string();
-    let ext = if format == "jpeg" { "jpg" } else { format };
-    let file_name = format!("{}.{}", id, ext);
-    let file_path = library_dir.join(&file_name);
-
-    let (width, height) = (resized.width(), resized.height());
-    let mut output = Vec::new();
-
-    match ext {
-        "jpg" | "jpeg" => {
-            let rgb = resized.to_rgb8();
-            let mut encoder =
-                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, quality);
-            encoder.encode_image(&rgb)?;
-        }
-        "png" => {
-            let rgba = resized.to_rgba8();
-            let encoder = image::codecs::png::PngEncoder::new(&mut output);
-            encoder.write_image(&rgba, width, height, image::ExtendedColorType::Rgba8)?;
-        }
-        _ => return Err(format!("Unsupported format: {}", format).into()),
-    }
-
-    fs::write(&file_path, &output)?;
-    let file_size = output.len() as i64;
-
-    let source_str = file_path.to_string_lossy().replace('\\', "/");
-    let now = chrono::Utc::now().to_rfc3339();
-
-    let media = Media {
-        id: id.clone(),
-        source_path: Some(source_str),
-        width: Some(width as i32),
-        height: Some(height as i32),
-        file_size: Some(file_size),
-        created_at: None,
-        modified_at: None,
-        imported_at: now,
-        source_url: None,
-        page_url: None,
-        source: Some("generated".into()),
-        phash: None,
-        sha256: None,
-        deleted_at: None,
-        display_variant_id: None,
-        thumb_256: None,
-        lqip: None,
-        media_type: Some("image".into()),
-        duration: None,
-        video_codec: None,
-        video_fps: None,
-    };
-
-    db::insert_media(app, &media)?;
-
-    db::lineage_insert(app, source_media_id, &id, "generate", None)
-        .map_err(|e| format!("lineage insert: {}", e))?;
-
-    Ok(media)
+    super::edit::save_image_as_derivative(
+        app,
+        source_media_id,
+        &resized,
+        format,
+        quality,
+        "generate",
+        "generated",
+    )
 }

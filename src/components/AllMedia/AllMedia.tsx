@@ -30,8 +30,9 @@ import DetailPanel, { type DetailTab } from "@/components/DetailPanel/DetailPane
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
 import Lightbox from "@/components/Lightbox/Lightbox";
+import { ImageEditor } from "@/components/ImageEditor/ImageEditor";
 import { showToast } from "@/components/Toast/Toast";
-import { aiPendingCount, collectionAddBatch, collectionGetItemIds, collectionList as loadCollections, collectionRemoveItem as removeFromCollection, mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
+import { aiPendingCount, collectionAddBatch, collectionGetItemIds, collectionList as loadCollections, collectionRemoveItem as removeFromCollection, mediaCropDerivative, mediaFindDuplicates, mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
 
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
@@ -90,6 +91,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const [aiEditMediaId, setAiEditMediaId] = useState<string | null>(null);
+  const [cropMediaId, setCropMediaId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [aiRemaining, setAiRemaining] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -1554,6 +1556,25 @@ function AllMedia({ collectionId }: AllMediaProps) {
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onNavigate={(idx) => setLightboxIndex(idx)}
+          onCrop={(id) => setCropMediaId(id)}
+        />
+      )}
+
+      {/* 裁剪编辑器（从 Lightbox 进入时 Lightbox 已关闭，所以挂在这里） */}
+      {cropMediaId && (
+        <ImageEditor
+          mediaId={cropMediaId}
+          onCancel={() => setCropMediaId(null)}
+          onConfirm={async (rect) => {
+            try {
+              await mediaCropDerivative(cropMediaId, rect.x, rect.y, rect.w, rect.h);
+              showToast("已裁剪为新版本");
+              setCropMediaId(null);
+              loadMedia();
+            } catch (e) {
+              showToast(String(e));
+            }
+          }}
         />
       )}
 

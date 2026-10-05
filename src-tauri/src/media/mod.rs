@@ -1,4 +1,5 @@
 pub mod ai_source;
+pub mod edit;
 pub mod import;
 pub mod phash;
 pub mod thumbnail;
