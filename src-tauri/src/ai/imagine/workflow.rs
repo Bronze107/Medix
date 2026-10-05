@@ -707,6 +707,23 @@ impl WorkflowManager {
             }
         }
 
+        // 「选项自定义」的节点（CustomCombo）：它的 choice 与 index 必须一致，
+        // 否则下游按位置取到错位元素。index 未在 schema 里声明，上面按
+        // is_real_api_input 的过滤会漏掉它，这里按工作流保存的 choice 补上。
+        // 用户改过 choice 时由 inject 覆盖成新值。
+        if let Some(choice_name) = Self::self_defined_combo_input(object_info, class_type) {
+            if !inputs.contains_key("index") {
+                if let Some(chosen) = node["widgets_values_named"]
+                    .get(&choice_name)
+                    .and_then(|v| v.as_str())
+                {
+                    if let Some(pos) = Self::combo_option_position(node, chosen) {
+                        inputs.insert("index".into(), Value::from(pos));
+                    }
+                }
+            }
+        }
+
         // 兜底：未出现的必需 widget 输入，用 object_info 默认值补齐。
         Self::fill_missing_required(&mut inputs, object_info, class_type);
 
@@ -734,6 +751,62 @@ impl WorkflowManager {
                 inputs.insert(name.to_string(), def);
             }
         }
+    }
+
+    /// 从节点自身的 `option1..N` widget 里取候选选项（按序号排序，跳过空值）。
+    ///
+    /// 有些节点的 combo 选项**不在** object_info 里：`CustomCombo`
+    /// （`comfy_extras/nodes_logic.py`）把 choice 声明成 `io.Combo.Input("choice",
+    /// options=[])` —— 空数组，因为它的选项完全由前端 widget 定义，后端
+    /// `validate_inputs` 也直接返回 True 跳过校验。选项值存在节点自己的
+    /// `optionN` widget 上，不读这里的话下拉框只会显示当前值。
+    fn combo_options_from_node(node: &Value) -> Vec<String> {
+        let Some(named) = node["widgets_values_named"].as_object() else {
+            return Vec::new();
+        };
+        let mut opts: Vec<(u32, String)> = named
+            .iter()
+            .filter_map(|(k, v)| {
+                let idx = k.strip_prefix("option")?.parse::<u32>().ok()?;
+                let s = v.as_str()?;
+                if s.is_empty() {
+                    None
+                } else {
+                    Some((idx, s.to_string()))
+                }
+            })
+            .collect();
+        // 按序号而非字典序：否则 option10 会排到 option2 前面
+        opts.sort_by_key(|(idx, _)| *idx);
+        opts.into_iter().map(|(_, s)| s).collect()
+    }
+
+    /// 该 combo 选项值在节点 optionN 列表中的位置（0 基）。找不到返回 None。
+    fn combo_option_position(node: &Value, chosen: &str) -> Option<i64> {
+        let options = Self::combo_options_from_node(node);
+        options.iter().position(|o| o == chosen).map(|i| i as i64)
+    }
+
+    /// 若该节点声明了一个「选项由节点自己定义」的 combo（object_info 里 options
+    /// 为空数组），返回它的输入名。
+    ///
+    /// `CustomCombo` 就是这种：`io.Combo.Input("choice", options=[])`，选项存在
+    /// 节点自身的 `optionN` widget 上。这个签名用来把「需要联动 index」的节点和
+    /// 普通节点区分开 —— 只有这类节点才会接受未声明的输入（`accept_all_inputs`），
+    /// 对普通节点塞未声明输入会被 ComfyUI 判为 unexpected input。
+    fn self_defined_combo_input(object_info: &Value, class_type: &str) -> Option<String> {
+        let info = object_info.get(class_type)?;
+        for section in ["required", "optional"] {
+            let Some(map) = info["input"][section].as_object() else {
+                continue;
+            };
+            for (name, spec) in map {
+                if Self::combo_options(spec).map(|o| o.is_empty()) == Some(true) {
+                    return Some(name.clone());
+                }
+            }
+        }
+        None
     }
 
     /// 读取 combo 输入的候选选项，兼容 object_info 的两种序列化形式：
@@ -818,6 +891,7 @@ impl WorkflowManager {
             } else {
                 Value::String(v.clone())
             };
+            let synced_index = Self::synced_combo_index(api_prompt, object_info, p, v);
             let Some(node) = api_prompt.get_mut(&p.node_id) else {
                 continue;
             };
@@ -825,7 +899,33 @@ impl WorkflowManager {
                 continue;
             };
             inputs.insert(p.widget_name.clone(), coerced);
+            if let Some(idx) = synced_index {
+                inputs.insert("index".into(), idx);
+            }
         }
+    }
+
+    /// 用户覆盖了「选项自定义」节点的 combo 值时，算出要同步下发的 `index`
+    /// （即选中项在 optionN 里的位置）。
+    ///
+    /// 必须在这里做：`inject` 晚于 `standard_to_api`，`choice` 被改写后，
+    /// emit_node 按工作流保存值下发的 index 就过期了 —— 差一位就是完全不同的结果。
+    /// 位置取自 `p.options`（`enrich_params` 已从节点的 optionN 填好）。
+    fn synced_combo_index(
+        api_prompt: &Value,
+        object_info: &Value,
+        p: &WorkflowParam,
+        value: &str,
+    ) -> Option<Value> {
+        if p.field_type != "combo" {
+            return None;
+        }
+        let class_type = api_prompt.get(&p.node_id)?.get("class_type")?.as_str()?;
+        if Self::self_defined_combo_input(object_info, class_type)? != p.widget_name {
+            return None;
+        }
+        let pos = p.options.iter().position(|o| o == value)?;
+        Some(Value::from(pos as i64))
     }
 
     /// 在 object_info 中查找 combo 参数当前值对应的原始选项值，保留其 JSON 类型
@@ -864,17 +964,18 @@ impl WorkflowManager {
             Ok(v) => v,
             Err(_) => return params.to_vec(),
         };
-        let class_by_id: HashMap<String, String> = Self::flattened_nodes(&root)
-            .into_iter()
-            .filter_map(|(id, n)| {
-                let t = n["type"].as_str().unwrap_or("").to_string();
-                if t.is_empty() {
-                    None
-                } else {
-                    Some((id, t))
-                }
-            })
-            .collect();
+        // 同时保留节点 JSON：combo 选项缺失时要回查节点自己的 widget（见
+        // combo_options_from_node）
+        let mut class_by_id: HashMap<String, String> = HashMap::new();
+        let mut node_by_id: HashMap<String, &Value> = HashMap::new();
+        for (id, node) in Self::flattened_nodes(&root) {
+            let t = node["type"].as_str().unwrap_or("").to_string();
+            if t.is_empty() {
+                continue;
+            }
+            node_by_id.insert(id.clone(), node);
+            class_by_id.insert(id, t);
+        }
 
         params
             .iter()
@@ -904,6 +1005,13 @@ impl WorkflowManager {
                     // 选项可能含数字/布尔（combo 校验类型敏感），统一字符串化供下拉框显示。
                     p.field_type = "combo".into();
                     p.options = opts.iter().map(Self::value_to_string).collect();
+                    if p.options.is_empty() {
+                        // object_info 声明了 combo 但选项为空：选项可能由节点自身的
+                        // widget 定义（CustomCombo 即如此），回查节点补上
+                        if let Some(node) = node_by_id.get(&p.node_id) {
+                            p.options = Self::combo_options_from_node(node);
+                        }
+                    }
                     if p.default_value.is_empty() {
                         // 工作流未给默认值：优先 spec 的显式 default，其次首个候选选项
                         let fallback = spec_fields
@@ -1600,6 +1708,141 @@ mod tests {
         assert_eq!(params[0].default_value, "");
         let enriched = WorkflowManager::enrich_params(&params, &obj, json);
         assert_eq!(enriched[0].default_value, "fast");
+    }
+
+    #[test]
+    fn test_enrich_params_custom_combo_uses_node_options() {
+        // CustomCombo 在 object_info 里把 choice 声明成空 options 数组
+        // （comfy_extras/nodes_logic.py: io.Combo.Input("choice", options=[])），
+        // 真正可选项存在节点自己的 optionN widget 上。不补这一步，下拉框只有当前值。
+        let obj = serde_json::json!({
+            "CustomCombo": {"input": {"required": {"choice": ["COMBO", {"options": []}]}},
+                            "input_order": {"required": ["choice"], "optional": []}}
+        });
+        let json = r#"{"nodes":[
+            {"id":501,"type":"CustomCombo","inputs":[],
+             "widgets_values":["op1",-1,"op1","op2",""],
+             "widgets_values_named":{"choice":"op1","index":-1,"option1":"op1","option2":"op2","option3":""}}
+        ],"links":[],"extra":{"linearData":{"inputs":[["501","choice"]],"outputs":[]}}}"#;
+        let params = WorkflowManager::parse_params(json).unwrap();
+        let enriched = WorkflowManager::enrich_params(&params, &obj, json);
+        assert_eq!(enriched[0].field_type, "combo");
+        // option3 为空被跳过
+        assert_eq!(
+            enriched[0].options,
+            vec!["op1".to_string(), "op2".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_combo_options_from_node_orders_numerically_and_skips_empty() {
+        let node = serde_json::json!({
+            "widgets_values_named": {
+                "option10": "j", "option2": "b", "option1": "a",
+                "optionX": "nope", "other": "x", "option3": ""
+            }
+        });
+        // 按序号排序（否则 option10 会排到 option2 前）、跳过空值、忽略非 optionN 键
+        assert_eq!(
+            WorkflowManager::combo_options_from_node(&node),
+            vec!["a", "b", "j"]
+        );
+        assert!(WorkflowManager::combo_options_from_node(
+            &serde_json::json!({"widgets_values_named": {"foo": "bar"}})
+        )
+        .is_empty());
+        assert!(WorkflowManager::combo_options_from_node(&serde_json::json!({})).is_empty());
+    }
+
+    /// 用户文件里 CustomCombo(501) 的真实形状。
+    const CUSTOM_COMBO_JSON: &str = r#"{
+        "nodes": [
+            {"id": 501, "type": "CustomCombo", "inputs": [],
+             "widgets_values": ["op1", -1, "op1", "op2", "op3", ""],
+             "widgets_values_named": {"choice": "op1", "index": -1,
+                                      "option1": "op1", "option2": "op2", "option3": "op3", "option4": ""}},
+            {"id": 503, "type": "GetItemFromList",
+             "inputs": [{"name": "list", "type": "*", "link": 54},
+                        {"name": "index", "type": "INT", "widget": {"name": "index"}, "link": 55}],
+             "widgets_values": [0], "widgets_values_named": {"index": 0}}
+        ],
+        "links": [[54, 500, 0, 503, 0, "*"], [55, 501, 1, 503, 1, "INT"]],
+        "extra": {"linearData": {"inputs": [["501", "choice"]], "outputs": []}}
+    }"#;
+
+    fn custom_combo_obj_info() -> Value {
+        serde_json::json!({
+            "CustomCombo": {"input": {"required": {"choice": ["COMBO", {"options": []}]}},
+                            "input_order": {"required": ["choice"], "optional": []}},
+            "GetItemFromList": {"input": {"required": {
+                "list": ["*"], "index": ["INT", {"default": 0}]
+            }}, "input_order": {"required": ["list", "index"], "optional": []}}
+        })
+    }
+
+    #[test]
+    fn test_self_defined_combo_input() {
+        let obj = custom_combo_obj_info();
+        assert_eq!(
+            WorkflowManager::self_defined_combo_input(&obj, "CustomCombo").as_deref(),
+            Some("choice")
+        );
+        // 普通节点（选项非空）不该被认成「选项自定义」——否则会往下塞未声明的 index
+        let normal = serde_json::json!({
+            "KSampler": {"input": {"required": {"sampler_name": [["euler","ddim"]]}}}
+        });
+        assert_eq!(
+            WorkflowManager::self_defined_combo_input(&normal, "KSampler"),
+            None
+        );
+        assert_eq!(
+            WorkflowManager::self_defined_combo_input(&obj, "NotThere"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_combo_option_position() {
+        let root: Value = serde_json::from_str(CUSTOM_COMBO_JSON).unwrap();
+        let node = root["nodes"][0].clone();
+        assert_eq!(
+            WorkflowManager::combo_option_position(&node, "op1"),
+            Some(0)
+        );
+        assert_eq!(
+            WorkflowManager::combo_option_position(&node, "op3"),
+            Some(2)
+        );
+        // 不在候选里 → None（宁可不下发，也不发一个错的 index）
+        assert_eq!(WorkflowManager::combo_option_position(&node, "nope"), None);
+    }
+
+    #[test]
+    fn test_standard_to_api_syncs_custom_combo_index_from_saved_value() {
+        // 工作流保存的是 op2 → index 应为 1（服务端默认 0 会取到错的列表元素）
+        let json = CUSTOM_COMBO_JSON.replace("\"choice\": \"op1\"", "\"choice\": \"op2\"");
+        let api = WorkflowManager::standard_to_api(&json, &custom_combo_obj_info()).unwrap();
+        assert_eq!(api["501"]["inputs"]["choice"], "op2");
+        assert_eq!(api["501"]["inputs"]["index"], 1);
+        // 未声明的 optionN 不该被一并塞进去
+        assert!(api["501"]["inputs"].get("option1").is_none());
+    }
+
+    #[test]
+    fn test_inject_syncs_custom_combo_index_when_user_overrides() {
+        // 用户把 choice 改成 op3 → index 必须变成 2，覆盖 emit 时按 op1 算出的 0
+        let obj = custom_combo_obj_info();
+        let mut api = WorkflowManager::standard_to_api(CUSTOM_COMBO_JSON, &obj).unwrap();
+        assert_eq!(api["501"]["inputs"]["index"], 0);
+
+        let params = WorkflowManager::parse_params(CUSTOM_COMBO_JSON).unwrap();
+        let params = WorkflowManager::enrich_params(&params, &obj, CUSTOM_COMBO_JSON);
+        let mut values = HashMap::new();
+        values.insert("501:choice".to_string(), "op3".to_string());
+
+        WorkflowManager::inject(&mut api, &values, &params, &obj);
+        assert_eq!(api["501"]["inputs"]["choice"], "op3");
+        assert_eq!(api["501"]["inputs"]["index"], 2);
     }
 
     #[test]
