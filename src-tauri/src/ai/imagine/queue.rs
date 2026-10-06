@@ -32,6 +32,9 @@ pub enum ImageTask {
         source_media_ids: Vec<String>,
         prompt: String,
         workflow_values: HashMap<String, String>,
+        /// 前端合成好的源图（裁剪 + 蒙版 alpha）。给出时**取代**从
+        /// `source_media_ids` 读文件再编码，长度必须与之对应。
+        image_data_urls: Option<Vec<String>>,
         aspect_ratio: String,
         resolution: String,
         n: u32,
@@ -213,6 +216,15 @@ pub fn init_image_queue(app: AppHandle) -> ImageQueue {
     }
 }
 
+/// 把任务标记为失败。仅用于「构造参数阶段」的失败 —— 那一段在各种分支里
+/// 都要做同样的两步（改 status、写 error），散开写很容易漏一处。
+fn fail(tasks: &Arc<Mutex<HashMap<String, TaskState>>>, task_id: &str, msg: &str) {
+    if let Some(t) = tasks.lock().unwrap().get_mut(task_id) {
+        t.status = "failed".to_string();
+        t.error = Some(msg.to_string());
+    }
+}
+
 async fn process_task(
     app: AppHandle,
     tasks: &Arc<Mutex<HashMap<String, TaskState>>>,
@@ -243,6 +255,7 @@ async fn process_task(
             source_media_ids,
             prompt,
             workflow_values,
+            image_data_urls: supplied_urls,
             aspect_ratio,
             resolution,
             n,
@@ -254,32 +267,53 @@ async fn process_task(
                 _ => 1024,
             };
             if source_media_ids.is_empty() {
-                if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
-                    t.status = "failed".to_string();
-                    t.error = Some("没有选择源图片".to_string());
-                }
+                fail(&tasks, &task_id, "没有选择源图片");
                 return;
             }
+
             let mut image_data_urls = Vec::new();
-            for sid in &source_media_ids {
-                let path = match crate::db::resolve_media_file(&app, sid) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
-                            t.status = "failed".to_string();
-                            t.error = Some(e);
-                        }
+            match supplied_urls {
+                // 前端给了合成好的图（裁剪 + 蒙版）：跳过读文件与按扩展名编码。
+                // 长度必须与源图一一对应，否则后续按位置绑定 image_selector 会错位。
+                Some(supplied) => {
+                    if supplied.len() != source_media_ids.len() {
+                        fail(
+                            &tasks,
+                            &task_id,
+                            &format!(
+                                "合成图数量({})与源图数量({})不一致",
+                                supplied.len(),
+                                source_media_ids.len()
+                            ),
+                        );
                         return;
                     }
-                };
-                match read_and_encode_image(&path, max_dim) {
-                    Ok(url) => image_data_urls.push(url),
-                    Err(e) => {
-                        if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
-                            t.status = "failed".to_string();
-                            t.error = Some(e);
+                    for url in &supplied {
+                        match normalize_supplied_image(url, max_dim) {
+                            Ok(u) => image_data_urls.push(u),
+                            Err(e) => {
+                                fail(&tasks, &task_id, &e);
+                                return;
+                            }
                         }
-                        return;
+                    }
+                }
+                None => {
+                    for sid in &source_media_ids {
+                        let path = match crate::db::resolve_media_file(&app, sid) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                fail(&tasks, &task_id, &e);
+                                return;
+                            }
+                        };
+                        match read_and_encode_image(&path, max_dim) {
+                            Ok(url) => image_data_urls.push(url),
+                            Err(e) => {
+                                fail(&tasks, &task_id, &e);
+                                return;
+                            }
+                        }
                     }
                 }
             }
@@ -376,6 +410,10 @@ async fn process_task(
 ///
 /// `source_path` is always a resolved local file (see
 /// [`crate::db::resolve_media_file`]), so there is no remote-URL case here.
+/// 单张源图编码后的体积上限（base64 字符串长度）。读文件路径与前端合成图
+/// 路径共用同一上限，避免两条路各写一个数。
+const MAX_BODY: usize = 10 * 1024 * 1024;
+
 fn read_and_encode_image(source_path: &Path, max_dim: u32) -> Result<String, String> {
     let img = image::open(source_path)
         .map_err(|e| format!("无法读取源图片 {}：{}", source_path.to_string_lossy(), e))?;
@@ -391,7 +429,6 @@ fn read_and_encode_image(source_path: &Path, max_dim: u32) -> Result<String, Str
     };
 
     let b64_len = image_data_url.len();
-    const MAX_BODY: usize = 10 * 1024 * 1024;
     if b64_len > MAX_BODY {
         return Err(format!(
             "Image too large after encoding ({}MB > 10MB limit). Try a lower resolution.",
@@ -400,6 +437,60 @@ fn read_and_encode_image(source_path: &Path, max_dim: u32) -> Result<String, Str
     }
 
     Ok(image_data_url)
+}
+
+/// 前端合成的源图（data URL）→ 归一化后的 data URL。
+///
+/// **不能走 `image_to_data_url`**：那个按源文件扩展名选编码格式，而 data URL
+/// 没有扩展名。这里一律重编码为 PNG/RGBA —— 蒙版就藏在 alpha 通道里，转成
+/// JPEG 会把它整个丢掉（重绘就会变成整图重绘或完全不重绘）。
+pub fn normalize_supplied_image(data_url: &str, max_dim: u32) -> Result<String, String> {
+    let (mime_ok, b64) = match data_url.find(',') {
+        Some(i) => (data_url[..i].starts_with("data:image/"), &data_url[i + 1..]),
+        None => return Err("无效的图片 data URL".to_string()),
+    };
+    if !mime_ok {
+        return Err("无效的图片 data URL".to_string());
+    }
+    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64)
+        .map_err(|e| format!("base64 解码失败：{}", e))?;
+    let img = image::load_from_memory(&bytes).map_err(|e| format!("无法解码合成图：{}", e))?;
+
+    let (w, h) = (img.width(), img.height());
+    let img = if max_dim > 0 && w.max(h) > max_dim {
+        let scale = max_dim as f64 / w.max(h) as f64;
+        img.resize_exact(
+            ((w as f64 * scale).round() as u32).max(1),
+            ((h as f64 * scale).round() as u32).max(1),
+            image::imageops::FilterType::Lanczos3,
+        )
+    } else {
+        img
+    };
+
+    let rgba = img.to_rgba8();
+    let mut buf = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut buf)
+        .write_image(
+            &rgba,
+            img.width(),
+            img.height(),
+            image::ExtendedColorType::Rgba8,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let out = format!(
+        "data:image/png;base64,{}",
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf)
+    );
+    // 沿用与读文件路径相同的体积上限
+    if out.len() > MAX_BODY {
+        return Err(format!(
+            "合成图过大（{}MB > 10MB），请降低分辨率",
+            out.len() / (1024 * 1024)
+        ));
+    }
+    Ok(out)
 }
 
 fn image_to_data_url(img: &image::DynamicImage, source_path: &Path) -> Result<String, String> {
@@ -481,6 +572,10 @@ pub fn image_queue_submit_generate(
     Ok(task_id)
 }
 
+/// 提交图生图任务。
+///
+/// `image_data_urls` 是编辑器合成好的源图（裁剪 + 蒙版 alpha）：给出时取代
+/// 「按 id 读文件再编码」的路径，数量须与 `source_media_ids` 一致。
 #[tauri::command]
 pub fn image_queue_submit_edit(
     app: AppHandle,
@@ -491,6 +586,7 @@ pub fn image_queue_submit_edit(
     resolution: Option<String>,
     n: Option<u32>,
     workflow_id: Option<String>,
+    image_data_urls: Option<Vec<String>>,
 ) -> Result<String, String> {
     let queue = app.state::<ImageQueue>();
     let task_id = ulid::Ulid::new().to_string();
@@ -499,6 +595,7 @@ pub fn image_queue_submit_edit(
         source_media_ids: source_media_ids.clone(),
         prompt: prompt.trim().to_string(),
         workflow_values: workflow_values.unwrap_or_default(),
+        image_data_urls,
         aspect_ratio: aspect_ratio.unwrap_or_else(|| "auto".to_string()),
         resolution: resolution.unwrap_or_else(|| "1k".to_string()),
         n: n.unwrap_or(1),
@@ -911,4 +1008,61 @@ fn find_staged_ext(staging: &std::path::Path, id: &str) -> Result<String, String
         }
     }
     Err(format!("Staged file not found for {}", id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::ImageEncoder;
+
+    /// 造一张 RGBA PNG 的 data URL：左上角 alpha=0（即要被重绘的区域）。
+    fn rgba_png_data_url(w: u32, h: u32) -> String {
+        let mut img = image::RgbaImage::from_pixel(w, h, image::Rgba([10, 20, 30, 255]));
+        img.put_pixel(0, 0, image::Rgba([10, 20, 30, 0]));
+        let mut buf = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut buf)
+            .write_image(&img, w, h, image::ExtendedColorType::Rgba8)
+            .unwrap();
+        format!(
+            "data:image/png;base64,{}",
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf)
+        )
+    }
+
+    fn decode(url: &str) -> image::DynamicImage {
+        let b64 = &url[url.find(',').unwrap() + 1..];
+        let bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64).unwrap();
+        image::load_from_memory(&bytes).unwrap()
+    }
+
+    #[test]
+    fn test_normalize_supplied_image_preserves_alpha() {
+        // 关键性质：蒙版藏在 alpha 里，归一化必须保留通道 —— 一旦转成 JPEG
+        // （alpha 被丢弃），局部重绘就会静默退化成整图重绘。
+        let url = rgba_png_data_url(8, 8);
+        let out = normalize_supplied_image(&url, 1024).unwrap();
+        assert!(out.starts_with("data:image/png;base64,"));
+
+        let img = decode(&out).to_rgba8();
+        assert_eq!(img.width(), 8);
+        assert_eq!(img.get_pixel(0, 0)[3], 0, "被涂抹处 alpha 应保持 0");
+        assert_eq!(img.get_pixel(3, 3)[3], 255, "其余区域应为不透明");
+    }
+
+    #[test]
+    fn test_normalize_supplied_image_downscales_to_max_dim() {
+        let out = normalize_supplied_image(&rgba_png_data_url(400, 200), 100).unwrap();
+        let img = decode(&out);
+        assert_eq!(img.width().max(img.height()), 100);
+        // 比例保持（允许取整误差）
+        assert!((img.width() as f64 / img.height() as f64 - 2.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn test_normalize_supplied_image_rejects_garbage() {
+        assert!(normalize_supplied_image("not a data url", 1024).is_err());
+        assert!(normalize_supplied_image("data:text/plain;base64,AAAA", 1024).is_err());
+        assert!(normalize_supplied_image("data:image/png;base64,bm90YW5pbWFnZQ==", 1024).is_err());
+    }
 }

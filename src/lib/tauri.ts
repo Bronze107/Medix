@@ -402,6 +402,11 @@ export async function imageQueueSubmitEdit(
   resolution?: string,
   n?: number,
   workflowId?: string | null,
+  /**
+   * 编辑器合成好的源图（裁剪 + 蒙版 alpha），给出时取代「按 id 读文件」的路径。
+   * 长度须与 `sourceMediaIds` 一致。
+   */
+  imageDataUrls?: string[] | null,
 ): Promise<string> {
   return invoke("image_queue_submit_edit", {
     sourceMediaIds,
@@ -411,6 +416,7 @@ export async function imageQueueSubmitEdit(
     resolution: resolution || "1k",
     n: n || 1,
     workflowId: workflowId || null,
+    imageDataUrls: imageDataUrls ?? null,
   });
 }
 

@@ -27,7 +27,23 @@ export interface CompositePlan {
   /** 输出画布尺寸 */
   outputSize: Size;
   strokes: DrawableStroke[];
+  /**
+   * true = 蒙版模式：笔迹表示「要重绘的区域」，导出时写进 **alpha 通道**
+   * （alpha=0 处即 ComfyUI `LoadImage` 的 MASK=1）。
+   * false = 画笔模式：笔迹是可见像素，用 source-over 画上去。
+   */
+  mask: boolean;
 }
+
+/**
+ * 蒙版模式下垫在底图下面的不透明底色。
+ *
+ * 必须有这一步：原图自己带透明区时，`destination-out` 分不清「用户涂的」和
+ * 「原本就透明的」，会把真实透明区一并当成重绘区。铺底之后 alpha 就只是蒙版的
+ * 纯函数。代价是蒙版模式的合成结果不再保留原图透明度 —— 可以接受，重绘工作流
+ * 本来就按 RGB 处理底图。
+ */
+const MASK_BASE_COLOR = "#ffffff";
 
 /** 原图 → 目标空间的等比缩放系数（工作分辨率是原图的等比缩小，两轴同系数）。 */
 function scaleOf(orig: Size, target: Size): number {
@@ -59,11 +75,13 @@ export function planComposite(
   crop: Rect | null,
   orig: Size,
   work: Size,
+  mask: boolean,
 ): CompositePlan {
   const sourceRect = crop ?? fullRect(orig);
   const scale = scaleOf(orig, work);
   return {
     sourceRect,
+    mask,
     outputSize: {
       w: Math.max(1, Math.round(sourceRect.w * scale)),
       h: Math.max(1, Math.round(sourceRect.h * scale)),
@@ -144,8 +162,16 @@ export function renderComposite(
   base: CanvasImageSource,
   doc: Document,
 ): void {
-  const { outputSize, sourceRect } = plan;
+  const { outputSize, sourceRect, mask } = plan;
   ctx.clearRect(0, 0, outputSize.w, outputSize.h);
+
+  if (mask) {
+    // 见 MASK_BASE_COLOR 注释：必须先铺不透明底，否则原图自带的透明区会被
+    // 当成「要重绘」
+    ctx.fillStyle = MASK_BASE_COLOR;
+    ctx.fillRect(0, 0, outputSize.w, outputSize.h);
+  }
+
   ctx.drawImage(
     base,
     sourceRect.x,
@@ -163,7 +189,25 @@ export function renderComposite(
   ctx.beginPath();
   ctx.rect(0, 0, outputSize.w, outputSize.h);
   ctx.clip();
-  drawStrokes(ctx, plan.strokes, doc);
+
+  if (mask) {
+    // 笔迹先画到独立图层，再整体 destination-out 到底图上。
+    // 这样「橡皮擦」在图层内部用 destination-out 表达「取消涂抹」即可，
+    // 不需要知道底图任何一个像素的颜色。
+    const layer = doc.createElement("canvas");
+    layer.width = outputSize.w;
+    layer.height = outputSize.h;
+    const lctx = layer.getContext("2d");
+    if (lctx) {
+      drawStrokes(lctx, plan.strokes, doc);
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.drawImage(layer, 0, 0);
+      ctx.globalCompositeOperation = "source-over";
+    }
+  } else {
+    drawStrokes(ctx, plan.strokes, doc);
+  }
+
   ctx.restore();
 }
 

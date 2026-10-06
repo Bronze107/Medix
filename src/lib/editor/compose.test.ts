@@ -35,13 +35,13 @@ describe("planOverlay（实时预览，不裁剪）", () => {
 
 describe("planComposite（导出，含裁剪映射）", () => {
   it("无裁剪时输出尺寸 = 工作分辨率", () => {
-    const plan = planComposite([], null, ORIG, WORK);
+    const plan = planComposite([], null, ORIG, WORK, false);
     expect(plan.sourceRect).toEqual({ x: 0, y: 0, w: 4000, h: 3000 });
     expect(plan.outputSize).toEqual({ w: 2000, h: 1500 });
   });
 
   it("裁剪后输出尺寸按裁剪区换算，源矩形即裁剪区", () => {
-    const plan = planComposite([], { x: 1000, y: 600, w: 800, h: 600 }, ORIG, WORK);
+    const plan = planComposite([], { x: 1000, y: 600, w: 800, h: 600 }, ORIG, WORK, false);
     expect(plan.sourceRect).toEqual({ x: 1000, y: 600, w: 800, h: 600 });
     expect(plan.outputSize).toEqual({ w: 400, h: 300 });
   });
@@ -52,6 +52,7 @@ describe("planComposite（导出，含裁剪映射）", () => {
       { x: 1000, y: 600, w: 800, h: 600 },
       ORIG,
       WORK,
+      false,
     );
     // 裁剪原点映射到 (0,0)，角点映射到输出尺寸
     expect(plan.strokes[0].points).toEqual([{ x: 0, y: 0 }, { x: 200, y: 150 }]);
@@ -64,6 +65,7 @@ describe("planComposite（导出，含裁剪映射）", () => {
       { x: 1000, y: 600, w: 800, h: 600 },
       ORIG,
       WORK,
+      false,
     );
     // 两个点都还在，只是坐标落在输出画布之外
     expect(plan.strokes[0].points).toHaveLength(2);
@@ -72,17 +74,34 @@ describe("planComposite（导出，含裁剪映射）", () => {
   });
 
   it("工作分辨率大于原图时不会反向缩小（scale 有实际比例）", () => {
-    const plan = planComposite([], null, { w: 100, h: 100 }, { w: 100, h: 100 });
+    const plan = planComposite([], null, { w: 100, h: 100 }, { w: 100, h: 100 }, false);
     expect(plan.outputSize).toEqual({ w: 100, h: 100 });
   });
 
   it("退化输入不产生 0 尺寸输出", () => {
-    const plan = planComposite([], { x: 0, y: 0, w: 0, h: 0 }, ORIG, WORK);
+    const plan = planComposite([], { x: 0, y: 0, w: 0, h: 0 }, ORIG, WORK, false);
     expect(plan.outputSize.w).toBeGreaterThanOrEqual(1);
     expect(plan.outputSize.h).toBeGreaterThanOrEqual(1);
   });
 
   it("没有笔迹时输出空数组（不产生无谓的合成开销）", () => {
-    expect(planComposite([], null, ORIG, WORK).strokes).toEqual([]);
+    expect(planComposite([], null, ORIG, WORK, false).strokes).toEqual([]);
+  });
+});
+
+describe("planComposite 蒙版模式", () => {
+  it("mask 标记透传到计划里（renderComposite 据此走 alpha 合成）", () => {
+    expect(planComposite([], null, ORIG, WORK, true).mask).toBe(true);
+    expect(planComposite([], null, ORIG, WORK, false).mask).toBe(false);
+  });
+
+  it("蒙版模式的坐标映射与画笔模式一致，只是最终合成方式不同", () => {
+    const strokes = [stroke([{ x: 1000, y: 600 }])];
+    const crop = { x: 1000, y: 600, w: 800, h: 600 };
+    const asMask = planComposite(strokes, crop, ORIG, WORK, true);
+    const asPaint = planComposite(strokes, crop, ORIG, WORK, false);
+    expect(asMask.strokes).toEqual(asPaint.strokes);
+    expect(asMask.outputSize).toEqual(asPaint.outputSize);
+    expect(asMask.sourceRect).toEqual(asPaint.sourceRect);
   });
 });

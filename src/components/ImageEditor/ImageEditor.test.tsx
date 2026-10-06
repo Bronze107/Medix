@@ -14,6 +14,7 @@ vi.mock("@/lib/tauri", () => ({
  */
 const ctxStub = {
   clearRect: () => {},
+  fillRect: () => {},
   drawImage: () => {},
   save: () => {},
   restore: () => {},
@@ -139,7 +140,58 @@ describe("ImageEditor", () => {
     expect(onConfirm.mock.calls[0][0]).toEqual({
       kind: "canvas",
       dataUrl: "data:image/png;base64,AAAA",
+      // library 模式下有笔迹 = 有可见笔迹，不是蒙版
+      hasMask: false,
     });
+  });
+
+  it("comfy-edit 模式：工具是裁剪 + 蒙版，产物恒为 canvas 并标记 hasMask", async () => {
+    const onConfirm = vi.fn();
+    const utils = render(
+      <ImageEditor mediaId="m1" mode="comfy-edit" onConfirm={onConfirm} onCancel={vi.fn()} />,
+    );
+    const img = await vi.waitFor(() => {
+      const el = utils.container.querySelector("img");
+      if (!el || !el.getAttribute("src")) throw new Error("图片尚未挂载");
+      return el as HTMLImageElement;
+    });
+    Object.defineProperty(img, "naturalWidth", { value: 400, configurable: true });
+    Object.defineProperty(img, "naturalHeight", { value: 300, configurable: true });
+    fireEvent.load(img);
+
+    // 工具页签是「蒙版」而不是「画笔」
+    expect(toolTab("蒙版")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "画笔" })).toBeNull();
+
+    fireEvent.click(toolTab("蒙版"));
+    const canvas = paintCanvas();
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(canvas, { clientX: 10, clientY: 10 });
+
+    fireEvent.click(toolTab("保存新版本"));
+    await vi.waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    expect(onConfirm.mock.calls[0][0]).toMatchObject({ kind: "canvas", hasMask: true });
+  });
+
+  it("comfy-edit 模式：只改裁剪也必须走 canvas（蒙版要随图送出）", async () => {
+    const onConfirm = vi.fn();
+    const utils = render(
+      <ImageEditor mediaId="m1" mode="comfy-edit" onConfirm={onConfirm} onCancel={vi.fn()} />,
+    );
+    const img = await vi.waitFor(() => {
+      const el = utils.container.querySelector("img");
+      if (!el || !el.getAttribute("src")) throw new Error("图片尚未挂载");
+      return el as HTMLImageElement;
+    });
+    Object.defineProperty(img, "naturalWidth", { value: 400, configurable: true });
+    Object.defineProperty(img, "naturalHeight", { value: 300, configurable: true });
+    fireEvent.load(img);
+
+    fireEvent.click(toolTab("1:1"));
+    fireEvent.click(toolTab("保存新版本"));
+    await vi.waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
+    // 走的是 canvas 而不是无损 crop 路径
+    expect(onConfirm.mock.calls[0][0]).toMatchObject({ kind: "canvas", hasMask: false });
   });
 
   it("只有裁剪改动时走无损裁剪路径（不经画布）", async () => {

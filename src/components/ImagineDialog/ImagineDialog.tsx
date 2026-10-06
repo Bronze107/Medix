@@ -15,6 +15,9 @@ import {
   rememberWorkflowValues,
 } from "@/lib/workflowValueMemory";
 import { showToast } from "@/components/Toast/Toast";
+import { ConfirmDialog } from "@/components/ConfirmDialog/ConfirmDialog";
+import { ImageEditor } from "@/components/ImageEditor/ImageEditor";
+import { workflowConsumesMask } from "@/lib/editor/maskGuard";
 import type { ComfyWorkflow, WorkflowParam } from "@/types/comfyui";
 import { ComfyUIWorkflowForm, ComfyUIWorkflowParams } from "@/components/shared/ComfyUIForm";
 
@@ -43,6 +46,13 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
   const [workflowParamsLoading, setWorkflowParamsLoading] = useState(false);
   const [workflowParamsError, setWorkflowParamsError] = useState<string | null>(null);
   const [workflowValues, setWorkflowValues] = useState<Record<string, string>>({});
+  // 编辑器合成好的源图（裁剪 + 蒙版 alpha）。给出时提交会走 imageDataUrls，
+  // 取代后端「按 id 读文件再编码」的路径。
+  const [editedSource, setEditedSource] = useState<{ dataUrl: string; hasMask: boolean } | null>(
+    null,
+  );
+  const [showEditor, setShowEditor] = useState(false);
+  const [showMaskWarning, setShowMaskWarning] = useState(false);
 
   const isComfy = provider === "comfyui";
   const comfyReady = !isComfy || (isComfy && selectedWorkflowId && workflows.length > 0 && !providerLoading);
@@ -54,6 +64,7 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
   })();
 
   const editMediaIds = sourceMediaIds ?? [mediaId];
+  const selectedWorkflow = workflows.find((w) => w.id === selectedWorkflowId);
 
   const thumbUrl = sourceMediaPath ? convertFileSrc(sourceMediaPath) : useThumbnail(mediaId);
 
@@ -102,6 +113,16 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
     } else {
       if (!prompt.trim()) return;
     }
+    // 涂了蒙版，但选中的工作流并没有把 LoadImage 的 MASK 接出去 —— 提交会成功
+    // 但什么都不会重绘，属于完全静默的失败，必须先问一句。
+    if (isComfy && editedSource?.hasMask && !workflowConsumesMask(selectedWorkflow?.workflow_json)) {
+      setShowMaskWarning(true);
+      return;
+    }
+    await doSubmit();
+  };
+
+  const doSubmit = async () => {
     setSubmitting(true);
     setError(null);
     try {
@@ -113,6 +134,8 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
         resolution,
         n,
         isComfy ? selectedWorkflowId : null,
+        // 只有单源图才用编辑器产物：蒙版是单图的，多源编辑没有对应语义
+        editedSource && editMediaIds.length === 1 ? [editedSource.dataUrl] : null,
       );
       // 提交成功后才记住本次参数（「上一次」= 上一次真正跑过的值）
       if (isComfy && selectedWorkflowId) {
@@ -173,6 +196,31 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
                   <div className="absolute bottom-1 left-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white text-center">
                     已选择 {editMediaIds.length} 张输入图
                   </div>
+                )}
+                {editedSource && (
+                  <div className="absolute top-1 left-1 rounded bg-[var(--color-accent)]/85 px-1.5 py-0.5 text-[10px] text-white backdrop-blur-sm">
+                    {editedSource.hasMask ? "已裁剪 + 蒙版" : "已裁剪"}
+                  </div>
+                )}
+              </div>
+
+              {/* 裁剪 / 蒙版：单源图才可用 —— 蒙版是单图语义 */}
+              <div className="flex w-20 shrink-0 flex-col gap-1.5">
+                {isComfy && editMediaIds.length === 1 && (
+                  <button
+                    onClick={() => setShowEditor(true)}
+                    className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-[11px] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] active:scale-[0.97]"
+                  >
+                    裁剪/蒙版
+                  </button>
+                )}
+                {editedSource && (
+                  <button
+                    onClick={() => setEditedSource(null)}
+                    className="rounded border border-[var(--color-border-light)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] active:scale-[0.97]"
+                  >
+                    还原原图
+                  </button>
                 )}
               </div>
 
@@ -305,6 +353,35 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
           </div>
         </div>
       </div>
+
+      {showEditor && (
+        <ImageEditor
+          mediaId={mediaId}
+          mode="comfy-edit"
+          title="裁剪 / 涂抹蒙版"
+          onCancel={() => setShowEditor(false)}
+          onConfirm={(result) => {
+            if (result.kind !== "canvas") return;
+            setEditedSource({ dataUrl: result.dataUrl, hasMask: result.hasMask });
+            setShowEditor(false);
+          }}
+        />
+      )}
+
+      {/* 涂了蒙版但工作流不消费 MASK：提交会成功却什么都不重绘，必须先问一句。
+          判定是启发式的（子图/API 格式识别不到），所以给的是「继续 / 返回」而不是硬拦。 */}
+      <ConfirmDialog
+        open={showMaskWarning}
+        title="该工作流可能不会使用蒙版"
+        message="选中的工作流没有把 LoadImage 的 MASK 输出接到任何节点，蒙版大概率不会生效（局部重绘会变成整图重绘）。仍要提交吗？"
+        confirmLabel="仍要提交"
+        cancelLabel="返回检查"
+        onConfirm={() => {
+          setShowMaskWarning(false);
+          void doSubmit();
+        }}
+        onCancel={() => setShowMaskWarning(false)}
+      />
     </>
   );
 }

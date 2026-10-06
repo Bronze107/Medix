@@ -35,23 +35,45 @@ const ASPECT_PRESETS: { label: string; value: number | "orig" | null }[] = [
 const BRUSH_SIZE_MIN = 1;
 const BRUSH_SIZE_MAX = 200;
 
-export type EditorTool = "crop" | "paint";
+export type EditorTool = "crop" | "paint" | "mask";
 
 /**
- * 编辑结果。`crop` 交给 Rust 无损裁剪；`canvas` 是前端合成好的 PNG，
- * 由 Rust 原样落库。**由「有哪些改动」而不是「当前是哪个工具」决定** ——
- * 否则先画笔再切回裁剪，保存会把笔迹丢掉。
+ * library：裁剪 + 可见画笔，产物落库为新版本。
+ * comfy-edit：裁剪 + 蒙版刷，产物喂给 ComfyUI 图生图（不落库）。
+ */
+export type EditorMode = "library" | "comfy-edit";
+
+/**
+ * 编辑结果。`crop` 交给 Rust 无损裁剪；`canvas` 是前端合成好的 PNG。
+ * 在 library 模式下由「有哪些改动」决定（否则先画笔再切回裁剪，保存会把笔迹
+ * 丢掉）；comfy-edit 模式恒为 `canvas`，因为蒙版必须随图一起送出。
+ *
+ * `hasMask` 供调用方判断「涂了蒙版但工作流并不消费 MASK」并给出警告。
  */
 export type EditorResult =
   | { kind: "crop"; rect: Rect }
-  | { kind: "canvas"; dataUrl: string };
+  | { kind: "canvas"; dataUrl: string; hasMask: boolean };
 
 export interface ImageEditorProps {
   mediaId: string;
+  /** 默认 library：编辑结果作为新版本落库 */
+  mode?: EditorMode;
   title?: string;
   onConfirm: (result: EditorResult) => void | Promise<void>;
   onCancel: () => void;
 }
+
+/** 各模式下可用的工具。两种模式共用同一套画布与笔迹逻辑。 */
+const TOOLS_BY_MODE: Record<EditorMode, { id: EditorTool; label: string }[]> = {
+  library: [
+    { id: "crop", label: "裁剪" },
+    { id: "paint", label: "画笔" },
+  ],
+  "comfy-edit": [
+    { id: "crop", label: "裁剪" },
+    { id: "mask", label: "蒙版" },
+  ],
+};
 
 /**
  * 图像编辑器：裁剪 + 画笔。
@@ -63,7 +85,15 @@ export interface ImageEditorProps {
  * 用户看到的一致，也与 Rust 侧 `media::edit::open_oriented` 解码出的尺寸一致。
  * 注意**不能**用 `media.width/height`，那是导入时未应用方向的值。
  */
-export function ImageEditor({ mediaId, title = "编辑图片", onConfirm, onCancel }: ImageEditorProps) {
+export function ImageEditor({
+  mediaId,
+  mode = "library",
+  title = "编辑图片",
+  onConfirm,
+  onCancel,
+}: ImageEditorProps) {
+  const tools = TOOLS_BY_MODE[mode];
+  const brushTool = mode === "comfy-edit" ? "mask" : "paint";
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [origSize, setOrigSize] = useState<Size | null>(null);
@@ -77,7 +107,9 @@ export function ImageEditor({ mediaId, title = "编辑图片", onConfirm, onCanc
     size: 24,
     hardness: 0.8,
     opacity: 1,
-    color: "#000000",
+    // 蒙版模式默认用显眼的红色：蒙版在导出结果里是**不可见**的（写进 alpha），
+    // 屏幕上的颜色只是「我涂了哪里」的指示，选黑色会看不清
+    color: mode === "comfy-edit" ? "#ff3b30" : "#000000",
     erase: false,
   });
   const [history, dispatch] = useReducer(historyReducer, undefined, initialHistory);
@@ -186,7 +218,9 @@ export function ImageEditor({ mediaId, title = "编辑图片", onConfirm, onCanc
   const buildCanvasResult = (): string | null => {
     const img = imgRef.current;
     if (!img || !origSize || !work) return null;
-    const plan = planComposite(history.strokes, rect, origSize, work);
+    // 笔迹不记录自己是画笔还是蒙版 —— 一种模式只有一种笔刷，所以由模式决定即可
+    const mask = mode === "comfy-edit";
+    const plan = planComposite(history.strokes, rect, origSize, work, mask);
     const canvas = document.createElement("canvas");
     canvas.width = plan.outputSize.w;
     canvas.height = plan.outputSize.h;
@@ -200,22 +234,31 @@ export function ImageEditor({ mediaId, title = "编辑图片", onConfirm, onCanc
     if (busy || !serialized || !dirty) return;
     setBusy(true);
     try {
-      // 有笔迹就必须走画布合成（否则笔迹会被丢掉）；只有裁剪时才走无损路径
-      if (hasStrokes) {
+      // comfy-edit 模式恒走画布合成：蒙版必须随图一起送出去，哪怕只改了裁剪。
+      // library 模式下有笔迹才走画布（否则笔迹会被丢掉），只有裁剪时走无损路径。
+      if (mode === "comfy-edit" || hasStrokes) {
         let dataUrl: string | null = null;
         try {
           dataUrl = buildCanvasResult();
         } catch (e) {
-          // canvas 被跨源图片污染时 toDataURL 会抛 SecurityError。必须显式暴露，
-          // 否则是一句 console 报错 + 按钮没反应。
-          setError("画布导出失败（图片跨源被污染）：" + String(e));
+          // 必须显式暴露：否则只是一句 console 报错 + 按钮毫无反应。
+          // 只有 SecurityError 才说明是跨源污染，其它异常照实报，别乱归因。
+          const security = (e as { name?: string })?.name === "SecurityError";
+          setError(
+            security
+              ? "画布导出失败：图片被跨源污染，无法读取像素"
+              : `画布导出失败：${String(e)}`,
+          );
           return;
         }
         if (!dataUrl) {
           setError("合成失败");
           return;
         }
-        await onConfirm({ kind: "canvas", dataUrl });
+        // hasMask 指的是「涂了蒙版」，不是「有笔迹」—— library 模式的可见笔迹
+        // 不是蒙版，误报会让调用方弹出无意义的「工作流不消费 MASK」警告
+        const hasMask = mode === "comfy-edit" && hasStrokes;
+        await onConfirm({ kind: "canvas", dataUrl, hasMask });
       } else {
         await onConfirm({ kind: "crop", rect: serialized });
       }
@@ -310,7 +353,7 @@ export function ImageEditor({ mediaId, title = "编辑图片", onConfirm, onCanc
               className="h-full w-full select-none"
               draggable={false}
             />
-            {ready && tool === "paint" && (
+            {ready && tool === brushTool && (
               <PaintCanvas
                 origSize={origSize}
                 work={work}
@@ -335,17 +378,17 @@ export function ImageEditor({ mediaId, title = "编辑图片", onConfirm, onCanc
 
       {/* Toolbar */}
       <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-4 py-2">
-        {(["crop", "paint"] as const).map((t) => (
+        {tools.map((t) => (
           <button
-            key={t}
-            onClick={() => setTool(t)}
+            key={t.id}
+            onClick={() => setTool(t.id)}
             className={`rounded px-2.5 py-1 text-xs transition-colors active:scale-[0.97] ${
-              tool === t
+              tool === t.id
                 ? "bg-[var(--color-accent)] text-white"
                 : "border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
             }`}
           >
-            {t === "crop" ? "裁剪" : "画笔"}
+            {t.label}
           </button>
         ))}
 
@@ -420,6 +463,9 @@ export function ImageEditor({ mediaId, title = "编辑图片", onConfirm, onCanc
               type="color"
               value={brush.color}
               aria-label="画笔颜色"
+              title={
+                mode === "comfy-edit" ? "仅用于显示涂抹区域，不进入生成结果" : "画笔颜色"
+              }
               disabled={brush.erase}
               onChange={(e) => setBrush((b) => ({ ...b, color: e.target.value }))}
               className="h-6 w-8 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] disabled:opacity-40"
