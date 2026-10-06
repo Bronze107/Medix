@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Semaphore;
 
 use super::{create_provider, EditParams, GenerateParams, StagedImage};
+use crate::media::MediaImportResult;
 
 const MAX_CONCURRENT: usize = 2;
 
@@ -163,6 +164,25 @@ impl ImageQueue {
 
 // --- Init ---
 
+/// 通知前端「任务列表有变化」。前端不轮询列表，收到本事件才会重新拉取
+/// `image_queue_list`（见 AiGenPage 的 listen）—— 所以**任何状态写入之后都必须
+/// 调一次**。
+///
+/// 这条规则是被一个真实故障逼出来的：`pending → running` 这个转换原先不发事件，
+/// 于是任务明明已经开始跑（进度条和采样预览都在动，它们走的是另一条
+/// `image-queue-progress` / `image-queue-preview`），卡片上的文字却一直停在
+/// 「排队中」，直到恰好有别的任务结束、顺带刷新了列表才纠正过来。
+fn emit_queue_updated(app: &AppHandle) {
+    let remaining = app
+        .try_state::<ImageQueue>()
+        .map(|q| q.pending_count())
+        .unwrap_or(0);
+    let _ = app.emit(
+        "image-queue-updated",
+        serde_json::json!({ "remaining": remaining }),
+    );
+}
+
 pub fn init_image_queue(app: AppHandle) -> ImageQueue {
     let (tx, rx) = mpsc::channel::<ImageTask>();
     let pending = Arc::new(AtomicUsize::new(0));
@@ -195,15 +215,11 @@ pub fn init_image_queue(app: AppHandle) -> ImageQueue {
                 let tasks = tasks_clone.clone();
                 let staging = staging_dir.clone();
 
-                let app2 = app_clone.clone();
                 tokio::spawn(async move {
                     let _permit = permit;
-                    process_task(app, &tasks, &staging, task).await;
-                    let remaining = pending.fetch_sub(1, Ordering::SeqCst) - 1;
-                    let _ = app2.emit(
-                        "image-queue-updated",
-                        serde_json::json!({ "remaining": remaining }),
-                    );
+                    process_task(app.clone(), &tasks, &staging, task).await;
+                    pending.fetch_sub(1, Ordering::SeqCst);
+                    emit_queue_updated(&app);
                 });
             }
         });
@@ -333,6 +349,9 @@ async fn process_task(
     if let Some(t) = tasks.lock().unwrap().get_mut(&task_id) {
         t.status = "running".to_string();
     }
+    // 立刻告知前端 —— 任务可能在这里停留很久（提交 ComfyUI、等它跑完采样），
+    // 不发这一条，界面就整段时间都显示「排队中」。
+    emit_queue_updated(&app);
 
     let provider = match create_provider(&app, workflow_id.as_deref(), Some(&task_id)) {
         Ok(p) => p,
@@ -565,10 +584,7 @@ pub fn image_queue_submit_generate(
         progress: None,
     });
     queue.send(task).map_err(|e| e.to_string())?;
-    let _ = app.emit(
-        "image-queue-updated",
-        serde_json::json!({ "remaining": queue.pending_count() }),
-    );
+    emit_queue_updated(&app);
     Ok(task_id)
 }
 
@@ -615,10 +631,7 @@ pub fn image_queue_submit_edit(
         progress: None,
     });
     queue.send(task).map_err(|e| e.to_string())?;
-    let _ = app.emit(
-        "image-queue-updated",
-        serde_json::json!({ "remaining": queue.pending_count() }),
-    );
+    emit_queue_updated(&app);
     Ok(task_id)
 }
 
@@ -632,309 +645,341 @@ pub fn image_queue_pending_count(app: AppHandle) -> u32 {
     app.state::<ImageQueue>().pending_count() as u32
 }
 
+/// 把任务的暂存产物导入为正式媒体。
+///
+/// 三件事决定了它的形状：
+///
+/// 1. **不占主线程**。同步 command 是在主线程上执行的，而这个函数要复制文件、
+///    解码、缩放、生成缩略图、写库 —— 留在主线程就等于整个窗口卡住。所以做成
+///    async command + `spawn_blocking`。（`#[tauri::command(async)]` 不够：它只是
+///    把函数体塞进一个 async 块，仍然占着 async 运行时的工作线程。）
+/// 2. **不占任务表的锁**。只在「取快照」和「写回」两处短暂加锁，中间的重活一律
+///    在锁外。否则 `image_queue_list`（同步 command，跑在主线程）会在锁上干等，
+///    运行中任务的 `set_progress` 与状态写入也会被一起挡住。
+/// 3. 与 2 配套：放锁之后 `image_queue_discard` 可能在这期间删掉暂存文件，所以
+///    单张失败不能再 `?` 掉整批。
 #[tauri::command]
-pub fn image_queue_import(
+pub async fn image_queue_import(
     app: AppHandle,
     task_id: String,
     selected_ids: Vec<String>,
-) -> Result<Vec<crate::media::MediaImportResult>, String> {
-    let queue = app.state::<ImageQueue>();
-    let mut tasks = queue.tasks.lock().unwrap();
-    let task = tasks.get_mut(&task_id).ok_or("Task not found")?;
+) -> Result<Vec<MediaImportResult>, String> {
+    // ImageQueue 里只有一个 mpsc::Sender 和两个 Arc，clone 出来的是指向同一队列的
+    // 句柄。必须拿到所有权：State<'_, _> 是借用，活不过 spawn_blocking 的 'static 闭包。
+    let queue = ImageQueue::clone(app.state::<ImageQueue>().inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        import_staged(&app, &queue, &task_id, &selected_ids)
+    })
+    .await
+    .map_err(|e| format!("导入失败：{}", e))?
+}
 
-    if selected_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    // Filter selected staged images
-    let selected: Vec<&StagedImage> = task
-        .staged
-        .iter()
-        .filter(|s| selected_ids.contains(&s.id))
-        .collect();
+fn import_staged(
+    app: &AppHandle,
+    queue: &ImageQueue,
+    task_id: &str,
+    selected_ids: &[String],
+) -> Result<Vec<MediaImportResult>, String> {
+    // ── 锁内：只取一份快照 ─────────────────────────────────────────────
+    let (prompt, workflow_id, source_media_ids, selected) = {
+        let tasks = queue.tasks.lock().unwrap();
+        let task = tasks.get(task_id).ok_or("Task not found")?;
+        if selected_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let selected: Vec<StagedImage> = task
+            .staged
+            .iter()
+            .filter(|s| selected_ids.contains(&s.id))
+            .cloned()
+            .collect();
+        (
+            task.prompt.clone(),
+            task.workflow_id.clone(),
+            task.source_media_ids.clone(),
+            selected,
+        )
+    };
 
     if selected.is_empty() {
         return Ok(Vec::new());
     }
 
-    let staging_dir = {
-        let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        app_dir.join("staging")
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let staging_dir = app_dir.join("staging");
+    let library_dir = app_dir.join("library");
+
+    // ── 锁外：复制、解码、写库、生成缩略图 ──────────────────────────────
+    let results = match source_media_ids {
+        Some(ids) if !ids.is_empty() => import_as_derivatives(
+            app,
+            &staging_dir,
+            &library_dir,
+            &selected,
+            &ids,
+            &prompt,
+            workflow_id.as_deref(),
+        ),
+        Some(_) => return Err("No source media IDs provided for edit task".to_string()),
+        None => import_as_new_media(app, &staging_dir, &library_dir, &selected, &prompt),
     };
 
-    let provider = crate::settings::get_image_api_provider(&app);
+    // ── 锁内：摘掉已导入的暂存图；全摘完就把任务整个删掉 ────────────────
+    let mut tasks = queue.tasks.lock().unwrap();
+    let mut empty = false;
+    if let Some(task) = tasks.get_mut(task_id) {
+        let selected_set: HashSet<&String> = selected_ids.iter().collect();
+        task.staged.retain(|s| !selected_set.contains(&s.id));
+        empty = task.staged.is_empty();
+    }
+    if empty {
+        tasks.remove(task_id);
+    }
 
-    if let Some(ref source_media_ids) = task.source_media_ids {
-        // Edit mode: create derivative media records with lineage
-        if source_media_ids.is_empty() {
-            return Err("No source media IDs provided for edit task".to_string());
+    Ok(results)
+}
+
+/// 一次失败的导入结果（`path` 用暂存路径，便于定位是哪一张）。
+fn import_failed(path: &str, error: String) -> MediaImportResult {
+    MediaImportResult {
+        id: String::new(),
+        path: path.to_string(),
+        success: false,
+        error: Some(error),
+    }
+}
+
+/// 暂存文件 → library 副本 + 解码结果。两个导入分支的这一步完全一样。
+struct StagedFile {
+    dest: PathBuf,
+    dest_str: String,
+    decoded: image::DynamicImage,
+    file_size: i64,
+}
+
+/// 复制进 `library/` 并解码。失败时返回给用户看的错误（调用方记一条失败结果、
+/// 跳到下一张 —— 见 `image_queue_import` 的第 3 条说明）。
+fn copy_and_decode(
+    staging_dir: &Path,
+    library_dir: &Path,
+    img: &StagedImage,
+    new_id: &str,
+) -> Result<StagedFile, String> {
+    let ext = find_staged_ext(staging_dir, &img.id)?;
+    let src = staging_dir.join(format!("{}.{}", img.id, ext));
+    let dest = library_dir.join(format!("{}.{}", new_id, ext));
+
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    // 副本已经进 library，暂存文件删掉（失败也无所谓，下次不会再找到它）
+    let _ = fs::remove_file(&src);
+
+    let decoded = image::open(&dest).map_err(|e| e.to_string())?;
+    let file_size = fs::metadata(&dest).map(|m| m.len() as i64).unwrap_or(0);
+    let dest_str = dest.to_string_lossy().replace('\\', "/");
+    Ok(StagedFile {
+        dest,
+        dest_str,
+        decoded,
+        file_size,
+    })
+}
+
+/// 编辑任务的产物：每个源图各建一个新版本（新 media 行 + 到所有源图的 lineage 边）。
+fn import_as_derivatives(
+    app: &AppHandle,
+    staging_dir: &Path,
+    library_dir: &Path,
+    selected: &[StagedImage],
+    source_media_ids: &[String],
+    prompt: &str,
+    workflow_id: Option<&str>,
+) -> Vec<MediaImportResult> {
+    // ComfyUI 任务必有 workflow_id，xAI 任务没有 → 据此打来源标签。
+    let provider_tag = if workflow_id.is_some() {
+        "comfyui"
+    } else {
+        "xai"
+    };
+    let source = format!("ai-edited:{}", provider_tag);
+
+    let mut results = Vec::new();
+    for img in selected {
+        let new_id = ulid::Ulid::new().to_string();
+        // Named after the derivative's own id, like every other media file.
+        // The old "{parent}_{child}" form meant a derivative's file did not
+        // start with its own id, so deleting it never found the file.
+        let file = match copy_and_decode(staging_dir, library_dir, img, &new_id) {
+            Ok(f) => f,
+            Err(e) => {
+                results.push(import_failed(&img.path, e));
+                continue;
+            }
+        };
+
+        let media = crate::media::Media {
+            id: new_id.clone(),
+            source_path: Some(file.dest_str.clone()),
+            width: Some(file.decoded.width() as i32),
+            height: Some(file.decoded.height() as i32),
+            file_size: Some(file.file_size),
+            created_at: None,
+            modified_at: None,
+            imported_at: Utc::now().to_rfc3339(),
+            source_url: None,
+            page_url: None,
+            source: Some(source.clone()),
+            phash: None,
+            sha256: None,
+            deleted_at: None,
+            display_variant_id: None,
+            thumb_256: None,
+            lqip: None,
+            media_type: Some("image".to_string()),
+            duration: None,
+            video_codec: None,
+            video_fps: None,
+        };
+
+        if let Err(e) = crate::db::insert_media(app, &media) {
+            let _ = fs::remove_file(&file.dest);
+            results.push(import_failed(&img.path, e.to_string()));
+            continue;
         }
 
-        let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        let library_dir = app_dir.join("library");
-
-        // ComfyUI 任务必有 workflow_id，xAI 任务没有 → 据此打来源标签。
-        let provider_tag = if task.workflow_id.is_some() {
-            "comfyui"
-        } else {
-            "xai"
-        };
-        let source = format!("ai-edited:{}", provider_tag);
-
-        let mut results = Vec::new();
-        for img in &selected {
-            let ext = find_staged_ext(&staging_dir, &img.id)?;
-            let src = staging_dir.join(format!("{}.{}", img.id, ext));
-            let new_id = ulid::Ulid::new().to_string();
-            // Named after the derivative's own id, like every other media file.
-            // The old "{parent}_{child}" form meant a derivative's file did not
-            // start with its own id, so deleting it never found the file.
-            let dest = library_dir.join(format!("{}.{}", new_id, ext));
-
-            if let Err(e) = fs::copy(&src, &dest) {
-                results.push(crate::media::MediaImportResult {
-                    id: String::new(),
-                    path: img.path.clone(),
-                    success: false,
-                    error: Some(e.to_string()),
-                });
-                continue;
+        // Create lineage links for ALL source images
+        for src_id in source_media_ids {
+            if let Err(e) = crate::db::lineage_insert(app, src_id, &new_id, "edit", workflow_id) {
+                eprintln!("[image-queue] failed to insert lineage: {}", e);
             }
-            let _ = fs::remove_file(&src);
+        }
 
-            let decoded = match image::open(&dest) {
-                Ok(d) => d,
-                Err(e) => {
-                    results.push(crate::media::MediaImportResult {
-                        id: String::new(),
-                        path: img.path.clone(),
-                        success: false,
-                        error: Some(e.to_string()),
-                    });
-                    continue;
-                }
-            };
-            let file_size = fs::metadata(&dest).map(|m| m.len() as i64).unwrap_or(0);
-            let dest_str = dest.to_string_lossy().replace('\\', "/");
+        // Generate thumbnail
+        if let Err(e) =
+            crate::media::thumbnail::generate_thumbnails_from_image(app, &new_id, &file.decoded)
+        {
+            eprintln!("[image-queue] thumbnail failed: {}", e);
+        }
 
-            let media = crate::media::Media {
-                id: new_id.clone(),
-                source_path: Some(dest_str.clone()),
-                width: Some(decoded.width() as i32),
-                height: Some(decoded.height() as i32),
-                file_size: Some(file_size),
-                created_at: None,
-                modified_at: None,
-                imported_at: Utc::now().to_rfc3339(),
-                source_url: None,
-                page_url: None,
-                source: Some(source.clone()),
-                phash: None,
-                sha256: None,
-                deleted_at: None,
-                display_variant_id: None,
-                thumb_256: None,
-                lqip: None,
-                media_type: Some("image".to_string()),
-                duration: None,
-                video_codec: None,
-                video_fps: None,
-            };
-
-            if let Err(e) = crate::db::insert_media(&app, &media) {
-                let _ = fs::remove_file(&dest);
-                results.push(crate::media::MediaImportResult {
-                    id: String::new(),
-                    path: img.path.clone(),
-                    success: false,
-                    error: Some(e.to_string()),
-                });
-                continue;
-            }
-
-            // Create lineage links for ALL source images
-            for src_id in source_media_ids {
-                if let Err(e) = crate::db::lineage_insert(
-                    &app,
-                    src_id,
-                    &new_id,
-                    "edit",
-                    task.workflow_id.as_deref(),
-                ) {
-                    eprintln!("[image-queue] failed to insert lineage: {}", e);
-                }
-            }
-
-            // Generate thumbnail
+        // Save prompt as caption (if not empty)
+        if !prompt.is_empty() {
             if let Err(e) =
-                crate::media::thumbnail::generate_thumbnails_from_image(&app, &new_id, &decoded)
+                crate::db::caption_create_with_source(app, &new_id, prompt, Some("ai-edit"))
             {
+                eprintln!("[image-queue] failed to save prompt caption: {}", e);
+            }
+        }
+
+        results.push(MediaImportResult {
+            id: new_id,
+            path: file.dest_str,
+            success: true,
+            error: None,
+        });
+    }
+    results
+}
+
+/// 文生图任务的产物：每张各建一条新 media 行，并触发 AI 标注。
+fn import_as_new_media(
+    app: &AppHandle,
+    staging_dir: &Path,
+    library_dir: &Path,
+    selected: &[StagedImage],
+    prompt: &str,
+) -> Vec<MediaImportResult> {
+    let source = format!("generated:{}", crate::settings::get_image_api_provider(app));
+
+    let mut results = Vec::new();
+    for img in selected {
+        let id = ulid::Ulid::new().to_string();
+        let file = match copy_and_decode(staging_dir, library_dir, img, &id) {
+            Ok(f) => f,
+            Err(e) => {
+                results.push(import_failed(&img.path, e));
+                continue;
+            }
+        };
+
+        let lqip = {
+            let data_url = crate::media::thumbnail::generate_lqip(&file.decoded);
+            if data_url.is_empty() {
+                None
+            } else {
+                Some(data_url)
+            }
+        };
+
+        let media = crate::media::Media {
+            id: id.clone(),
+            source_path: None,
+            width: Some(file.decoded.width() as i32),
+            height: Some(file.decoded.height() as i32),
+            file_size: Some(file.file_size),
+            created_at: None,
+            modified_at: None,
+            imported_at: Utc::now().to_rfc3339(),
+            source_url: None,
+            page_url: None,
+            source: Some(source.clone()),
+            phash: None,
+            sha256: None,
+            deleted_at: None,
+            display_variant_id: None,
+            thumb_256: None,
+            lqip,
+            media_type: None,
+            duration: None,
+            video_codec: None,
+            video_fps: None,
+        };
+
+        if let Err(e) = crate::db::insert_media(app, &media) {
+            let _ = fs::remove_file(&file.dest);
+            results.push(import_failed(&img.path, e.to_string()));
+            continue;
+        }
+
+        // Generate thumbnails —— 另起线程，不让导入的返回路径等它
+        let img_clone = file.decoded.clone();
+        let app_clone = app.clone();
+        let mid = id.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = crate::media::thumbnail::generate_thumbnails_from_image(
+                &app_clone, &mid, &img_clone,
+            ) {
                 eprintln!("[image-queue] thumbnail failed: {}", e);
             }
+        });
 
-            // Save prompt as caption (if not empty)
-            if !task.prompt.is_empty() {
-                if let Err(e) = crate::db::caption_create_with_source(
-                    &app,
-                    &new_id,
-                    &task.prompt,
-                    Some("ai-edit"),
-                ) {
-                    eprintln!("[image-queue] failed to save prompt caption: {}", e);
-                }
+        // Save prompt as caption (skip if empty — ComfyUI workflows may not expose a text param)
+        if !prompt.is_empty() {
+            if let Err(e) =
+                crate::db::caption_create_with_source(app, &id, prompt, Some("ai-generated"))
+            {
+                eprintln!("[image-queue] failed to save prompt caption: {}", e);
             }
-
-            results.push(crate::media::MediaImportResult {
-                id: new_id,
-                path: dest_str,
-                success: true,
-                error: None,
-            });
         }
-        // Remove imported staged images from task
-        let selected_set: std::collections::HashSet<_> = selected_ids.iter().collect();
-        task.staged.retain(|s| !selected_set.contains(&s.id));
-        // If all staged images imported, remove the task entirely
-        if task.staged.is_empty() {
-            drop(tasks); // release lock before mutation in remove
-            queue.tasks.lock().unwrap().remove(&task_id);
-        }
-        Ok(results)
-    } else {
-        // Generate mode: import as new media
-        let source = format!("generated:{}", provider);
-        let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        let library_dir = app_dir.join("library");
 
-        let mut results = Vec::new();
-        for img in &selected {
-            let ext = find_staged_ext(&staging_dir, &img.id)?;
-            let src = staging_dir.join(format!("{}.{}", img.id, ext));
-            let id = ulid::Ulid::new().to_string();
-            let dest = library_dir.join(format!("{}.{}", id, ext));
-
-            if let Err(e) = fs::copy(&src, &dest) {
-                results.push(crate::media::MediaImportResult {
-                    id: String::new(),
-                    path: img.path.clone(),
-                    success: false,
-                    error: Some(e.to_string()),
-                });
-                continue;
-            }
-            let _ = fs::remove_file(&src);
-
-            let decoded = match image::open(&dest) {
-                Ok(d) => d,
-                Err(e) => {
-                    results.push(crate::media::MediaImportResult {
-                        id: String::new(),
-                        path: img.path.clone(),
-                        success: false,
-                        error: Some(e.to_string()),
-                    });
-                    continue;
-                }
-            };
-            let file_size = fs::metadata(&dest).map(|m| m.len() as i64).unwrap_or(0);
-
-            let lqip = {
-                let data_url = crate::media::thumbnail::generate_lqip(&decoded);
-                if data_url.is_empty() {
-                    None
-                } else {
-                    Some(data_url)
-                }
-            };
-
-            let media = crate::media::Media {
-                id: id.clone(),
-                source_path: None,
-                width: Some(decoded.width() as i32),
-                height: Some(decoded.height() as i32),
-                file_size: Some(file_size),
-                created_at: None,
-                modified_at: None,
-                imported_at: Utc::now().to_rfc3339(),
-                source_url: None,
-                page_url: None,
-                source: Some(source.clone()),
-                phash: None,
-                sha256: None,
-                deleted_at: None,
-                display_variant_id: None,
-                thumb_256: None,
-                lqip,
-                media_type: None,
-                duration: None,
-                video_codec: None,
-                video_fps: None,
-            };
-
-            if let Err(e) = crate::db::insert_media(&app, &media) {
-                let _ = fs::remove_file(&dest);
-                results.push(crate::media::MediaImportResult {
-                    id: String::new(),
-                    path: img.path.clone(),
-                    success: false,
-                    error: Some(e.to_string()),
-                });
-                continue;
-            }
-
-            // Generate thumbnails (std::thread — no tokio runtime on main thread)
-            let img_clone = decoded.clone();
-            let app_clone = app.clone();
-            let mid = id.clone();
-            std::thread::spawn(move || {
-                if let Err(e) = crate::media::thumbnail::generate_thumbnails_from_image(
-                    &app_clone, &mid, &img_clone,
-                ) {
-                    eprintln!("[image-queue] thumbnail failed: {}", e);
-                }
+        // Trigger AI annotation
+        let app_clone = app.clone();
+        let mid = id.clone();
+        let dest_clone = file.dest.clone();
+        std::thread::spawn(move || {
+            let queue = app_clone.state::<crate::ai::AiQueue>();
+            let _ = queue.send(crate::ai::AiTask::GenerateCaption {
+                media_id: mid,
+                image_path: dest_clone,
             });
+        });
 
-            // Save prompt as caption (skip if empty — ComfyUI workflows may not expose a text param)
-            if !task.prompt.is_empty() {
-                if let Err(e) = crate::db::caption_create_with_source(
-                    &app,
-                    &id,
-                    &task.prompt,
-                    Some("ai-generated"),
-                ) {
-                    eprintln!("[image-queue] failed to save prompt caption: {}", e);
-                }
-            }
-
-            // Trigger AI annotation (std::thread — no tokio runtime on main thread)
-            let app_clone = app.clone();
-            let mid = id.clone();
-            let dest_clone = dest.clone();
-            std::thread::spawn(move || {
-                let queue = app_clone.state::<crate::ai::AiQueue>();
-                let _ = queue.send(crate::ai::AiTask::GenerateCaption {
-                    media_id: mid,
-                    image_path: dest_clone,
-                });
-            });
-
-            results.push(crate::media::MediaImportResult {
-                id,
-                path: img.path.clone(),
-                success: true,
-                error: None,
-            });
-        }
-        // Remove imported staged images from task
-        let selected_set: std::collections::HashSet<_> = selected_ids.iter().collect();
-        task.staged.retain(|s| !selected_set.contains(&s.id));
-        // If all staged images imported, remove the task entirely
-        if task.staged.is_empty() {
-            drop(tasks); // release lock before mutation in remove
-            queue.tasks.lock().unwrap().remove(&task_id);
-        }
-        Ok(results)
+        results.push(MediaImportResult {
+            id,
+            path: img.path.clone(),
+            success: true,
+            error: None,
+        });
     }
+    results
 }
 
 #[tauri::command]

@@ -13,6 +13,7 @@ import {
   settingsGet,
 } from "@/lib/tauri";
 import { usePromptHistory } from "@/hooks/usePromptHistory";
+import { showToast } from "@/components/Toast/Toast";
 import {
   clearWorkflowValues,
   defaultWorkflowValues,
@@ -379,7 +380,11 @@ function AiGenPage() {
       await imageQueueCancel(taskId);
       await loadTasks();
     } catch (e) {
+      // 任务状态一变成「生成中」取消按钮就会出现，但此时 prompt_id 可能还没提交到
+      // ComfyUI（正在拉 object_info / 上传源图），取消会被拒。原先只打 console，
+      // 用户看到的就是「点了没反应」。
       console.error("Cancel failed:", e);
+      showToast(String(e), "error");
     }
   };
 
