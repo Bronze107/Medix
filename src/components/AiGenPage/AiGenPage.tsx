@@ -66,14 +66,20 @@ export function TaskCard({
     });
   };
 
+  // pending = 还在 Medix 自己的队列里（并发名额没空出来）；queued = 已经提交给
+  // ComfyUI、排在它自己的队列里。对用户是同一件事（都还没开始算），所以共用
+  // 「排队中」；后端分两个状态是因为取消它们的接口不一样。
   const statusConfig: Record<string, { label: string; color: string }> = {
     pending: { label: "排队中", color: "var(--color-text-muted)" },
+    queued: { label: "排队中", color: "var(--color-text-muted)" },
     running: { label: "生成中", color: "var(--color-accent)" },
     done: { label: "已完成", color: "var(--color-success)" },
     failed: { label: "失败", color: "var(--color-danger)" },
   };
   const sc = statusConfig[task.status] || statusConfig.pending;
-  const isRunning = task.status === "pending" || task.status === "running";
+  const isRunning =
+    task.status === "pending" || task.status === "queued" || task.status === "running";
+  const canCancel = task.status === "running" || task.status === "queued";
 
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3">
@@ -91,7 +97,7 @@ export function TaskCard({
           )}
           {sc.label}
         </span>
-        {task.status === "running" && showCancel && onCancel && (
+        {canCancel && showCancel && onCancel && (
           <button
             onClick={() => onCancel(task.task_id)}
             className="shrink-0 rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-2 py-0.5 text-[11px] text-[var(--color-danger)] hover:bg-[var(--color-danger-soft)]/80 transition-colors active:scale-[0.97]"
@@ -308,7 +314,9 @@ function AiGenPage() {
   // 丢弃已不在运行任务的预览，避免 base64 常驻内存
   useEffect(() => {
     const liveIds = new Set(
-      tasks.filter((t) => t.status === "pending" || t.status === "running").map((t) => t.task_id),
+      tasks
+        .filter((t) => t.status === "pending" || t.status === "queued" || t.status === "running")
+        .map((t) => t.task_id),
     );
     setPreviews((prev) => {
       const kept = Object.entries(prev).filter(([id]) => liveIds.has(id));
@@ -377,7 +385,9 @@ function AiGenPage() {
 
   const handleCancel = async (taskId: string) => {
     try {
-      await imageQueueCancel(taskId);
+      // 后端会回具体做了什么（「已发送中断请求」/「已从 ComfyUI 队列移除」），
+      // 这两条路径差别很大，值得照原话显示。
+      showToast(await imageQueueCancel(taskId));
       await loadTasks();
     } catch (e) {
       // 任务状态一变成「生成中」取消按钮就会出现，但此时 prompt_id 可能还没提交到
@@ -389,7 +399,7 @@ function AiGenPage() {
   };
 
   const hasActive = tasks.some(
-    (t) => t.status === "pending" || t.status === "running",
+    (t) => t.status === "pending" || t.status === "queued" || t.status === "running",
   );
 
   return (

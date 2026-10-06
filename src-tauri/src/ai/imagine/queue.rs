@@ -118,11 +118,21 @@ impl ImageQueue {
             .insert(state.task_id.clone(), state);
     }
 
-    fn update_status(&self, task_id: &str, status: &str, error: Option<String>) {
+    /// 改写任务状态。ComfyUI provider 用它区分「已提交、排在 ComfyUI 自己的队列里」
+    /// （`queued`）和「真的开始执行了」（`running`）—— 服务端只有一条执行流水线，
+    /// 提交成功 ≠ 开始执行。状态是异步变化的，所以改完要让 provider 顺手 emit。
+    pub fn set_status(&self, task_id: &str, status: &str) {
         if let Some(t) = self.tasks.lock().unwrap().get_mut(task_id) {
             t.status = status.to_string();
-            t.error = error;
         }
+    }
+
+    fn status_of(&self, task_id: &str) -> Option<String> {
+        self.tasks
+            .lock()
+            .unwrap()
+            .get(task_id)
+            .map(|t| t.status.clone())
     }
 
     /// ComfyUI provider 提交后登记 prompt_id，供取消时定向中断。
@@ -147,12 +157,6 @@ impl ImageQueue {
             .and_then(|t| t.prompt_id.clone())
     }
 
-    fn set_staged(&self, task_id: &str, staged: Vec<StagedImage>) {
-        if let Some(t) = self.tasks.lock().unwrap().get_mut(task_id) {
-            t.staged = staged;
-        }
-    }
-
     fn list(&self) -> Vec<TaskInfo> {
         let tasks = self.tasks.lock().unwrap();
         let mut list: Vec<TaskInfo> = tasks.values().map(|t| t.to_info()).collect();
@@ -172,7 +176,7 @@ impl ImageQueue {
 /// 于是任务明明已经开始跑（进度条和采样预览都在动，它们走的是另一条
 /// `image-queue-progress` / `image-queue-preview`），卡片上的文字却一直停在
 /// 「排队中」，直到恰好有别的任务结束、顺带刷新了列表才纠正过来。
-fn emit_queue_updated(app: &AppHandle) {
+pub(crate) fn emit_queue_updated(app: &AppHandle) {
     let remaining = app
         .try_state::<ImageQueue>()
         .map(|q| q.pending_count())
@@ -1013,26 +1017,64 @@ pub fn image_queue_dismiss(app: AppHandle, task_id: String) -> Result<(), String
     Ok(())
 }
 
-/// 取消正在运行的 ComfyUI 任务：通过已登记的 prompt_id 定向中断。
+/// 取消一个已提交给 ComfyUI 的任务。
+///
+/// 两个状态要走两个不同的接口，因为服务端的 `/interrupt` 对**没在跑**的 prompt
+/// 是静默 no-op（server.py 里只写一行 skipping 日志然后返回 200）：
+///
+/// * `running` → `POST /interrupt {"prompt_id"}`；服务端随后回
+///   `execution_interrupted`，provider 靠它收尾。
+/// * `queued`  → `POST /queue {"delete": [prompt_id]}`（即 server.py 里 `dequeue`
+///   的做法）。被删掉的 prompt 服务端**不会**发任何专属事件，只广播一条
+///   `status`；provider 靠那条消息去查 /queue 才发现自己没了（见 comfyui.rs
+///   的 wait_ws）。这一点很关键：不然取消排队的任务会静静地什么都不发生，
+///   而那个任务还占着 Medix 的一个并发名额。
 #[tauri::command]
 pub async fn image_queue_cancel(app: AppHandle, task_id: String) -> Result<String, String> {
     let queue = app.state::<ImageQueue>();
     let prompt_id = queue
         .get_prompt_id(&task_id)
         .ok_or("任务不存在或尚未提交到 ComfyUI")?;
-    {
-        let tasks = queue.tasks.lock().unwrap();
-        match tasks.get(&task_id) {
-            Some(t) if t.status != "running" => return Err("任务未在运行".into()),
-            Some(_) => {}
-            None => return Err("任务不存在".into()),
-        }
+    let status = queue.status_of(&task_id).ok_or("任务不存在")?;
+    if status != "running" && status != "queued" {
+        return Err("任务未在运行".into());
     }
+
     let base_url = crate::settings::get_comfyui_base_url(&app);
     let client = reqwest::Client::new();
-    let url = format!("{}/interrupt", base_url);
+
+    if status == "queued" {
+        let resp = client
+            .post(format!("{}/queue", base_url))
+            .json(&serde_json::json!({ "delete": [prompt_id] }))
+            .send()
+            .await
+            .map_err(|e| format!("移除排队任务失败：{}", e))?;
+        if !resp.status().is_success() {
+            return Err(format!("ComfyUI 拒绝移除排队任务 (HTTP {})", resp.status()));
+        }
+        // 从上面读状态到这次删除之间，它可能刚好轮到并开始执行 —— 那样这次删除
+        // 是空操作，得改用中断，否则用户以为取消了、任务却还在跑。
+        if super::comfyui::fetch_queue_state(&client, &base_url, &prompt_id).await
+            == super::comfyui::QueueState::Running
+        {
+            return interrupt(&client, &base_url, &prompt_id).await;
+        }
+        return Ok("已从 ComfyUI 队列移除".to_string());
+    }
+
+    interrupt(&client, &base_url, &prompt_id).await
+}
+
+/// `POST /interrupt`，中断正在执行的那个 prompt（服务端只在 prompt_id 确实是
+/// 当前运行项时才真的打断）。
+async fn interrupt(
+    client: &reqwest::Client,
+    base_url: &str,
+    prompt_id: &str,
+) -> Result<String, String> {
     let resp = client
-        .post(&url)
+        .post(format!("{}/interrupt", base_url))
         .json(&serde_json::json!({ "prompt_id": prompt_id }))
         .send()
         .await

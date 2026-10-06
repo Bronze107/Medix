@@ -55,3 +55,43 @@ describe("TaskCard 采样预览", () => {
     expect(screen.queryByRole("img", { name: "采样预览" })).not.toBeInTheDocument();
   });
 });
+
+describe("TaskCard 状态", () => {
+  const onCancel = vi.fn();
+
+  it("queued 显示「排队中」而不是「生成中」（ComfyUI 里还没轮到它）", () => {
+    renderCard({ task: makeTask({ status: "queued" }), onCancel, showCancel: true });
+    expect(screen.getByText("排队中")).toBeInTheDocument();
+    expect(screen.queryByText("生成中")).not.toBeInTheDocument();
+  });
+
+  it("queued 也能取消（走后端的出队路径），pending 不能（还没提交给 ComfyUI）", () => {
+    const { unmount } = render(
+      <TaskCard
+        task={makeTask({ status: "queued" })}
+        onImport={() => {}}
+        onDiscard={() => {}}
+        onDismiss={() => {}}
+        onPreview={() => {}}
+        onCancel={onCancel}
+        showCancel
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    expect(onCancel).toHaveBeenCalledWith("t1");
+    unmount();
+
+    render(
+      <TaskCard
+        task={makeTask({ status: "pending" })}
+        onImport={() => {}}
+        onDiscard={() => {}}
+        onDismiss={() => {}}
+        onPreview={() => {}}
+        onCancel={onCancel}
+        showCancel
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+  });
+});

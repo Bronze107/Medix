@@ -72,21 +72,62 @@ fn preview_data_url(bytes: &[u8]) -> Option<String> {
     Some(format!("data:image/jpeg;base64,{}", b64))
 }
 
-/// 判断 /queue 的响应里是否含有该 prompt。
-/// ComfyUI 的 /queue 返回 `{queue_running: [...], queue_pending: [...]}`，
-/// 每个条目是 `(number, prompt_id, prompt, extra_data, outputs)` 元组
-/// （server.py 的 `_remove_sensitive_from_queue` 取 `item[:5]`），
-/// 因此 prompt_id 固定在下标 1。
-fn queue_contains(json: &Value, prompt_id: &str) -> bool {
-    ["queue_running", "queue_pending"].iter().any(|key| {
-        json[*key]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .any(|e| e.get(1).and_then(|v| v.as_str()) == Some(prompt_id))
-            })
-            .unwrap_or(false)
-    })
+/// 该 prompt 在 ComfyUI 里的位置。
+///
+/// 存在的意义：ComfyUI 只有一条执行流水线，**提交成功 ≠ 开始执行**。prompt 先
+/// 进 `queue_pending`，前一个跑完才轮到它；这期间它在 Medix 里是「排队中」而不是
+/// 「生成中」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum QueueState {
+    /// 正在执行（在 queue_running 里）
+    Running,
+    /// 已提交，排在别的 prompt 后面（在 queue_pending 里）
+    Queued,
+    /// 两个队列里都没有 —— 要么跑完进了 history，要么被 delete/wipe 摘掉了
+    Gone,
+    /// 拿不到队列信息（请求失败或结构不认识）。调用方不能据此下任何结论。
+    Unknown,
+}
+
+/// 判断 prompt_id 落在 /queue 的哪个列表里。
+///
+/// ComfyUI 的 /queue 返回 `{queue_running: [...], queue_pending: [...]}`，每个条目
+/// 是 `(number, prompt_id, prompt, extra_data, outputs)` 元组（server.py 的
+/// `_remove_sensitive_from_queue` 取 `item[:5]`），所以 prompt_id 固定在下标 1。
+///
+/// 两个键都在（哪怕都是空数组）才说明拿到了完整信息、可以放心回 `Gone` —— 缺键
+/// 说明这压根不是 /queue 的响应，回 `Unknown` 而不是「它不在队列里」，否则一次
+/// 畸形响应就会被读成「任务被取消了」。
+pub(crate) fn queue_state(json: &Value, prompt_id: &str) -> QueueState {
+    let in_list = |key: &str| -> Option<bool> {
+        let arr = json[key].as_array()?;
+        Some(
+            arr.iter()
+                .any(|e| e.get(1).and_then(|v| v.as_str()) == Some(prompt_id)),
+        )
+    };
+    match (in_list("queue_running"), in_list("queue_pending")) {
+        (Some(true), _) => QueueState::Running,
+        (_, Some(true)) => QueueState::Queued,
+        (Some(false), Some(false)) => QueueState::Gone,
+        _ => QueueState::Unknown,
+    }
+}
+
+/// 查询该 prompt 当前的队列位置（拿不到就回 `Unknown`）。
+pub(crate) async fn fetch_queue_state(
+    client: &reqwest::Client,
+    base_url: &str,
+    prompt_id: &str,
+) -> QueueState {
+    let url = format!("{}/queue", base_url);
+    match client.get(&url).send().await {
+        Ok(resp) => match resp.json::<Value>().await {
+            Ok(json) => queue_state(&json, prompt_id),
+            Err(_) => QueueState::Unknown,
+        },
+        Err(_) => QueueState::Unknown,
+    }
 }
 
 /// 预览推送节流。以局部可变状态在 submit_and_wait → wait_ws 之间传递，
@@ -206,10 +247,13 @@ impl ComfyuiProvider {
         let ws = self.connect_ws().await;
         let prompt_id = self.submit(&api_prompt).await?;
 
-        // 登记 prompt_id 供 image_queue_cancel 定向中断。
+        // 登记 prompt_id 供 image_queue_cancel 定向中断/出队。
         if let Some(q) = self.app.try_state::<ImageQueue>() {
             q.set_prompt_id(&self.task_id, prompt_id.clone());
         }
+        // 提交成功 ≠ 开始执行：prompt 现在多半只是排进了 ComfyUI 自己的队列。
+        // 真正的开始信号是 execution_start（见 wait_ws）。
+        self.report_status("queued");
 
         match ws {
             Ok(mut stream) => {
@@ -334,6 +378,9 @@ impl ComfyuiProvider {
         // 才中断。此前是「进入本函数起的固定墙钟预算」，排队等待、加载模型、
         // 长节点都会吃掉它，正常但耗时的工作流会被误杀。
         let mut last_activity = Instant::now();
+        // 我们的 prompt 是否已经真正开始执行（收到 execution_start）。在那之前它
+        // 只是排在 ComfyUI 的队列里，界面显示「排队中」。
+        let mut started = false;
         loop {
             let remaining = (last_activity + idle).saturating_duration_since(Instant::now());
             let next = match tokio::time::timeout(remaining, ws.next()).await {
@@ -359,6 +406,37 @@ impl ComfyuiProvider {
                     let ty = v["type"].as_str().unwrap_or("");
                     let data = &v["data"];
                     match ty {
+                        // 轮到我们跑了（execution.py 的 execute_async 开头，broadcast=False
+                        // → 只发给提交它的那个 client_id，也就是我们）。这是「排队中 →
+                        // 生成中」最直接的信号。
+                        "execution_start" => {
+                            if data["prompt_id"].as_str() == Some(prompt_id) {
+                                started = true;
+                                self.report_status("running");
+                            }
+                        }
+                        // 队列有变动。还没开始执行时，这条消息有两个用途：
+                        // ① 补上 execution_start（万一漏收，/queue 的说法同样权威）；
+                        // ② 发现「被摘出队列」—— 取消排队走的是 POST /queue
+                        //    {"delete":[...]}，服务端对被删掉的 prompt 不发任何专属
+                        //    事件，只广播这条 status（delete_queue_item 里的 queue_updated）。
+                        "status" => {
+                            if !started {
+                                match fetch_queue_state(&self.client, &self.base_url, prompt_id)
+                                    .await
+                                {
+                                    QueueState::Running => {
+                                        started = true;
+                                        self.report_status("running");
+                                    }
+                                    QueueState::Gone => {
+                                        let _ = ws.close(None).await;
+                                        return self.gone(prompt_id).await;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                         "progress" => {
                             if data["prompt_id"].as_str() == Some(prompt_id) {
                                 let value = data["value"].as_u64().unwrap_or(0) as u32;
@@ -415,7 +493,7 @@ impl ComfyuiProvider {
         Err(ImagineError::WebSocket("连接提前关闭".into()))
     }
 
-    /// WS 连接失败时的兜底：轮询 history。
+    /// WS 连接失败时的兜底：轮询 history + /queue。
     /// 注意：这条路拿不到采样预览 —— 预览只走 WebSocket 二进制帧，HTTP
     /// /history 里没有；此路径下前端只会显示进度条。
     async fn wait_poll(&self, prompt_id: &str) -> Result<(), ImagineError> {
@@ -424,7 +502,7 @@ impl ComfyuiProvider {
         // 执行中）就算活着。不再用固定墙钟预算，否则长任务会在这个兜底路径上
         // 被误杀 —— 而这条路本就只在 WS 连不上时才走。
         let mut last_activity = Instant::now();
-        let history_url = format!("{}/history/{}", self.base_url, prompt_id);
+        let mut reported_running = false;
         loop {
             if last_activity.elapsed() > idle {
                 return Err(ImagineError::Api(format!(
@@ -432,40 +510,75 @@ impl ComfyuiProvider {
                     self.timeout_secs
                 )));
             }
-            let resp = self
-                .client
-                .get(&history_url)
-                .send()
-                .await
-                .map_err(ImagineError::Http)?;
-            let hist: Value = resp.json().await.map_err(ImagineError::Http)?;
-            if let Some(entry) = hist.get(prompt_id) {
-                if let Some(status) = entry["status"].as_object() {
-                    if status.get("completed").and_then(|v| v.as_bool()) == Some(true) {
-                        let status_str = status["status_str"].as_str().unwrap_or("");
-                        if status_str == "error" {
-                            let msg = Self::extract_history_error(entry);
-                            return Err(ImagineError::Api(format!("ComfyUI 执行失败：{}", msg)));
-                        }
-                        return Ok(());
-                    }
+            if let Some(entry) = self.fetch_history_entry(prompt_id).await? {
+                if let Some(result) = Self::completed_from_history(&entry) {
+                    return result;
                 }
             }
-            if self.prompt_in_queue(prompt_id).await == Some(true) {
-                last_activity = Instant::now();
+            // 这条路没有 execution_start 可用（走这里就是因为 WS 不通），只能靠
+            // /queue 判断「轮到我了没有」和「我还在不在队列里」。
+            match fetch_queue_state(&self.client, &self.base_url, prompt_id).await {
+                QueueState::Running => {
+                    if !reported_running {
+                        reported_running = true;
+                        self.report_status("running");
+                    }
+                    last_activity = Instant::now();
+                }
+                QueueState::Queued => last_activity = Instant::now(),
+                QueueState::Gone => return self.gone(prompt_id).await,
+                // 判断不了时不续期，让空闲超时兜底（而不是无限等待）
+                QueueState::Unknown => {}
             }
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
 
-    /// 该 prompt 是否仍在 /queue 的排队或执行列表中。
-    /// 返回 None 表示无法判断（接口异常或结构变化），调用方按「不续期」处理，
-    /// 使空闲超时仍然生效而不是无限等待。
-    async fn prompt_in_queue(&self, prompt_id: &str) -> Option<bool> {
-        let url = format!("{}/queue", self.base_url);
-        let resp = self.client.get(&url).send().await.ok()?;
-        let json: Value = resp.json().await.ok()?;
-        Some(queue_contains(&json, prompt_id))
+    /// 队列里已经没有这个 prompt 了。可能是被摘掉的（取消排队 / 清空队列），
+    /// 也可能是刚好跑完 —— history 与 /queue 各自加锁，两次查询之间它完全可能
+    /// 从 currently_running 挪进了 history。所以先复查 history 再定论：把一次
+    /// 成功的任务误判成「已移除」会让结果图白丢。
+    async fn gone(&self, prompt_id: &str) -> Result<(), ImagineError> {
+        if let Some(entry) = self.fetch_history_entry(prompt_id).await? {
+            if let Some(result) = Self::completed_from_history(&entry) {
+                return result;
+            }
+        }
+        Err(ImagineError::Api("任务已从 ComfyUI 队列中移除".into()))
+    }
+
+    /// history 里该 prompt 的条目（没有则 None）。
+    async fn fetch_history_entry(&self, prompt_id: &str) -> Result<Option<Value>, ImagineError> {
+        let url = format!("{}/history/{}", self.base_url, prompt_id);
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(ImagineError::Http)?;
+        let hist: Value = resp.json().await.map_err(ImagineError::Http)?;
+        Ok(hist.get(prompt_id).cloned())
+    }
+
+    /// 已完成的 history 条目 → 最终结果（`Ok` 表示成功）。未完成返回 None。
+    fn completed_from_history(entry: &Value) -> Option<Result<(), ImagineError>> {
+        let status = entry["status"].as_object()?;
+        if status.get("completed").and_then(|v| v.as_bool()) != Some(true) {
+            return None;
+        }
+        if status["status_str"].as_str().unwrap_or("") == "error" {
+            let msg = Self::extract_history_error(entry);
+            return Some(Err(ImagineError::Api(format!("ComfyUI 执行失败：{}", msg))));
+        }
+        Some(Ok(()))
+    }
+
+    /// 上报任务状态并通知前端刷新列表（`queued` / `running`）。
+    fn report_status(&self, status: &str) {
+        if let Some(q) = self.app.try_state::<ImageQueue>() {
+            q.set_status(&self.task_id, status);
+        }
+        super::queue::emit_queue_updated(&self.app);
     }
 
     /// 修复：history.status.messages 是 ["execution_error", {...}] 元组数组，
@@ -800,25 +913,53 @@ mod tests {
     }
 
     #[test]
-    fn test_queue_contains() {
+    fn test_queue_state() {
         // /queue 的真实形状：两个数组，条目为 (number, prompt_id, prompt, extra_data, outputs)
         let json = serde_json::json!({
             "queue_running": [[0, "running-id", {}, {}, []]],
             "queue_pending": [[1, "pending-id", {}, {}, []], [2, "other-id", {}, {}, []]]
         });
-        assert!(queue_contains(&json, "running-id"));
-        assert!(queue_contains(&json, "pending-id"));
-        assert!(!queue_contains(&json, "not-here"));
-        // 空队列 / 字段缺失 / 结构异常都不能误判为「在里面」
-        assert!(!queue_contains(&serde_json::json!({}), "x"));
-        assert!(!queue_contains(
-            &serde_json::json!({ "queue_running": [], "queue_pending": [] }),
-            "x"
-        ));
-        assert!(!queue_contains(
-            &serde_json::json!({ "queue_running": "unexpected" }),
-            "x"
-        ));
+        assert_eq!(queue_state(&json, "running-id"), QueueState::Running);
+        assert_eq!(queue_state(&json, "pending-id"), QueueState::Queued);
+        // 两个键都在、都查不到 → 确实不在队列里（跑完进了 history，或被摘掉了）
+        assert_eq!(queue_state(&json, "not-here"), QueueState::Gone);
+        assert_eq!(
+            queue_state(
+                &serde_json::json!({ "queue_running": [], "queue_pending": [] }),
+                "x"
+            ),
+            QueueState::Gone
+        );
+
+        // 缺键 / 结构异常 → Unknown。绝不能读成 Gone：一次畸形响应就会被
+        // 当成「任务被取消了」，从而错误地终止一个还在跑的任务。
+        assert_eq!(
+            queue_state(&serde_json::json!({}), "x"),
+            QueueState::Unknown
+        );
+        assert_eq!(
+            queue_state(&serde_json::json!({ "queue_running": "unexpected" }), "x"),
+            QueueState::Unknown
+        );
+        // 只有 pending 键（缺 running）时无法断言「不在 running 里」→ Unknown
+        assert_eq!(
+            queue_state(
+                &serde_json::json!({ "queue_pending": [[1, "pending-id"]] }),
+                "not-here"
+            ),
+            QueueState::Unknown
+        );
+        // 同时在两个列表里（理论上不会）时，以「正在执行」为准
+        assert_eq!(
+            queue_state(
+                &serde_json::json!({
+                    "queue_running": [[0, "both"]],
+                    "queue_pending": [[1, "both"]]
+                }),
+                "both"
+            ),
+            QueueState::Running
+        );
     }
 
     #[test]
