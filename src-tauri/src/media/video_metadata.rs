@@ -3,20 +3,42 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Resolve ffmpeg executable path.
-/// Checks: 1) next to current exe, 2) binaries/ dir (dev mode), 3) PATH, 4) fallback.
+/// Checks: 1) next to current exe, 2) binaries/ dir (dev mode), 3) PATH.
 pub fn find_ffmpeg() -> PathBuf {
     let names: &[&str] = if cfg!(windows) {
         &["ffmpeg.exe", "ffmpeg-x86_64-pc-windows-msvc.exe"]
     } else {
         &["ffmpeg"]
     };
+    locate(names).unwrap_or_else(|| PathBuf::from("ffmpeg"))
+}
 
+/// Check that both ffmpeg and ffprobe can be resolved.
+/// Used to fail imports early with an actionable message instead of
+/// a raw "program not found" error.
+pub fn tools_available() -> bool {
+    let ffmpeg_names: &[&str] = if cfg!(windows) {
+        &["ffmpeg.exe", "ffmpeg-x86_64-pc-windows-msvc.exe"]
+    } else {
+        &["ffmpeg"]
+    };
+    let ffprobe_names: &[&str] = if cfg!(windows) {
+        &["ffprobe.exe", "ffprobe-x86_64-pc-windows-msvc.exe"]
+    } else {
+        &["ffprobe"]
+    };
+    locate(ffmpeg_names).is_some() && locate(ffprobe_names).is_some()
+}
+
+/// Shared search for an ffmpeg-family executable: next to current exe,
+/// up the directory tree in binaries/ (dev mode), then on PATH.
+fn locate(names: &[&str]) -> Option<PathBuf> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             for name in names {
                 let p = exe_dir.join(name);
                 if is_valid_binary(&p) {
-                    return p;
+                    return Some(p);
                 }
             }
             // In dev mode, walk up from target/debug/ to find binaries/
@@ -28,16 +50,14 @@ pub fn find_ffmpeg() -> PathBuf {
                 for name in names {
                     let p = search.join("binaries").join(name);
                     if is_valid_binary(&p) {
-                        return p;
+                        return Some(p);
                     }
                 }
             }
         }
     }
-    if let Ok(path) = which::which("ffmpeg") {
-        return path;
-    }
-    PathBuf::from("ffmpeg")
+    let stem = names[0].trim_end_matches(".exe");
+    which::which(stem).ok()
 }
 
 /// Check that a binary file is valid (exists and is larger than 1MB — skip empty placeholders).
@@ -55,33 +75,7 @@ fn find_ffprobe() -> PathBuf {
     } else {
         &["ffprobe"]
     };
-
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            for name in names {
-                let p = exe_dir.join(name);
-                if is_valid_binary(&p) {
-                    return p;
-                }
-            }
-            let mut search = exe_dir.to_path_buf();
-            for _ in 0..4 {
-                if let Some(parent) = search.parent() {
-                    search = parent.to_path_buf();
-                }
-                for name in names {
-                    let p = search.join("binaries").join(name);
-                    if is_valid_binary(&p) {
-                        return p;
-                    }
-                }
-            }
-        }
-    }
-    if let Ok(path) = which::which("ffprobe") {
-        return path;
-    }
-    PathBuf::from("ffprobe")
+    locate(names).unwrap_or_else(|| PathBuf::from("ffprobe"))
 }
 
 #[derive(Debug, Deserialize)]

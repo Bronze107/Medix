@@ -20,7 +20,7 @@
 | 后端 | Rust | edition 2021 |
 | 数据库 | SQLite via `rusqlite` | latest |
 | 图像处理 | `image` crate + `kamadak-exif` | latest |
-| 视频处理 | ffmpeg/ffprobe (sidecar 捆绑) | latest stable |
+| 视频处理 | ffmpeg/ffprobe (用户自行安装，运行时从 PATH 查找) | latest stable |
 | AI 推理 | llama.cpp `llama-server` (OpenAI 兼容 HTTP API) | latest |
 | 搜索 | SQLite FTS5 | built-in |
 | 浏览器插件 | Chrome Extension Manifest V3 | - |
@@ -335,14 +335,14 @@ tests/<name>.sh
 - **只读测试**：integrity.sh 仍使用生产 DB（纯 SELECT），其余 5 个脚本全部隔离
 - **数据清洁**：隔离模式下无需手动清理；如必须操作生产 DB，使用 `_test_` 前缀 ID 并在末尾还原
 
-### 配置 ffmpeg Sidecar
+### ffmpeg / ffprobe 依赖（用户自装，不再捆绑）
 
-1. 从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载 Windows builds (lgpl)
-2. 将 `ffmpeg.exe` 重命名为 `ffmpeg-x86_64-pc-windows-msvc.exe`，放入 `src-tauri/binaries/`
-3. 将 `ffprobe.exe` 重命名为 `ffprobe-x86_64-pc-windows-msvc.exe`，放入 `src-tauri/binaries/`
-4. 文件名需匹配 Tauri sidecar 目标三元组约定
-5. 运行时自动从 exe 同目录或 `binaries/` 目录发现，无需手动配置 PATH
-6. ffmpeg/ffprobe 用于视频导入验证、元数据提取、缩略图生成、AI 多帧抽取
+- Medix **不捆绑** ffmpeg/ffprobe，安装包不包含它们
+- 运行时按顺序查找：exe 同目录 → dev `binaries/` 目录 → 系统 PATH（`which` crate）
+- 用户需自行安装 FFmpeg 并将 `ffmpeg.exe` / `ffprobe.exe` 所在目录加入 PATH
+- 视频导入入口有前置检查（`video_metadata::tools_available`），缺失时返回可操作的错误提示
+- 本地开发可直接把带 triple 后缀的二进制放 `src-tauri/binaries/`（已被 gitignore），或依赖系统 PATH
+- ffmpeg/ffprobe 用于视频导入验证、元数据提取、缩略图生成、AI 多帧抽取
 
 ### 添加视频支持功能
 

@@ -34,6 +34,19 @@ pub fn import_single_video(
         }),
     );
 
+    // 0. ffmpeg/ffprobe are user-installed (not bundled) — fail early with guidance
+    if !video_metadata::tools_available() {
+        return MediaImportResult {
+            id,
+            path: source_path.to_string_lossy().to_string(),
+            success: false,
+            error: Some(
+                "ffmpeg/ffprobe not found. Install FFmpeg and make sure it is on your system PATH."
+                    .to_string(),
+            ),
+        };
+    }
+
     // 1. Check extension
     let ext = source_path
         .extension()
