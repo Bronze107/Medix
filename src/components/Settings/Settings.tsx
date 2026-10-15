@@ -16,6 +16,7 @@ import {
   comfyuiWorkflowCreate,
   comfyuiWorkflowUpdate,
   comfyuiWorkflowDelete,
+  comfyuiReadWorkflowFile,
   comfyuiTestConnection,
 } from "@/lib/tauri";
 import type { ComfyWorkflow } from "@/types/comfyui";
@@ -243,6 +244,24 @@ function Settings() {
       setWfModalError(String(e));
     } finally {
       setWfModalSaving(false);
+    }
+  };
+
+  const importWfFile = async () => {
+    setWfModalError(null);
+    try {
+      const path = await open({
+        filters: [{ name: "工作流 JSON", extensions: ["json"] }],
+      });
+      if (!path) return;
+      const content = await comfyuiReadWorkflowFile(path);
+      setWfModalJson(content);
+      if (!wfModalName.trim()) {
+        const stem = path.split(/[\\/]/).pop()?.replace(/\.json$/i, "") ?? "";
+        if (stem) setWfModalName(stem);
+      }
+    } catch (e) {
+      setWfModalError(String(e));
     }
   };
 
@@ -1300,9 +1319,17 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
               onChange={(e) => setWfModalName(e.target.value)}
               className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
             />
-            <label className="mb-1 block text-xs text-[var(--color-text-muted)]">
-              Workflow JSON（App 模式，须含 extra.linearData）
-            </label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="block text-xs text-[var(--color-text-muted)]">
+                Workflow JSON（App 模式，须含 extra.linearData）
+              </label>
+              <button
+                onClick={importWfFile}
+                className="rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] active:scale-[0.97]"
+              >
+                从文件导入…
+              </button>
+            </div>
             <textarea
               value={wfModalJson}
               onChange={(e) => setWfModalJson(e.target.value)}
@@ -1312,7 +1339,7 @@ TAGS: dog, golden retriever, ball, park, grass, trees, outdoor, sunny`}
               className="w-full flex-1 resize-none rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-3 py-2 font-mono text-xs text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
             />
             <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-              提示：在 ComfyUI 中以 App 模式配置要暴露的参数，再从画布导出/复制工作流 JSON 粘贴到此处。
+              提示：在 ComfyUI 中以 App 模式配置要暴露的参数，导出 workflow JSON 后点「从文件导入…」选择 .json 文件，或直接粘贴到此处。
             </p>
             {wfModalError && (
               <div className="mt-2 rounded border border-[var(--color-danger)]/20 bg-[var(--color-danger-soft)] px-3 py-1.5 text-xs text-[var(--color-danger)]">

@@ -71,6 +71,17 @@ pub fn comfyui_workflow_update(
     comfyui::comfyui_workflow_update(&app, &id, &name, &workflow_json).map_err(|e| e.to_string())
 }
 
+/// 读取用户选择的工作流 JSON 文件，校验为合法 JSON 后返回内容。
+#[command]
+pub fn comfyui_read_workflow_file(path: String) -> Result<String, String> {
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("无法读取文件 {}: {}", path, e))?;
+    let content = content.trim_start_matches('\u{feff}').to_string();
+    serde_json::from_str::<serde_json::Value>(&content)
+        .map_err(|e| format!("文件不是合法的 JSON：{}", e))?;
+    Ok(content)
+}
+
 #[command]
 pub fn comfyui_workflow_delete(app: AppHandle, id: String) -> Result<(), String> {
     comfyui::comfyui_workflow_delete(&app, &id).map_err(|e| e.to_string())

@@ -566,6 +566,10 @@ export function comfyuiWorkflowDelete(id: string): Promise<void> {
   return invoke("comfyui_workflow_delete", { id });
 }
 
+export function comfyuiReadWorkflowFile(path: string): Promise<string> {
+  return invoke("comfyui_read_workflow_file", { path });
+}
+
 export function comfyuiTestConnection(): Promise<string> {
   return invoke("comfyui_test_connection");
 }
