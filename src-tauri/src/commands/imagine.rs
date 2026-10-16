@@ -48,26 +48,43 @@ pub async fn image_generate(
     let mut results = Vec::new();
 
     for img in &images {
+        let is_video = img.mime_type.starts_with("video/");
         let id = Ulid::new().to_string();
         let ext = match img.mime_type.as_str() {
             "image/jpeg" => "jpg",
             "image/png" => "png",
             "image/webp" => "webp",
+            "video/mp4" => "mp4",
+            "video/webm" => "webm",
+            "video/avi" => "avi",
             _ => "png",
         };
         let temp_path = staging.join(format!("{}.{}", id, ext));
         fs::write(&temp_path, &img.data).map_err(|e| e.to_string())?;
 
-        // Get dimensions
-        let decoded = image::open(&temp_path).map_err(|e| e.to_string())?;
+        // 图片当场解码拿尺寸；视频用 ffprobe 读元数据
+        let (width, height, duration, media_type) = if is_video {
+            let meta = crate::media::video_metadata::extract_metadata(&temp_path).map_err(|e| e)?;
+            (meta.width, meta.height, meta.duration, "video")
+        } else {
+            let decoded = image::open(&temp_path).map_err(|e| e.to_string())?;
+            (
+                decoded.width() as i32,
+                decoded.height() as i32,
+                None,
+                "image",
+            )
+        };
         let file_size = fs::metadata(&temp_path).map_err(|e| e.to_string())?.len() as i64;
 
         results.push(StagedImage {
             id,
             path: temp_path.to_string_lossy().replace('\\', "/"),
-            width: decoded.width() as i32,
-            height: decoded.height() as i32,
+            width,
+            height,
             file_size,
+            media_type: media_type.to_string(),
+            duration,
         });
     }
 

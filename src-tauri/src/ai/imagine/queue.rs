@@ -381,21 +381,36 @@ async fn process_task(
         Ok(images) => {
             let mut staged_results = Vec::new();
             for img in &images {
+                let is_video = img.mime_type.starts_with("video/");
                 let id = ulid::Ulid::new().to_string();
-                let ext = match img.mime_type.as_str() {
-                    "image/jpeg" => "jpg",
-                    "image/png" => "png",
-                    "image/webp" => "webp",
-                    _ => "png",
-                };
+                let ext = mime_ext(&img.mime_type);
                 let temp_path = staging_dir.join(format!("{}.{}", id, ext));
                 if let Err(e) = fs::write(&temp_path, &img.data) {
                     eprintln!("[image-queue] failed to write staged image: {}", e);
                     continue;
                 }
-                let decoded = match image::open(&temp_path) {
-                    Ok(d) => d,
-                    Err(_) => continue,
+                // 图片当场解码拿尺寸；视频用 ffprobe 读元数据（读不出说明这不是
+                // 能播的视频，导入也注定失败，直接不进暂存）。
+                let (width, height, duration, media_type) = if is_video {
+                    match crate::media::video_metadata::extract_metadata(&temp_path) {
+                        Ok(m) => (m.width, m.height, m.duration, "video".to_string()),
+                        Err(e) => {
+                            eprintln!("[image-queue] staged video ffprobe failed: {}", e);
+                            let _ = fs::remove_file(&temp_path);
+                            continue;
+                        }
+                    }
+                } else {
+                    let decoded = match image::open(&temp_path) {
+                        Ok(d) => d,
+                        Err(_) => continue,
+                    };
+                    (
+                        decoded.width() as i32,
+                        decoded.height() as i32,
+                        None,
+                        "image".to_string(),
+                    )
                 };
                 let file_size = fs::metadata(&temp_path)
                     .map(|m| m.len() as i64)
@@ -403,9 +418,11 @@ async fn process_task(
                 staged_results.push(StagedImage {
                     id,
                     path: temp_path.to_string_lossy().replace('\\', "/"),
-                    width: decoded.width() as i32,
-                    height: decoded.height() as i32,
+                    width,
+                    height,
                     file_size,
+                    media_type,
+                    duration,
                 });
             }
 
@@ -714,19 +731,51 @@ fn import_staged(
     let library_dir = app_dir.join("library");
 
     // ── 锁外：复制、解码、写库、生成缩略图 ──────────────────────────────
-    let results = match source_media_ids {
-        Some(ids) if !ids.is_empty() => import_as_derivatives(
-            app,
-            &staging_dir,
-            &library_dir,
-            &selected,
-            &ids,
-            &prompt,
-            workflow_id.as_deref(),
-        ),
+    // 图片和视频产物混在同一个暂存列表里（一个工作流可以同时挂 SaveImage 和
+    // SaveVideo），按 media_type 分流到各自的入库管线。
+    let (video_selected, image_selected): (Vec<StagedImage>, Vec<StagedImage>) =
+        selected.into_iter().partition(|s| s.media_type == "video");
+
+    let mut results = Vec::new();
+    match source_media_ids {
+        Some(ids) if !ids.is_empty() => {
+            results.extend(import_as_derivatives(
+                app,
+                &staging_dir,
+                &library_dir,
+                &image_selected,
+                &ids,
+                &prompt,
+                workflow_id.as_deref(),
+            ));
+            results.extend(import_videos_as_derivatives(
+                app,
+                &staging_dir,
+                &library_dir,
+                &video_selected,
+                &ids,
+                &prompt,
+                workflow_id.as_deref(),
+            ));
+        }
         Some(_) => return Err("No source media IDs provided for edit task".to_string()),
-        None => import_as_new_media(app, &staging_dir, &library_dir, &selected, &prompt),
-    };
+        None => {
+            results.extend(import_as_new_media(
+                app,
+                &staging_dir,
+                &library_dir,
+                &image_selected,
+                &prompt,
+            ));
+            results.extend(import_videos_as_new_media(
+                app,
+                &staging_dir,
+                &library_dir,
+                &video_selected,
+                &prompt,
+            ));
+        }
+    }
 
     // ── 锁内：摘掉已导入的暂存图；全摘完就把任务整个删掉 ────────────────
     let mut tasks = queue.tasks.lock().unwrap();
@@ -986,6 +1035,194 @@ fn import_as_new_media(
     results
 }
 
+/// 暂存视频文件 → library 副本 + ffprobe 元数据。与图片的 `copy_and_decode`
+/// 对应：视频不能走 `image` crate 解码，元数据从 ffprobe 来。
+struct StagedVideoFile {
+    dest: PathBuf,
+    dest_str: String,
+    meta: crate::media::video_metadata::VideoMetadata,
+    file_size: i64,
+}
+
+fn copy_and_probe(
+    staging_dir: &Path,
+    library_dir: &Path,
+    item: &StagedImage,
+    new_id: &str,
+) -> Result<StagedVideoFile, String> {
+    let ext = find_staged_ext(staging_dir, &item.id)?;
+    let src = staging_dir.join(format!("{}.{}", item.id, ext));
+    let dest = library_dir.join(format!("{}.{}", new_id, ext));
+
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    // 副本已经进 library，暂存文件删掉（失败也无所谓，下次不会再找到它）
+    let _ = fs::remove_file(&src);
+
+    let meta = crate::media::video_metadata::extract_metadata(&dest)?;
+    let file_size = fs::metadata(&dest).map(|m| m.len() as i64).unwrap_or(0);
+    let dest_str = dest.to_string_lossy().replace('\\', "/");
+    Ok(StagedVideoFile {
+        dest,
+        dest_str,
+        meta,
+        file_size,
+    })
+}
+
+/// 生成视频入库的公共路径。文生视频 = 新建 media 行；图生视频 = 新建 +
+/// 到所有源图的 lineage 边。与图片管线的差异：
+/// * 尺寸/时长/编码来自 ffprobe，不走 `image` crate 解码，无 LQIP；
+/// * 缩略图由 ffmpeg 抽帧（`video_thumbnail`）；
+/// * **不触发 AI 标注**（视频标注管线面向导入路径设计，生成产物刻意跳过）。
+fn import_videos_common(
+    app: &AppHandle,
+    staging_dir: &Path,
+    library_dir: &Path,
+    selected: &[StagedImage],
+    prompt: &str,
+    source: &str,
+    source_media_ids: Option<&[String]>,
+    workflow_id: Option<&str>,
+) -> Vec<MediaImportResult> {
+    let is_derivative = source_media_ids.is_some();
+    let mut results = Vec::new();
+    for item in selected {
+        let id = ulid::Ulid::new().to_string();
+        let file = match copy_and_probe(staging_dir, library_dir, item, &id) {
+            Ok(f) => f,
+            Err(e) => {
+                results.push(import_failed(&item.path, e));
+                continue;
+            }
+        };
+
+        let media = crate::media::Media {
+            id: id.clone(),
+            // 与图片分支一致：衍生产物记 library 路径，文生图产物不记
+            source_path: if is_derivative {
+                Some(file.dest_str.clone())
+            } else {
+                None
+            },
+            width: Some(file.meta.width),
+            height: Some(file.meta.height),
+            file_size: Some(file.file_size),
+            created_at: None,
+            modified_at: None,
+            imported_at: Utc::now().to_rfc3339(),
+            source_url: None,
+            page_url: None,
+            source: Some(source.to_string()),
+            phash: None,
+            sha256: None,
+            deleted_at: None,
+            display_variant_id: None,
+            thumb_256: None,
+            lqip: None,
+            media_type: Some("video".to_string()),
+            duration: file.meta.duration,
+            video_codec: file.meta.video_codec,
+            video_fps: file.meta.video_fps,
+        };
+
+        if let Err(e) = crate::db::insert_media(app, &media) {
+            let _ = fs::remove_file(&file.dest);
+            results.push(import_failed(&item.path, e.to_string()));
+            continue;
+        }
+
+        if let Some(src_ids) = source_media_ids {
+            for src_id in src_ids {
+                if let Err(e) = crate::db::lineage_insert(app, src_id, &id, "edit", workflow_id) {
+                    eprintln!("[image-queue] failed to insert lineage: {}", e);
+                }
+            }
+        }
+
+        // ffmpeg 抽帧缩略图。同步做（图片文生图分支是另起线程，但视频抽帧有
+        // ffmpeg 进程开销且生成的视频数量少），导入返回后网格立即有缩略图可显示。
+        if let Err(e) = crate::media::video_thumbnail::generate_video_thumbnail(
+            app,
+            &id,
+            &file.dest,
+            file.meta.duration,
+        ) {
+            eprintln!("[image-queue] video thumbnail failed: {}", e);
+        }
+
+        // Save prompt as caption (skip if empty — ComfyUI workflows may not expose a text param)
+        if !prompt.is_empty() {
+            let cap_source = if is_derivative {
+                "ai-edit"
+            } else {
+                "ai-generated"
+            };
+            if let Err(e) =
+                crate::db::caption_create_with_source(app, &id, prompt, Some(cap_source))
+            {
+                eprintln!("[image-queue] failed to save prompt caption: {}", e);
+            }
+        }
+
+        results.push(MediaImportResult {
+            id,
+            path: item.path.clone(),
+            success: true,
+            error: None,
+        });
+    }
+    results
+}
+
+/// 文生视频任务的产物：每个视频各建一条新 media 行。
+fn import_videos_as_new_media(
+    app: &AppHandle,
+    staging_dir: &Path,
+    library_dir: &Path,
+    selected: &[StagedImage],
+    prompt: &str,
+) -> Vec<MediaImportResult> {
+    let source = format!("generated:{}", crate::settings::get_image_api_provider(app));
+    import_videos_common(
+        app,
+        staging_dir,
+        library_dir,
+        selected,
+        prompt,
+        &source,
+        None,
+        None,
+    )
+}
+
+/// 图生视频任务的产物：每个视频建成新 media 行 + 到所有源图的 lineage 边。
+fn import_videos_as_derivatives(
+    app: &AppHandle,
+    staging_dir: &Path,
+    library_dir: &Path,
+    selected: &[StagedImage],
+    source_media_ids: &[String],
+    prompt: &str,
+    workflow_id: Option<&str>,
+) -> Vec<MediaImportResult> {
+    let provider_tag = if workflow_id.is_some() {
+        "comfyui"
+    } else {
+        "xai"
+    };
+    let source = format!("ai-edited:{}", provider_tag);
+    import_videos_common(
+        app,
+        staging_dir,
+        library_dir,
+        selected,
+        prompt,
+        &source,
+        Some(source_media_ids),
+        workflow_id,
+    )
+}
+
 #[tauri::command]
 pub fn image_queue_discard(app: AppHandle, task_id: String) -> Result<(), String> {
     let queue = app.state::<ImageQueue>();
@@ -1088,13 +1325,26 @@ async fn interrupt(
 }
 
 fn find_staged_ext(staging: &std::path::Path, id: &str) -> Result<String, String> {
-    for ext in &["jpg", "jpeg", "png", "webp"] {
+    for ext in &["jpg", "jpeg", "png", "webp", "mp4", "webm", "mkv", "avi"] {
         let path = staging.join(format!("{}.{}", id, ext));
         if path.exists() {
             return Ok(ext.to_string());
         }
     }
     Err(format!("Staged file not found for {}", id))
+}
+
+/// mime → 暂存文件的扩展名。视频扩展名须在 `find_staged_ext` 的列表里。
+fn mime_ext(mime: &str) -> &'static str {
+    match mime {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/avi" => "avi",
+        _ => "png",
+    }
 }
 
 #[cfg(test)]

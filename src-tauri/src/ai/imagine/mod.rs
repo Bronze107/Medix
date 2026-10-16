@@ -78,6 +78,10 @@ pub struct StagedImage {
     pub width: i32,
     pub height: i32,
     pub file_size: i64,
+    /// "image" | "video"。ComfyUI 工作流经原生 SaveVideo 节点也能产出视频。
+    pub media_type: String,
+    /// 仅视频有：时长（秒），暂存阶段用 ffprobe 读取。
+    pub duration: Option<f64>,
 }
 
 // --- Factory ---

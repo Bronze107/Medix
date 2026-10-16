@@ -638,25 +638,29 @@ impl ComfyuiProvider {
         let mut images = Vec::new();
         let mut collected = false;
 
-        // 优先收集 linearData.outputs 声明的结果节点。
-        for rn in &result_nodes {
-            if let Some(no) = outputs.get(rn) {
-                if let Some(list) = no["images"].as_array() {
-                    for info in list {
-                        images.push(self.download(info).await?);
-                    }
-                    if !images.is_empty() {
-                        collected = true;
+        // 图片走 images 数组；视频（原生 SaveVideo）走 videos 数组，条目形状相同。
+        // 先图片后视频，一个工作流同时输出两者时都能拿到。
+        for key in ["images", "videos"] {
+            // 优先收集 linearData.outputs 声明的结果节点。
+            for rn in &result_nodes {
+                if let Some(no) = outputs.get(rn) {
+                    if let Some(list) = no[key].as_array() {
+                        for info in list {
+                            images.push(self.download(info).await?);
+                        }
+                        if !images.is_empty() {
+                            collected = true;
+                        }
                     }
                 }
             }
-        }
-        // 兜底：扫描所有输出节点的 images。
-        if !collected {
-            for no in outputs.values() {
-                if let Some(list) = no["images"].as_array() {
-                    for info in list {
-                        images.push(self.download(info).await?);
+            // 兜底：扫描所有输出节点。
+            if !collected {
+                for no in outputs.values() {
+                    if let Some(list) = no[key].as_array() {
+                        for info in list {
+                            images.push(self.download(info).await?);
+                        }
                     }
                 }
             }
@@ -689,6 +693,19 @@ impl ComfyuiProvider {
     }
 
     fn guess_mime(data: &[u8], filename: &str) -> String {
+        // 视频容器（SaveVideo 的 mp4/webm 等）必须先于 image::guess_format 判断 ——
+        // mp4 的 ftyp 盒不在 image crate 认识的 magic 列表里，但部分格式会误判，
+        // 且 image::guess_format 失败后旧逻辑会兜底成 image/jpeg，视频就被当成图片了。
+        if data.len() > 12 && &data[4..8] == b"ftyp" {
+            return "video/mp4".to_string();
+        }
+        if data.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+            // EBML 容器：webm 是 mkv 的子集，浏览器两者都能播，统一按 webm 处理
+            return "video/webm".to_string();
+        }
+        if data.len() > 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"AVI " {
+            return "video/avi".to_string();
+        }
         if let Ok(fmt) = image::guess_format(data) {
             return match fmt {
                 image::ImageFormat::Png => "image/png",
@@ -845,6 +862,33 @@ mod tests {
             .write_image(&img, 8, 8, image::ExtendedColorType::Rgb8)
             .unwrap();
         png
+    }
+
+    #[test]
+    fn test_guess_mime_video_containers() {
+        // mp4: offset 4-8 是 "ftyp"（判定需要至少 12 字节，太短不算）
+        let mp4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2".to_vec();
+        assert_eq!(ComfyuiProvider::guess_mime(&mp4, "x.mp4"), "video/mp4");
+        assert_ne!(
+            ComfyuiProvider::guess_mime(&b"\x00\x00\x00\x18ftyp".to_vec(), "x.mp4"),
+            "video/mp4"
+        );
+
+        // webm/mkv: EBML magic
+        let ebml = [0x1A, 0x45, 0xDF, 0xA3, 0x93, 0x42, 0x82, 0x88];
+        assert_eq!(ComfyuiProvider::guess_mime(&ebml, "x.webm"), "video/webm");
+
+        // avi: RIFF....AVI
+        let avi = b"RIFF\x24\x00\x00\x00AVI LIST".to_vec();
+        assert_eq!(ComfyuiProvider::guess_mime(&avi, "x.avi"), "video/avi");
+    }
+
+    #[test]
+    fn test_guess_mime_still_detects_images() {
+        assert_eq!(
+            ComfyuiProvider::guess_mime(&tiny_png(), "x.png"),
+            "image/png"
+        );
     }
 
     #[test]

@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { TaskCard } from "./AiGenPage";
 import type { ImageTaskInfo } from "@/lib/tauri";
 
+vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => p }));
+
 const PREVIEW = "data:image/jpeg;base64,AAAA";
 
 function makeTask(overrides: Partial<ImageTaskInfo> = {}): ImageTaskInfo {
@@ -93,5 +95,53 @@ describe("TaskCard 状态", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TaskCard 视频产物", () => {
+  const videoStaged: ImageTaskInfo["staged"][number] = {
+    id: "v1",
+    path: "C:/staging/v1.mp4",
+    width: 832,
+    height: 480,
+    file_size: 123456,
+    media_type: "video",
+    duration: 5,
+  };
+  const imageStaged: ImageTaskInfo["staged"][number] = {
+    id: "i1",
+    path: "C:/staging/i1.png",
+    width: 1024,
+    height: 768,
+    file_size: 123456,
+    media_type: "image",
+    duration: null,
+  };
+
+  it("视频产物渲染 <video>、「视频」徽标和时长标签，双击预览带 isVideo=true", () => {
+    const { onPreview } = renderCard({
+      task: makeTask({ status: "done", staged: [videoStaged] }),
+    });
+    const video = document.querySelector("video");
+    expect(video).toBeInTheDocument();
+    expect(video).toHaveAttribute("src", videoStaged.path);
+    expect(screen.getByText("视频")).toBeInTheDocument();
+    expect(screen.getByText("5.0s")).toBeInTheDocument();
+
+    fireEvent.dblClick(video!);
+    expect(onPreview).toHaveBeenCalledWith(videoStaged.path, true);
+  });
+
+  it("图片产物仍渲染 <img> 和尺寸标签，双击预览 isVideo 为假值", () => {
+    const { onPreview } = renderCard({
+      task: makeTask({ status: "done", staged: [imageStaged] }),
+    });
+    expect(document.querySelector("video")).not.toBeInTheDocument();
+    const img = document.querySelector("img");
+    expect(img).toHaveAttribute("src", imageStaged.path);
+    expect(screen.getByText("1024×768")).toBeInTheDocument();
+
+    fireEvent.dblClick(img);
+    expect(onPreview).toHaveBeenCalledWith(imageStaged.path, false);
   });
 });

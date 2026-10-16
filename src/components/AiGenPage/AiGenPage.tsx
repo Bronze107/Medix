@@ -43,8 +43,8 @@ export function TaskCard({
   onImport: (taskId: string, selectedIds: string[]) => void;
   onDiscard: (taskId: string) => void;
   onDismiss: (taskId: string) => void;
-  /** 传入已可直接用作 img src 的地址（本地路径经 convertFileSrc，预览是 data URL） */
-  onPreview: (src: string) => void;
+  /** 传入已可直接用作 img/video src 的地址（本地路径经 convertFileSrc，预览是 data URL） */
+  onPreview: (src: string, isVideo?: boolean) => void;
   onCancel?: (taskId: string) => void;
   showCancel?: boolean;
 }) {
@@ -137,36 +137,56 @@ export function TaskCard({
       {task.status === "done" && task.staged.length > 0 && (
         <>
           <div className="grid grid-cols-4 gap-2 mb-2">
-            {task.staged.map((img) => (
-              <div
-                key={img.id}
-                onClick={() => toggle(img.id)}
-                className={`cursor-pointer rounded-lg border overflow-hidden transition-all ${
-                  selected.has(img.id)
-                    ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]"
-                    : "border-[var(--color-border)] hover:border-[var(--color-accent)]/50"
-                }`}
-              >
+            {task.staged.map((img) => {
+              const isVideo = img.media_type === "video";
+              return (
                 <div
-                  className="aspect-square bg-[var(--color-bg-tertiary)]"
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    onPreview(convertFileSrc(img.path));
-                  }}
+                  key={img.id}
+                  onClick={() => toggle(img.id)}
+                  className={`relative cursor-pointer rounded-lg border overflow-hidden transition-all ${
+                    selected.has(img.id)
+                      ? "border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]"
+                      : "border-[var(--color-border)] hover:border-[var(--color-accent)]/50"
+                  }`}
                 >
-                  <img
-                    src={convertFileSrc(img.path)}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    draggable={false}
-                    decoding="async"
-                  />
+                  <div
+                    className="aspect-square bg-[var(--color-bg-tertiary)]"
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      onPreview(convertFileSrc(img.path), isVideo);
+                    }}
+                  >
+                    {isVideo ? (
+                      <video
+                        src={convertFileSrc(img.path)}
+                        className="w-full h-full object-cover"
+                        muted
+                        preload="metadata"
+                        draggable={false}
+                      />
+                    ) : (
+                      <img
+                        src={convertFileSrc(img.path)}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        draggable={false}
+                        decoding="async"
+                      />
+                    )}
+                  </div>
+                  {isVideo && (
+                    <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white backdrop-blur-sm">
+                      视频
+                    </span>
+                  )}
+                  <div className="px-1 py-0.5 text-[11px] text-[var(--color-text-muted)] text-center">
+                    {isVideo
+                      ? `${(img.duration ?? 0).toFixed(1)}s`
+                      : `${img.width}×${img.height}`}
+                  </div>
                 </div>
-                <div className="px-1 py-0.5 text-[11px] text-[var(--color-text-muted)] text-center">
-                  {img.width}×{img.height}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -218,7 +238,8 @@ function AiGenPage() {
   const [n, setN] = useState(1);
   const [tasks, setTasks] = useState<ImageTaskInfo[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
+  // 放大预览：src 已是可直接用的地址；isVideo 决定用 <video> 还是 <img> 展示
+  const [preview, setPreview] = useState<{ src: string; isVideo: boolean } | null>(null);
   const [provider, setProvider] = useState<string>("");
   const [providerLoading, setProviderLoading] = useState(true);
   const [workflows, setWorkflows] = useState<ComfyWorkflow[]>([]);
@@ -555,7 +576,7 @@ function AiGenPage() {
                     onImport={handleImport}
                     onDiscard={handleDiscard}
                     onDismiss={handleDismiss}
-                    onPreview={setPreview}
+                    onPreview={(src, isVideo) => setPreview({ src, isVideo: !!isVideo })}
                     onCancel={handleCancel}
                     showCancel={isComfy}
                   />
@@ -576,12 +597,22 @@ function AiGenPage() {
           className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center animate-fade-in"
           onClick={() => setPreview(null)}
         >
-          <img
-            src={preview}
-            alt=""
-            className="max-h-[90vh] max-w-[90vw] object-contain select-none"
-            draggable={false}
-          />
+          {preview.isVideo ? (
+            <video
+              src={preview.src}
+              controls
+              autoPlay
+              className="max-h-[90vh] max-w-[90vw]"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={preview.src}
+              alt=""
+              className="max-h-[90vh] max-w-[90vw] object-contain select-none"
+              draggable={false}
+            />
+          )}
           <button
             onClick={() => setPreview(null)}
             className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white/80 hover:bg-white/20 transition-colors"

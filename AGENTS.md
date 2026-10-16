@@ -174,6 +174,7 @@ Medix/
 - **视频支持**: 视频通过 ffmpeg/ffprobe sidecar 导入，生成缩略图，通过 `asset://` 协议播放（Tauri v2.11 已验证 Range 请求支持 seek）
 - **导入时自动标注**: 图片导入后自动触发 AI caption + tag + embedding 生成；视频导入后若 `video_ai_enabled` 开启则自动多帧 AI 标注（支持逐帧独立推理或 `video_ai_multi_frame` 多图合并推理）。通过 `ai_language` 设置可选择标注语言：English / 中文 / 双语（英文 + 中文各一条独立 caption，source 分别为 `ai_en` / `ai_zh`）
 - **版本控制**: 同一原图/视频支持多个衍生版本（内部生成 + 外部导入），支持图片/视频混合 variant
+- **AI 生成视频**: ComfyUI 工作流可用**原生 SaveVideo 节点**输出视频（文生视频 / 图生视频，`collect_images` 同时收集 `images` 与 `videos` 数组）。产物经暂存后导入：视频走 ffprobe 元数据 + ffmpeg 抽帧缩略图入库（`media_type=video`），图生视频与源图建立 lineage 边，来源标签 `generated:comfyui` / `ai-edited:comfyui`；生成视频**不做** AI 标注。VHS Video Combine（`gifs` 输出）暂不支持
 - **集合**: 图片/视频可按集合分组管理，支持置顶常用集合、导入自动归集、集合内搜索
 - **视图分组**: 网格和列表视图可按日期分组显示，带分组标题和计数
 - **导入进度**: 批量导入时前端实时显示进度条（Tauri event `import-progress`）

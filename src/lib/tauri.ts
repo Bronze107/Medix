@@ -354,6 +354,10 @@ export interface StagedImage {
   width: number;
   height: number;
   file_size: number;
+  /** "image" | "video" — ComfyUI 工作流经原生 SaveVideo 节点可产出视频 */
+  media_type: "image" | "video";
+  /** 仅视频有：时长（秒） */
+  duration: number | null;
 }
 
 export function imageGenerate(
