@@ -34,6 +34,7 @@ import { ImageEditor } from "@/components/ImageEditor/ImageEditor";
 import { showToast } from "@/components/Toast/Toast";
 import { aiPendingCount, collectionAddBatch, collectionGetItemIds, collectionList as loadCollections, collectionRemoveItem as removeFromCollection, mediaCropDerivative, mediaFindDuplicates, mediaSaveCanvasDerivative, mediaSoftDelete } from "@/lib/tauri";
 import { importZip } from "@/lib/tauri";
+import { pickAiEditMediaIds } from "@/lib/mediaSelection";
 
 type SortField = "imported_at" | "created_at" | "modified_at" | "file_size" | "width" | "height";
 type ViewMode = "grid" | "table";
@@ -90,7 +91,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [importZipPath, setImportZipPath] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
-  const [aiEditMediaId, setAiEditMediaId] = useState<string | null>(null);
+  const [aiEditMediaIds, setAiEditMediaIds] = useState<string[] | null>(null);
   const [cropMediaId, setCropMediaId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [aiRemaining, setAiRemaining] = useState(0);
@@ -424,6 +425,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
       return db.localeCompare(da);
     });
   }, [items, groupBy]);
+
+  // AI 编辑可用的图片数（多选中剔除视频、变体去重；0 时隐藏入口）
+  const aiEditImageCount = useMemo(
+    () => pickAiEditMediaIds(selectedIds, items).length,
+    [selectedIds, items]
+  );
 
   // Compute date groups from displayItems (humanized labels)
   const groups = groupBy === "date"
@@ -966,6 +973,15 @@ function AllMedia({ collectionId }: AllMediaProps) {
           已选 <span className="font-semibold text-[var(--color-accent)]">{selectedIds.size}</span> 项 · 取消
         </button>
         <div className="flex items-center gap-1.5">
+          {aiEditImageCount > 0 && (
+            <button
+              onClick={() => setAiEditMediaIds(pickAiEditMediaIds(selectedIds, items))}
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+              title="用所选图片进行 AI 编辑（视频将被忽略）"
+            >
+              AI 编辑（{aiEditImageCount}）
+            </button>
+          )}
           <button
             onClick={handleSelectAll}
             className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
@@ -1423,7 +1439,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               <div className="my-1 border-t border-[var(--color-border)]" />
               <button
                 onClick={() => {
-                  setAiEditMediaId(ctxMenu.item.media_id);
+                  setAiEditMediaIds([ctxMenu.item.media_id]);
                   setCtxMenu(null);
                 }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
@@ -1440,6 +1456,20 @@ function AllMedia({ collectionId }: AllMediaProps) {
               <div className="px-3 py-1.5 text-[11px] text-[var(--color-text-muted)]">
                 已选中 {selectedIds.size} 张图片
               </div>
+              {aiEditImageCount > 0 && (
+                <button
+                  onClick={() => {
+                    setAiEditMediaIds(pickAiEditMediaIds(selectedIds, items));
+                    setCtxMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+                  </svg>
+                  AI 编辑（{aiEditImageCount}）
+                </button>
+              )}
               <div className="my-1 border-t border-[var(--color-border)]" />
             </>
           )}
@@ -1712,11 +1742,11 @@ function AllMedia({ collectionId }: AllMediaProps) {
         }}
         onCancel={() => { setDeleteConfirm(null); setPendingDeleteInfo(null); }}
       />
-      {aiEditMediaId && (
+      {aiEditMediaIds && aiEditMediaIds.length > 0 && (
         <ImagineDialog
-          mediaId={aiEditMediaId}
-          sourceMediaIds={[aiEditMediaId]}
-          onClose={() => { setAiEditMediaId(null); }}
+          mediaId={aiEditMediaIds[0]}
+          sourceMediaIds={aiEditMediaIds}
+          onClose={() => { setAiEditMediaIds(null); }}
         />
       )}
     </div>
