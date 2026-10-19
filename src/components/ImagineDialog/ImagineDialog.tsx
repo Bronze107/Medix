@@ -28,6 +28,60 @@ interface Props {
   onClose: () => void;
 }
 
+/** 单源图预览：pathUrl（DetailPanel 传的 thumb_256）优先，否则走 useThumbnail。 */
+function SingleThumb({
+  mediaId,
+  pathUrl,
+  editedSource,
+}: {
+  mediaId: string;
+  pathUrl?: string;
+  editedSource: { dataUrl: string; hasMask: boolean } | null;
+}) {
+  const thumb = useThumbnail(mediaId);
+  const url = pathUrl ? convertFileSrc(pathUrl) : thumb;
+  return (
+    <div className="relative h-40 w-40 shrink-0 overflow-hidden rounded-lg bg-[var(--color-bg-tertiary)]">
+      {url ? (
+        <img
+          src={url}
+          alt=""
+          className="h-full w-full object-cover"
+          decoding="async"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[11px] text-[var(--color-text-muted)]">
+          原图
+        </div>
+      )}
+      {editedSource && (
+        <div className="absolute left-1 top-1 rounded bg-[var(--color-accent)]/85 px-1.5 py-0.5 text-[10px] text-white backdrop-blur-sm">
+          {editedSource.hasMask ? "已裁剪 + 蒙版" : "已裁剪"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 多源图预览中的一格：带序号角标。 */
+function SourceThumb({ mediaId, index }: { mediaId: string; index: number }) {
+  const url = useThumbnail(mediaId);
+  return (
+    <div className="relative aspect-square overflow-hidden rounded-lg bg-[var(--color-bg-tertiary)]">
+      {url ? (
+        <img src={url} alt="" className="h-full w-full object-cover" decoding="async" />
+      ) : (
+        <div className="flex h-full items-center justify-center text-[11px] text-[var(--color-text-muted)]">
+          原图
+        </div>
+      )}
+      <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[11px] leading-4 text-white">
+        {index + 1}
+      </span>
+    </div>
+  );
+}
+
 function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Props) {
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState("auto");
@@ -65,8 +119,10 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
 
   const editMediaIds = sourceMediaIds ?? [mediaId];
   const selectedWorkflow = workflows.find((w) => w.id === selectedWorkflowId);
-
-  const thumbUrl = sourceMediaPath ? convertFileSrc(sourceMediaPath) : useThumbnail(mediaId);
+  const isMulti = editMediaIds.length > 1;
+  // 工作流消费的图片输入数（每个 LoadImage 节点一个）；加载中为 0 → 不出数量提示
+  const selectorCount = workflowParams.filter((p) => p.field_type === "image_selector").length;
+  const extraImages = editMediaIds.length - selectorCount;
 
   // Detect provider + load edit workflows
   useEffect(() => {
@@ -178,31 +234,21 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
 
           <div className="flex-1 overflow-auto p-5">
             <div className="flex gap-4">
-              {/* Thumbnail */}
-              <div className="relative w-40 h-40 shrink-0 rounded-lg overflow-hidden bg-[var(--color-bg-tertiary)]">
-                {thumbUrl ? (
-                  <img
-                    src={thumbUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    decoding="async"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-[var(--color-text-muted)] text-[11px]">
-                    原图
+              {/* Thumbnail: 多源图为带序号的缩略图条，单源图为单图预览 */}
+              {isMulti ? (
+                <div className="w-40 shrink-0">
+                  <div className="grid max-h-40 grid-cols-3 content-start gap-1.5 overflow-y-auto rounded-lg">
+                    {editMediaIds.map((id, i) => (
+                      <SourceThumb key={id} mediaId={id} index={i} />
+                    ))}
                   </div>
-                )}
-                {editMediaIds.length > 1 && (
-                  <div className="absolute bottom-1 left-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white text-center">
+                  <p className="mt-1 text-center text-[11px] text-[var(--color-text-muted)]">
                     已选择 {editMediaIds.length} 张输入图
-                  </div>
-                )}
-                {editedSource && (
-                  <div className="absolute top-1 left-1 rounded bg-[var(--color-accent)]/85 px-1.5 py-0.5 text-[10px] text-white backdrop-blur-sm">
-                    {editedSource.hasMask ? "已裁剪 + 蒙版" : "已裁剪"}
-                  </div>
-                )}
-              </div>
+                  </p>
+                </div>
+              ) : (
+                <SingleThumb mediaId={mediaId} pathUrl={sourceMediaPath} editedSource={editedSource} />
+              )}
 
               {/* 裁剪 / 蒙版：单源图才可用 —— 蒙版是单图语义 */}
               <div className="flex w-20 shrink-0 flex-col gap-1.5">
@@ -226,6 +272,22 @@ function ImagineDialog({ mediaId, sourceMediaIds, sourceMediaPath, onClose }: Pr
 
               {/* Input area */}
               <div className="flex-1 min-w-0 space-y-3">
+                {/* 图片输入数量 / 提供商提示 */}
+                {isComfy && selectorCount > 0 && extraImages > 0 && (
+                  <p className="text-[11px] text-[var(--color-warning)]">
+                    该工作流仅使用前 {selectorCount} 张图，其余 {extraImages} 张将被忽略
+                  </p>
+                )}
+                {isComfy && selectorCount > editMediaIds.length && (
+                  <p className="text-[11px] text-[var(--color-text-muted)]">
+                    该工作流有 {selectorCount} 个图片输入，多出的 {selectorCount - editMediaIds.length} 个将使用默认图
+                  </p>
+                )}
+                {isMulti && !isComfy && (
+                  <p className="text-[11px] text-[var(--color-text-muted)]">
+                    当前服务仅使用第一张参考图
+                  </p>
+                )}
                 {/* ComfyUI mode: workflow selector + dynamic params */}
                 {isComfy ? (
                   <>
