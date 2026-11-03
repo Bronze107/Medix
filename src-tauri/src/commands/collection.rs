@@ -1,5 +1,6 @@
 use tauri::{command, AppHandle};
 
+use crate::db::dataset::{DatasetItemOverride, DatasetRecipe, DatasetRecipeInput};
 use crate::db::{self, Collection};
 
 #[command]
@@ -95,4 +96,53 @@ pub fn collection_first_media_id(
     collection_id: String,
 ) -> Result<Option<String>, String> {
     db::collection_first_media_id(&app, &collection_id).map_err(|e| e.to_string())
+}
+
+// --- Dataset (配方是集合的子资源；表名仍以 collection 关联) ---
+
+#[command]
+pub fn dataset_recipe_get(
+    app: AppHandle,
+    collection_id: String,
+) -> Result<Option<DatasetRecipe>, String> {
+    db::dataset::dataset_recipe_get(&app, &collection_id)
+}
+
+#[command]
+pub fn dataset_recipe_save(
+    app: AppHandle,
+    collection_id: String,
+    recipe: DatasetRecipeInput,
+) -> Result<DatasetRecipe, String> {
+    db::dataset::dataset_recipe_save(&app, &collection_id, &recipe)
+}
+
+#[command]
+pub fn dataset_recipe_delete(app: AppHandle, collection_id: String) -> Result<(), String> {
+    db::dataset::dataset_recipe_delete(&app, &collection_id)
+}
+
+#[command]
+pub fn dataset_item_overrides_list(
+    app: AppHandle,
+    collection_id: String,
+) -> Result<Vec<DatasetItemOverride>, String> {
+    db::dataset::dataset_item_overrides_list(&app, &collection_id)
+}
+
+#[command]
+pub fn dataset_item_override_set(
+    app: AppHandle,
+    collection_id: String,
+    media_id: String,
+    caption_mode: Option<String>,
+    enabled_rules: Option<Vec<String>>,
+) -> Result<(), String> {
+    db::dataset::dataset_item_override_set(
+        &app,
+        &collection_id,
+        &media_id,
+        caption_mode.as_deref(),
+        enabled_rules.as_deref(),
+    )
 }
