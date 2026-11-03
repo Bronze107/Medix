@@ -29,6 +29,8 @@ import TableView from "@/components/TableView/TableView";
 import DetailPanel, { type DetailTab } from "@/components/DetailPanel/DetailPanel";
 import SearchBar from "@/components/SearchBar/SearchBar";
 import ExportDialog from "@/components/ExportDialog/ExportDialog";
+import { RecipeDialog } from "@/components/DatasetRecipe/RecipeDialog";
+import { ItemOverrideDialog } from "@/components/DatasetRecipe/ItemOverrideDialog";
 import Lightbox from "@/components/Lightbox/Lightbox";
 import { ImageEditor } from "@/components/ImageEditor/ImageEditor";
 import { showToast } from "@/components/Toast/Toast";
@@ -84,6 +86,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [savedFilterName, setSavedFilterName] = useState("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showRecipeDialog, setShowRecipeDialog] = useState(false);
+  const [overrideTarget, setOverrideTarget] = useState<string | null>(null);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showDupDialog, setShowDupDialog] = useState(false);
   const [dupGroups, setDupGroups] = useState<Media[][]>([]);
@@ -796,6 +800,12 @@ function AllMedia({ collectionId }: AllMediaProps) {
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                   导出
                 </button>
+                {collectionId && (
+                  <button onClick={() => { setShowRecipeDialog(true); setShowMoreMenu(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" /></svg>
+                    导出配方…
+                  </button>
+                )}
                 <button onClick={async () => { setShowMoreMenu(false); setFindingDups(true); try { const groups = await mediaFindDuplicates(); setDupGroups(groups); setShowDupDialog(true); } catch (e) { console.error("Failed to find duplicates:", e); } finally { setFindingDups(false); } }} disabled={findingDups} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-50">
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
                   {findingDups ? "分析中..." : "查找重复"}
@@ -1000,7 +1010,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               setShowAddToCollection(true);
             }}
             className="rounded-lg p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-            title="添加到集合"
+            title="添加到数据集"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
@@ -1225,13 +1235,13 @@ function AllMedia({ collectionId }: AllMediaProps) {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">
-              添加到集合 ({addToCollectionMediaIds.length} 张)
+              添加到数据集 ({addToCollectionMediaIds.length} 张)
             </h3>
             <input
               type="text"
               value={collectionPickerSearch}
               onChange={(e) => setCollectionPickerSearch(e.target.value)}
-              placeholder="搜索集合..."
+              placeholder="搜索数据集..."
               autoFocus
               className="mb-3 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
             />
@@ -1254,7 +1264,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 ))}
               {collectionsForPicker.filter((c) => c.name.toLowerCase().includes(collectionPickerSearch.toLowerCase())).length === 0 && (
                 <p className="py-2 text-center text-xs text-[var(--color-text-muted)]">
-                  未找到匹配的集合
+                  未找到匹配的数据集
                 </p>
               )}
             </div>
@@ -1397,10 +1407,29 @@ function AllMedia({ collectionId }: AllMediaProps) {
           mediaIds={Array.from(mediaSet)}
           hasOriginals={hasOriginals}
           totalCount={displayItems.length}
+          collectionId={collectionId}
+          searchQuery={debouncedSearch}
           onClose={() => setShowExportDialog(false)}
         />
         );
       })()}
+
+      {/* Dataset recipe dialog */}
+      {showRecipeDialog && collectionId && (
+        <RecipeDialog
+          collectionId={collectionId}
+          onClose={() => setShowRecipeDialog(false)}
+        />
+      )}
+
+      {/* Dataset item override dialog */}
+      {overrideTarget && collectionId && (
+        <ItemOverrideDialog
+          collectionId={collectionId}
+          mediaId={overrideTarget}
+          onClose={() => setOverrideTarget(null)}
+        />
+      )}
 
       {/* Context menu */}
       {ctxMenu && (
@@ -1449,6 +1478,21 @@ function AllMedia({ collectionId }: AllMediaProps) {
                 </svg>
                 AI 图像编辑
               </button>
+              <div className="my-1 border-t border-[var(--color-border)]" />
+              {collectionId && (
+                <button
+                  onClick={() => {
+                    setOverrideTarget(ctxMenu.item.media_id);
+                    setCtxMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                  </svg>
+                  数据集覆盖设置…
+                </button>
+              )}
               <div className="my-1 border-t border-[var(--color-border)]" />
             </>
           ) : (
@@ -1506,7 +1550,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
             </svg>
-            添加到集合
+            添加到数据集
             {selectedIds.has(ctxMenu.item.id) && selectedIds.size > 1 ? `（${selectedIds.size} 张）` : ""}
           </button>
           {collectionId && (
@@ -1519,7 +1563,7 @@ function AllMedia({ collectionId }: AllMediaProps) {
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-orange-400 transition-colors hover:bg-orange-900/20"
             >
-              从集合移除
+              从数据集移除
             </button>
           )}
           <div className="my-1 border-t border-[var(--color-border)]" />

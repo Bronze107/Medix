@@ -7,6 +7,11 @@ import type { Collection } from "@/types/collection";
 import type { LlamaServerStatus, GgufModelList, AutoDetect, EmbeddingInfo } from "@/types/ai";
 import type { SavedFilter } from "@/types/search";
 import type { ExportOptions } from "@/types/export";
+import type {
+  DatasetRecipe,
+  DatasetRecipeInput,
+  DatasetItemOverride,
+} from "@/types/dataset";
 import type { BrowseItem, BrowseVisibility } from "@/types/browse";
 import type { ComfyWorkflow, ComfyWorkflowDetail } from "@/types/comfyui";
 
@@ -326,6 +331,41 @@ export function exportDataset(options: ExportOptions): Promise<string> {
 
 export function importZip(zipPath: string): Promise<number> {
   return invoke("import_zip", { zipPath });
+}
+
+// --- Dataset ---
+
+export function datasetRecipeGet(collectionId: string): Promise<DatasetRecipe | null> {
+  return invoke("dataset_recipe_get", { collectionId });
+}
+
+export function datasetRecipeSave(
+  collectionId: string,
+  recipe: DatasetRecipeInput
+): Promise<DatasetRecipe> {
+  return invoke("dataset_recipe_save", { collectionId, recipe });
+}
+
+export function datasetRecipeDelete(collectionId: string): Promise<void> {
+  return invoke("dataset_recipe_delete", { collectionId });
+}
+
+export function datasetItemOverridesList(collectionId: string): Promise<DatasetItemOverride[]> {
+  return invoke("dataset_item_overrides_list", { collectionId });
+}
+
+export function datasetItemOverrideSet(
+  collectionId: string,
+  mediaId: string,
+  captionMode: "all" | "manual" | "ai" | "latest" | null,
+  enabledRules: string[] | null
+): Promise<void> {
+  return invoke("dataset_item_override_set", {
+    collectionId,
+    mediaId,
+    captionMode,
+    enabledRules,
+  });
 }
 
 // --- Settings ---

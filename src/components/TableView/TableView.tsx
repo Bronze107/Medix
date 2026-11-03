@@ -307,7 +307,7 @@ function TableRow({
             <button
               onClick={(e) => { e.stopPropagation(); onAddToCollection(); }}
               className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-              title="添加到集合"
+              title="添加到数据集"
             >
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />

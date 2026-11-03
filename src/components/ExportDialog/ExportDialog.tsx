@@ -1,14 +1,23 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { exportDataset } from "@/lib/tauri";
+import {
+  datasetItemOverridesList,
+  datasetRecipeGet,
+  exportDataset,
+} from "@/lib/tauri";
 import type { ExportProgress } from "@/types/export";
+import type { DatasetRecipe } from "@/types/dataset";
 
 interface ExportDialogProps {
   mediaIds: string[];
   /** Whether the selection includes any originals. */
   hasOriginals?: boolean;
   totalCount: number;
+  /** 数据集模式：传入集合 id 时显示配方选项并按集合展开。 */
+  collectionId?: string;
+  /** 「当前筛选结果」范围使用的搜索查询。 */
+  searchQuery?: string;
   onClose: () => void;
 }
 
@@ -27,10 +36,17 @@ function loadPrefs(): ExportPrefs {
   return { captionMode: "all", exportJSON: true, useZip: false, lastDir: "" };
 }
 
-function ExportDialog({ mediaIds, hasOriginals, totalCount, onClose }: ExportDialogProps) {
+function ExportDialog({
+  mediaIds,
+  hasOriginals,
+  totalCount,
+  collectionId,
+  searchQuery,
+  onClose,
+}: ExportDialogProps) {
   const saved = loadPrefs();
   const [scope, setScope] = useState<"selected" | "current" | "all">("selected");
-  const [captionMode, setCaptionMode] = useState<ExportPrefs["captionMode"]>(saved.captionMode);
+  const [captionMode, setCaptionMode] = useState<ExportPrefs["captionMode"] | "recipe">(saved.captionMode);
   const [exportOriginal, setExportOriginal] = useState(hasOriginals !== false);
   const [exportJSON, setExportJSON] = useState(saved.exportJSON);
   const [useZip, setUseZip] = useState(saved.useZip);
@@ -39,6 +55,10 @@ function ExportDialog({ mediaIds, hasOriginals, totalCount, onClose }: ExportDia
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 数据集模式
+  const [recipe, setRecipe] = useState<DatasetRecipe | null>(null);
+  const [overrideCount, setOverrideCount] = useState(0);
+  const [useRecipe, setUseRecipe] = useState(true);
 
   useEffect(() => {
     const unlisten = listen<ExportProgress>("export-progress", (event) => {
@@ -49,11 +69,41 @@ function ExportDialog({ mediaIds, hasOriginals, totalCount, onClose }: ExportDia
     };
   }, []);
 
+  // 数据集模式：加载配方摘要 + 覆盖计数
+  useEffect(() => {
+    if (!collectionId) return;
+    let cancelled = false;
+    Promise.all([datasetRecipeGet(collectionId), datasetItemOverridesList(collectionId)])
+      .then(([r, overrides]) => {
+        if (cancelled) return;
+        setRecipe(r);
+        setUseRecipe(r !== null);
+        setOverrideCount(overrides.length);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [collectionId]);
+
+  useEffect(() => {
+    if (!collectionId) return;
+    const unlisten = listen("dataset-recipe-changed", () => {
+      datasetRecipeGet(collectionId)
+        .then((r) => setRecipe(r))
+        .catch(() => {});
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [collectionId]);
+
   const handleExport = async () => {
     if (!outputDir.trim()) return;
     // Persist preferences
     localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify({
-      captionMode, exportJSON, useZip, lastDir: outputDir,
+      captionMode: captionMode === "recipe" ? "all" : captionMode,
+      exportJSON, useZip, lastDir: outputDir,
     }));
     setExporting(true);
     setError(null);
@@ -61,14 +111,19 @@ function ExportDialog({ mediaIds, hasOriginals, totalCount, onClose }: ExportDia
     setProgress(null);
 
     try {
-      const ids = scope === "selected" ? mediaIds : [];
+      const options =
+        scope === "selected"
+          ? { media_ids: mediaIds }
+          : collectionId
+            ? { media_ids: [], collection_id: collectionId, use_recipe: useRecipe }
+            : { media_ids: [], query: searchQuery ?? "" };
       const path = await exportDataset({
-        media_ids: ids,
         caption_mode: captionMode,
         export_original: exportOriginal,
         export_json: exportJSON,
         output_dir: outputDir,
         use_zip: useZip,
+        ...options,
       });
       setResult(path);
     } catch (e) {
@@ -156,10 +211,38 @@ function ExportDialog({ mediaIds, hasOriginals, totalCount, onClose }: ExportDia
                     checked={scope === "current"}
                     onChange={() => setScope("current")}
                   />
-                  当前筛选结果 ({totalCount})
+                  {collectionId ? "整个数据集" : "当前筛选结果"} ({totalCount})
                 </label>
               </div>
             </div>
+
+            {/* Dataset recipe */}
+            {collectionId && (
+              <div className="mb-4 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] p-2.5">
+                {recipe ? (
+                  <>
+                    <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+                      <input
+                        type="checkbox"
+                        checked={useRecipe}
+                        onChange={(e) => setUseRecipe(e.target.checked)}
+                      />
+                      应用导出配方（{recipe.rules.length} 条规格规则
+                      {recipe.naming_template !== "{stem}" ? ` · ${recipe.naming_template}` : ""}）
+                    </label>
+                    {overrideCount > 0 && (
+                      <p className="mt-1 pl-6 text-[11px] text-[var(--color-text-muted)]">
+                        {overrideCount} 个条目有单独覆盖设置
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-[11px] text-[var(--color-text-muted)]">
+                    此数据集未设置导出配方，将按原图导出
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Caption mode */}
             <div className="mb-4">
@@ -171,6 +254,7 @@ function ExportDialog({ mediaIds, hasOriginals, totalCount, onClose }: ExportDia
                 onChange={(e) => setCaptionMode(e.target.value as typeof captionMode)}
                 className="w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none"
               >
+                {collectionId && <option value="recipe">跟随配方</option>}
                 <option value="all">全部</option>
                 <option value="latest">最新一条</option>
                 <option value="manual">仅手动</option>
@@ -265,8 +349,14 @@ function ExportDialog({ mediaIds, hasOriginals, totalCount, onClose }: ExportDia
             </div>
 
             {/* Summary */}
-            <p className="mb-4 text-[10px] text-[var(--color-text-muted)]">
-              将导出 {scopeIds} 张图片{captionMode !== "all" ? ` (${captionMode === "manual" ? "仅手动" : captionMode === "ai" ? "仅AI" : "仅最新 caption"})` : ""}
+            <p className="mb-4 text-[11px] text-[var(--color-text-muted)]">
+              将导出 {scopeIds} 个条目
+              {captionMode !== "all"
+                ? ` (${captionMode === "manual" ? "仅手动" : captionMode === "ai" ? "仅AI" : captionMode === "recipe" ? "跟随配方" : "仅最新 caption"})`
+                : ""}
+              {scope !== "selected" && collectionId && useRecipe && recipe
+                ? " · 按配方生成规格产物"
+                : ""}
               {useZip ? " → ZIP" : " → 目录"}
             </p>
 

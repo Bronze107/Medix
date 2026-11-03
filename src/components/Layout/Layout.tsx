@@ -168,7 +168,7 @@ function Layout() {
           {/* Collections */}
           <>
             <div className="px-3 pt-5 pb-1.5 text-xs font-semibold uppercase tracking-[0.05em] text-[var(--color-text-muted)]">
-              集合
+              数据集
             </div>
             {collections.slice(0, 5).map((c) => (
               <NavLink
@@ -204,7 +204,7 @@ function Layout() {
               <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              全部集合
+              全部数据集
             </NavLink>
           </>
           <div className="mt-3 border-t border-[var(--color-border)]" />

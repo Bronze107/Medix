@@ -118,13 +118,13 @@ function CollectionsPage() {
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center justify-between border-b border-[var(--color-border)] px-6 py-3">
-        <h1 className="text-xl font-bold">集合</h1>
+        <h1 className="text-xl font-bold">数据集</h1>
         <div className="flex items-center gap-3">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索集合..."
+            placeholder="搜索数据集..."
             className="w-48 rounded border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
           />
           <select
@@ -140,7 +140,7 @@ function CollectionsPage() {
             onClick={() => setShowCreate(true)}
             className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--color-accent-hover)]"
           >
-            新建集合
+            新建数据集
           </button>
         </div>
       </div>
@@ -149,7 +149,7 @@ function CollectionsPage() {
       <div className="flex-1 overflow-auto p-6">
         {filtered.length === 0 && (
           <p className="py-20 text-center text-sm text-[var(--color-text-muted)]">
-            {search ? "未找到匹配的集合" : "暂无集合，点击\"新建集合\"开始"}
+            {search ? "未找到匹配的数据集" : "暂无数据集，点击\"新建数据集\"开始"}
           </p>
         )}
         <div className="grid grid-cols-4 gap-4">
@@ -200,12 +200,12 @@ function CollectionsPage() {
             className="w-80 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">新建集合</h3>
+            <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">新建数据集</h3>
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="集合名称"
+              placeholder="数据集名称"
               autoFocus
               onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
               className="mb-2 w-full rounded border border-[var(--color-border-light)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
@@ -249,7 +249,7 @@ function CollectionsPage() {
             className="w-72 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg-tertiary)] p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">重命名集合</h3>
+            <h3 className="mb-3 text-sm font-bold text-[var(--color-text-primary)]">重命名数据集</h3>
             <input
               type="text"
               value={renameText}
@@ -333,8 +333,8 @@ function CollectionsPage() {
       )}
       <ConfirmDialog
         open={deleteId !== null}
-        title="删除集合"
-        message="确定要删除这个集合吗？图片不会被删除。"
+        title="删除数据集"
+        message="确定要删除这个数据集吗？图片不会被删除。"
         variant="danger"
         onConfirm={confirmDelete}
         onCancel={() => setDeleteId(null)}
