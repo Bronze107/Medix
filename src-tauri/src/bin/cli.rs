@@ -135,6 +135,86 @@ enum Command {
         #[arg(long)]
         with_collections: bool,
     },
+
+    /// Show the dataset export recipe + item overrides for a collection
+    DatasetShow {
+        /// Collection ID
+        collection_id: String,
+    },
+
+    /// Set (upsert) the dataset export recipe for a collection
+    DatasetRecipeSet {
+        /// Collection ID
+        collection_id: String,
+
+        /// Caption source: all | manual | ai | latest
+        #[arg(long, default_value = "all")]
+        caption_mode: String,
+
+        /// Naming template (placeholders {stem} {index} {rule} {w} {h} {date})
+        #[arg(long, default_value = "{stem}")]
+        naming_template: String,
+
+        /// Spec rule "label,format,quality,maxw,maxh,filter" (repeatable;
+        /// maxw/maxh empty = no limit, filter empty = triangle)
+        #[arg(long = "rule")]
+        rules: Vec<String>,
+    },
+
+    /// Set or clear a per-item dataset override
+    DatasetOverrideSet {
+        /// Collection ID
+        collection_id: String,
+
+        /// Media ID
+        media_id: String,
+
+        /// Caption override (omit to follow the recipe)
+        #[arg(long)]
+        caption_mode: Option<String>,
+
+        /// Enabled rule ids, comma-separated; "none" disables all; omit to follow
+        #[arg(long)]
+        enabled_rules: Option<String>,
+    },
+
+    /// Export via the export pipeline (for regression tests)
+    Export {
+        /// Output directory (or zip path with --zip)
+        output_dir: String,
+
+        /// Export a whole collection by id
+        #[arg(long)]
+        collection_id: Option<String>,
+
+        /// Export the results of a search query
+        #[arg(long)]
+        query: Option<String>,
+
+        /// Export specific media ids, comma-separated
+        #[arg(long)]
+        media_ids: Option<String>,
+
+        /// Apply the collection's export recipe
+        #[arg(long)]
+        recipe: bool,
+
+        /// Caption source: all | manual | ai | latest | recipe
+        #[arg(long, default_value = "all")]
+        caption_mode: String,
+
+        /// Also copy originals (legacy path only)
+        #[arg(long, default_value = "true")]
+        originals: bool,
+
+        /// Write JSON metadata
+        #[arg(long, default_value = "true")]
+        json_meta: bool,
+
+        /// Pack the output into a zip file
+        #[arg(long)]
+        zip: bool,
+    },
 }
 
 // ── JSON output helpers ──
@@ -859,6 +939,212 @@ fn main() {
                 println!("  Media:       {}", media_count);
                 println!("  Tags:        {}", tag_count);
                 println!("  Collections: {}", coll_count);
+            }
+        }
+
+        Command::DatasetShow { collection_id } => {
+            let recipe = match db::dataset::dataset_recipe_get_path(&db_path, &collection_id) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let overrides =
+                match db::dataset::dataset_item_overrides_list_path(&db_path, &collection_id) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+            if cli.json {
+                let recipe_json = recipe
+                    .map(|r| serde_json::to_string(&r).unwrap_or_else(|_| "null".into()))
+                    .unwrap_or_else(|| "null".into());
+                let overrides_json =
+                    serde_json::to_string(&overrides).unwrap_or_else(|_| "[]".into());
+                println!(
+                    "{}",
+                    json_obj(&[("recipe", recipe_json), ("overrides", overrides_json),])
+                );
+            } else {
+                match recipe {
+                    Some(r) => {
+                        println!("Recipe for {}:", collection_id);
+                        println!("  caption_mode:    {}", r.caption_mode);
+                        println!("  naming_template: {}", r.naming_template);
+                        for rule in &r.rules {
+                            println!(
+                                "  rule [{}] {}: format={} quality={} max={}x{} filter={}",
+                                rule.id,
+                                rule.label.as_deref().unwrap_or(""),
+                                rule.format,
+                                rule.quality,
+                                rule.max_width.map(|v| v.to_string()).unwrap_or("-".into()),
+                                rule.max_height.map(|v| v.to_string()).unwrap_or("-".into()),
+                                rule.resize_filter,
+                            );
+                        }
+                    }
+                    None => println!("No recipe for {}", collection_id),
+                }
+                println!("Overrides: {}", overrides.len());
+                for o in &overrides {
+                    println!(
+                        "  {}: caption_mode={:?} enabled_rules={}",
+                        o.media_id,
+                        o.caption_mode,
+                        o.enabled_rules
+                            .as_ref()
+                            .map(|l| l.join(","))
+                            .unwrap_or_else(|| "(all)".into()),
+                    );
+                }
+            }
+        }
+
+        Command::DatasetRecipeSet {
+            collection_id,
+            caption_mode,
+            naming_template,
+            rules,
+        } => {
+            let mut parsed_rules = Vec::new();
+            for spec in &rules {
+                // "label,format,quality,maxw,maxh,filter"
+                let parts: Vec<&str> = spec.splitn(6, ',').collect();
+                if parts.len() < 2 {
+                    eprintln!("Invalid rule spec (need label,format,...): {}", spec);
+                    std::process::exit(1);
+                }
+                let parse_dim = |s: &str| -> Option<i64> {
+                    let t = s.trim();
+                    if t.is_empty() {
+                        None
+                    } else {
+                        t.parse().ok()
+                    }
+                };
+                parsed_rules.push(db::dataset::DatasetRuleInput {
+                    label: {
+                        let l = parts[0].trim();
+                        if l.is_empty() {
+                            None
+                        } else {
+                            Some(l.to_string())
+                        }
+                    },
+                    format: parts[1].trim().to_string(),
+                    quality: parts
+                        .get(2)
+                        .and_then(|s| s.trim().parse().ok())
+                        .unwrap_or(85),
+                    max_width: parts.get(3).and_then(|s| parse_dim(s)),
+                    max_height: parts.get(4).and_then(|s| parse_dim(s)),
+                    resize_filter: parts.get(5).map(|s| {
+                        let t = s.trim();
+                        if t.is_empty() {
+                            "triangle".to_string()
+                        } else {
+                            t.to_string()
+                        }
+                    }),
+                });
+            }
+            let input = db::dataset::DatasetRecipeInput {
+                caption_mode,
+                naming_template,
+                rules: parsed_rules,
+            };
+            match db::dataset::dataset_recipe_save_path(&db_path, &collection_id, &input) {
+                Ok(saved) => {
+                    if cli.json {
+                        println!("{}", json_obj(&[("rules", saved.rules.len().to_string())]));
+                    } else {
+                        println!("Saved recipe with {} rule(s)", saved.rules.len());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Command::DatasetOverrideSet {
+            collection_id,
+            media_id,
+            caption_mode,
+            enabled_rules,
+        } => {
+            let rules: Option<Vec<String>> = enabled_rules.map(|s| {
+                if s == "none" {
+                    Vec::new()
+                } else {
+                    s.split(',').map(|p| p.trim().to_string()).collect()
+                }
+            });
+            match db::dataset::dataset_item_override_set_path(
+                &db_path,
+                &collection_id,
+                &media_id,
+                caption_mode.as_deref(),
+                rules.as_deref(),
+            ) {
+                Ok(()) => {
+                    if cli.json {
+                        println!("{}", json_obj(&[("status", json_str("ok"))]));
+                    } else {
+                        println!("Override updated");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Command::Export {
+            output_dir,
+            collection_id,
+            query,
+            media_ids,
+            recipe,
+            caption_mode,
+            originals,
+            json_meta,
+            zip,
+        } => {
+            let ids: Vec<String> = media_ids
+                .map(|s| s.split(',').map(|p| p.trim().to_string()).collect())
+                .unwrap_or_default();
+            let options = medix::export::ExportOptions {
+                media_ids: ids,
+                caption_mode,
+                export_original: originals,
+                export_json: json_meta,
+                output_dir,
+                use_zip: zip,
+                collection_id,
+                query,
+                use_recipe: recipe,
+                sort_by: None,
+                descending: None,
+            };
+            match medix::export::run_export_path(&db_path, &options) {
+                Ok(path) => {
+                    if cli.json {
+                        println!("{}", json_obj(&[("output", json_str(&path))]));
+                    } else {
+                        println!("Exported to {}", path);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
     }

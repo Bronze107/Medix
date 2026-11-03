@@ -12,6 +12,7 @@ use crate::media::{BrowseItem, BrowseVisibility, Media};
 use crate::tag::Tag;
 
 pub mod comfyui;
+pub mod dataset;
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
@@ -2358,10 +2359,18 @@ pub fn media_get_batch(
     app: &AppHandle,
     ids: &[String],
 ) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
+    let conn = get_conn(app)?;
+    media_get_batch_conn(&conn, ids)
+}
+
+/// [`media_get_batch`] 的 `&Connection` 核心（导出管线的 AppHandle / CLI 双版本共用）。
+pub fn media_get_batch_conn(
+    conn: &Connection,
+    ids: &[String],
+) -> Result<Vec<Media>, Box<dyn std::error::Error>> {
     if ids.is_empty() {
         return Ok(vec![]);
     }
-    let conn = get_conn(app)?;
     let placeholders: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 1)).collect();
     let sql = format!(
         "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, lqip,
@@ -2487,6 +2496,14 @@ pub fn media_tags_get_by_media_id(
     media_id: &str,
 ) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
+    media_tags_get_conn(&conn, media_id)
+}
+
+/// [`media_tags_get`] 的 `&Connection` 核心（导出管线的 AppHandle / CLI 双版本共用）。
+pub fn media_tags_get_conn(
+    conn: &Connection,
+    media_id: &str,
+) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
     let mut stmt = conn.prepare(
         "SELECT t.id, t.name, mt.source, mt.confidence FROM tags t
          JOIN media_tags mt ON t.id = mt.tag_id
@@ -3237,6 +3254,14 @@ pub fn caption_list_path(
     media_id: &str,
 ) -> Result<Vec<Caption>, Box<dyn std::error::Error>> {
     let conn = Connection::open(db_path)?;
+    caption_list_conn(&conn, media_id)
+}
+
+/// [`caption_list`] 的 `&Connection` 核心（导出管线的 AppHandle / CLI 双版本共用）。
+pub fn caption_list_conn(
+    conn: &Connection,
+    media_id: &str,
+) -> Result<Vec<Caption>, Box<dyn std::error::Error>> {
     let mut stmt = conn.prepare(
         "SELECT id, media_id, text, source, created_at, updated_at
          FROM captions WHERE media_id = ?1 ORDER BY created_at DESC",
