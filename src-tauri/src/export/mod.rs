@@ -114,11 +114,6 @@ fn filter_captions<'a>(all: &'a [Caption], mode: &str) -> Vec<&'a Caption> {
     }
 }
 
-/// 把规格规则的数值字段转成渲染参数（负数/零视为不限制）。
-fn rule_dim(v: Option<i64>) -> Option<u32> {
-    v.filter(|x| *x > 0).map(|x| x as u32)
-}
-
 fn rule_format_ext(format: &str) -> Result<&'static str, String> {
     match format {
         "jpeg" | "jpg" => Ok("jpg"),
@@ -247,8 +242,7 @@ fn export_one_item(
             let rendered = crate::media::transform::render_derivative_bytes(
                 &data.source_file,
                 &rule.format,
-                rule_dim(rule.max_width),
-                rule_dim(rule.max_height),
+                rule.max_megapixels,
                 rule.quality.clamp(1, 100) as u8,
                 Some(&rule.resize_filter),
             )

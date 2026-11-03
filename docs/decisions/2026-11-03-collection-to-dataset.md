@@ -20,7 +20,7 @@ Medix 的「集合」此前只是成员列表（`collections` + `collection_item
 新表（0034）：
 
 - `dataset_export_recipes`：每集合 0..1 个配方（caption_mode + naming_template），`UNIQUE(collection_id)`，删集合级联
-- `dataset_recipe_rules`：配方下的有序规则（label/format/quality/max_width/max_height/resize_filter），删配方级联
+- `dataset_recipe_rules`：配方下的有序规则（label/format/quality/max_megapixels/resize_filter），删配方级联。0035 把 0034 的 max_width/max_height 改为百万像素预算（max_megapixels REAL）——混合宽高比下「限宽限高」表达力差，百万像素预算保持比例缩放更符合训练集规格
 - `dataset_item_overrides`：条目覆盖（caption_mode / enabled_rules），行存在即覆盖，NULL 字段 = 跟随配方，删集合或 media 级联
 
 **否决**：独立 `dataset_settings` 表——配方本身就是集合级设置，1:1 挂 collection 少一层 join；改名「数据集」只发生在 UI 文案层，路由 `/collections`、`collections-changed` 事件与全部代码标识符保持不变。
@@ -35,7 +35,7 @@ Caption 来源：**条目覆盖 > 配方（`caption_mode == "recipe"` 时）> �
 
 导出管线对图片条目按规则调 `media::transform::render_derivative_bytes`（解码 → 缩放 → 编码，纯函数，与持久化衍生共用 `load_and_resize`/`encode_image_bytes`），产物直接写入导出目录，**不插 media 行、不记 lineage**。
 
-配方规则生效的条目**只输出规则产物**（`export_original` 被忽略）；配方模式下无规则条目（视频、覆盖全禁）**始终导出原图**（不受 `export_original` 约束——「应用配方」的语义是"图片按规则生成"而非"排除其余条目"，保证进度条计数的每个条目都必有产物）；无配方/未勾选配方时走旧路径，由 `export_original` 决定是否复制。
+配方规则生效的条目**只输出规则产物**（`export_original` 被忽略），产物尺寸由百万像素预算决定（保持比例缩放，JPEG 走 DCT 快速解码时按预算估算长边）；配方模式下无规则条目（视频、覆盖全禁）**始终导出原图**（不受 `export_original` 约束——「应用配方」的语义是"图片按规则生成"而非"排除其余条目"，保证进度条计数的每个条目都必有产物）；无配方/未勾选配方时走旧路径，由 `export_original` 决定是否复制。
 
 **否决**：把 DerivativeDialog 的持久化衍生搬进数据集——0027 已把「衍生图 = 独立 media 记录」定为核心模型，导出规格产物是一次性物化，不应污染媒体库与搜索结果。
 

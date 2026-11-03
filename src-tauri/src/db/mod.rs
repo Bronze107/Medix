@@ -1541,6 +1541,41 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
         }
     }
 
+    // 0035_dataset_rule_megapixels
+    // Spec rules limit output size by a megapixel budget instead of separate
+    // width/height caps — "512x512" style bounds were awkward for mixed
+    // aspect ratios. The table shipped days ago in 0034 and rules are
+    // replaced wholesale on every recipe save, so a plain DROP+CREATE loses
+    // nothing that matters.
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0035_dataset_rule_megapixels'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0035_dataset_rule_megapixels');
+                 DROP TABLE IF EXISTS dataset_recipe_rules;
+                 CREATE TABLE dataset_recipe_rules (
+                     id TEXT PRIMARY KEY,
+                     recipe_id TEXT NOT NULL,
+                     position INTEGER NOT NULL DEFAULT 0,
+                     label TEXT,
+                     format TEXT NOT NULL DEFAULT 'jpeg',
+                     quality INTEGER NOT NULL DEFAULT 85,
+                     max_megapixels REAL,
+                     resize_filter TEXT NOT NULL DEFAULT 'triangle',
+                     FOREIGN KEY (recipe_id) REFERENCES dataset_export_recipes(id) ON DELETE CASCADE
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_dataset_recipe_rules_recipe
+                     ON dataset_recipe_rules(recipe_id);",
+            )?;
+        }
+    }
+
     Ok(())
 }
 

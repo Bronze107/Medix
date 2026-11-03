@@ -27,8 +27,8 @@ pub struct DatasetRule {
     pub format: String,
     /// JPEG 专用；PNG 忽略。
     pub quality: i64,
-    pub max_width: Option<i64>,
-    pub max_height: Option<i64>,
+    /// 输出像素预算上限（百万像素，如 0.5 = 50 万像素）；保持比例缩放。
+    pub max_megapixels: Option<f64>,
     pub resize_filter: String,
 }
 
@@ -48,8 +48,7 @@ pub struct DatasetRuleInput {
     pub label: Option<String>,
     pub format: String,
     pub quality: i64,
-    pub max_width: Option<i64>,
-    pub max_height: Option<i64>,
+    pub max_megapixels: Option<f64>,
     pub resize_filter: Option<String>,
 }
 
@@ -78,14 +77,13 @@ fn row_to_rule(row: &rusqlite::Row) -> rusqlite::Result<DatasetRule> {
         label: row.get(3)?,
         format: row.get(4)?,
         quality: row.get(5)?,
-        max_width: row.get(6)?,
-        max_height: row.get(7)?,
-        resize_filter: row.get(8)?,
+        max_megapixels: row.get(6)?,
+        resize_filter: row.get(7)?,
     })
 }
 
 const RULE_COLUMNS: &str =
-    "id, recipe_id, position, label, format, quality, max_width, max_height, resize_filter";
+    "id, recipe_id, position, label, format, quality, max_megapixels, resize_filter";
 
 fn load_rules(conn: &Connection, recipe_id: &str) -> Result<Vec<DatasetRule>, String> {
     let sql = format!(
@@ -178,8 +176,8 @@ pub fn dataset_recipe_save_conn(
     for (i, rule) in input.rules.iter().enumerate() {
         tx.execute(
             "INSERT INTO dataset_recipe_rules
-                 (id, recipe_id, position, label, format, quality, max_width, max_height, resize_filter)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 (id, recipe_id, position, label, format, quality, max_megapixels, resize_filter)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 ulid::Ulid::new().to_string(),
                 recipe_id,
@@ -187,8 +185,7 @@ pub fn dataset_recipe_save_conn(
                 rule.label,
                 rule.format,
                 rule.quality,
-                rule.max_width,
-                rule.max_height,
+                rule.max_megapixels,
                 rule.resize_filter.as_deref().unwrap_or("triangle"),
             ],
         )
@@ -477,8 +474,7 @@ mod tests {
                 label: Some("512".into()),
                 format: "jpeg".into(),
                 quality: 85,
-                max_width: Some(512),
-                max_height: None,
+                max_megapixels: Some(0.5),
                 resize_filter: None,
             }],
         }
@@ -534,16 +530,14 @@ mod tests {
                 label: Some("b".into()),
                 format: "jpeg".into(),
                 quality: 80,
-                max_width: Some(256),
-                max_height: None,
+                max_megapixels: Some(0.25),
                 resize_filter: None,
             },
             DatasetRuleInput {
                 label: Some("a".into()),
                 format: "png".into(),
                 quality: 0,
-                max_width: None,
-                max_height: Some(128),
+                max_megapixels: None,
                 resize_filter: Some("lanczos3".into()),
             },
         ];

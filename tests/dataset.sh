@@ -58,7 +58,7 @@ MEDIA_BEFORE=$(media_count)
 echo "--- 配方设置与读取 ---"
 
 cli dataset-recipe-set "$COLL" --caption-mode ai --naming-template "{stem}" \
-    --rule "512,jpeg,85,512,,," --rule "png,png,85,,,," > /dev/null
+    --rule "512,jpeg,85,0.05," --rule "png,png,85," > /dev/null
 RECIPE_OUT=$(cli dataset-show "$COLL")
 check "配方 caption_mode 已保存" "ai" "$(echo "$RECIPE_OUT" | grep -o 'caption_mode:.*' | awk '{print $2}')"
 check "配方命名模板已保存" "{stem}" "$(echo "$RECIPE_OUT" | grep -o 'naming_template:.*' | sed 's/naming_template: *//')"
@@ -125,7 +125,7 @@ check "清除覆盖后恢复规则产物" "1" "$(find "$OUT5" -name "${IMG2}_512
 echo "--- 命名模板 ---"
 
 cli dataset-recipe-set "$COLL" --caption-mode ai --naming-template "{index}-{stem}" \
-    --rule "512,jpeg,85,512,,," > /dev/null
+    --rule "512,jpeg,85,0.05," > /dev/null
 OUT6="$WORK_DIR/out6"
 cli export "$OUT6" --collection-id "$COLL" --recipe > /dev/null
 # 单条规则不追加 {rule}，产物名 = "1-" + 源 stem

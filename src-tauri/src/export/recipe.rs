@@ -152,8 +152,7 @@ mod recipe_tests {
             label: label.map(|s| s.to_string()),
             format: "jpeg".into(),
             quality: 85,
-            max_width: Some(512),
-            max_height: None,
+            max_megapixels: None,
             resize_filter: "triangle".into(),
         }
     }

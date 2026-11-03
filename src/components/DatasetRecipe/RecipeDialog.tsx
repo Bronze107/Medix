@@ -43,8 +43,7 @@ function newRule(): EditableRule {
     label: null,
     format: "jpeg",
     quality: 85,
-    max_width: 512,
-    max_height: null,
+    max_megapixels: 1.0,
     resize_filter: "triangle",
   };
 }
@@ -72,8 +71,7 @@ export function RecipeDialog({ collectionId, onClose }: RecipeDialogProps) {
               label: r.label,
               format: r.format,
               quality: r.quality,
-              max_width: r.max_width,
-              max_height: r.max_height,
+              max_megapixels: r.max_megapixels,
               resize_filter: r.resize_filter,
             }))
           );
@@ -264,14 +262,17 @@ export function RecipeDialog({ collectionId, onClose }: RecipeDialogProps) {
                         />
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-9 text-[11px] text-[var(--color-text-muted)]">宽 ≤</span>
+                        <span className="w-16 text-[11px] text-[var(--color-text-muted)]">
+                          最大MP
+                        </span>
                         <input
                           type="number"
-                          min={1}
-                          value={rule.max_width ?? ""}
+                          min={0.01}
+                          step={0.1}
+                          value={rule.max_megapixels ?? ""}
                           onChange={(e) =>
                             updateRule(rule._key, {
-                              max_width: e.target.value ? Number(e.target.value) : null,
+                              max_megapixels: e.target.value ? Number(e.target.value) : null,
                             })
                           }
                           placeholder="不限"
@@ -279,21 +280,6 @@ export function RecipeDialog({ collectionId, onClose }: RecipeDialogProps) {
                         />
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-9 text-[11px] text-[var(--color-text-muted)]">高 ≤</span>
-                        <input
-                          type="number"
-                          min={1}
-                          value={rule.max_height ?? ""}
-                          onChange={(e) =>
-                            updateRule(rule._key, {
-                              max_height: e.target.value ? Number(e.target.value) : null,
-                            })
-                          }
-                          placeholder="不限"
-                          className={`${inputCls} flex-1`}
-                        />
-                      </div>
-                      <div className="col-span-2 flex items-center gap-1.5">
                         <span className="w-9 text-[11px] text-[var(--color-text-muted)]">滤镜</span>
                         <select
                           value={rule.resize_filter ?? "triangle"}

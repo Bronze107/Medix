@@ -7,8 +7,8 @@ export interface DatasetRule {
   label: string | null;
   format: "jpeg" | "png";
   quality: number;
-  max_width: number | null;
-  max_height: number | null;
+  /** 输出像素预算上限（百万像素，如 0.5）；null = 不限制。 */
+  max_megapixels: number | null;
   resize_filter: ResizeFilter;
 }
 
@@ -25,8 +25,7 @@ export interface DatasetRuleInput {
   label: string | null;
   format: "jpeg" | "png";
   quality: number;
-  max_width: number | null;
-  max_height: number | null;
+  max_megapixels: number | null;
   resize_filter: ResizeFilter | null;
 }
 

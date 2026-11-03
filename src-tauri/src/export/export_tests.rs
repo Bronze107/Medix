@@ -112,16 +112,14 @@ mod tests {
                     label: Some("512".into()),
                     format: "jpeg".into(),
                     quality: 85,
-                    max_width: Some(512),
-                    max_height: None,
+                    max_megapixels: Some(0.05),
                     resize_filter: None,
                 },
                 DatasetRuleInput {
                     label: Some("png".into()),
                     format: "png".into(),
                     quality: 85,
-                    max_width: None,
-                    max_height: None,
+                    max_megapixels: None,
                     resize_filter: None,
                 },
             ],
@@ -218,11 +216,21 @@ mod tests {
             ]
         );
 
-        // 512 规则产物：宽度压到 512（1024×512 → 512×256）
-        let json = std::fs::read_to_string(env.out_dir.join("m_img_512.json")).unwrap();
-        assert!(json.contains("\"width\": 512"));
-        assert!(json.contains("\"height\": 256"));
-        // png 规则产物：无缩放限制 → 原尺寸
+        // 512 规则产物（0.05MP 预算）：1024×512=0.52MP → 缩到预算内，保持 2:1
+        let json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(env.out_dir.join("m_img_512.json")).unwrap(),
+        )
+        .unwrap();
+        let w = json["width"].as_i64().unwrap();
+        let h = json["height"].as_i64().unwrap();
+        assert!(
+            (w * h) as f64 <= 50_000.0 * 1.01,
+            "megapixel budget respected: {}x{}",
+            w,
+            h
+        );
+        assert_eq!(w, h * 2, "aspect ratio preserved");
+        // png 规则产物：无预算 → 原尺寸
         let png_json = std::fs::read_to_string(env.out_dir.join("m_img_png.json")).unwrap();
         assert!(png_json.contains("\"width\": 1024"));
     }

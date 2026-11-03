@@ -155,8 +155,8 @@ enum Command {
         #[arg(long, default_value = "{stem}")]
         naming_template: String,
 
-        /// Spec rule "label,format,quality,maxw,maxh,filter" (repeatable;
-        /// maxw/maxh empty = no limit, filter empty = triangle)
+        /// Spec rule "label,format,quality,mp,filter" (repeatable; mp =
+        /// megapixel budget, empty = no limit; filter empty = triangle)
         #[arg(long = "rule")]
         rules: Vec<String>,
     },
@@ -976,13 +976,14 @@ fn main() {
                         println!("  naming_template: {}", r.naming_template);
                         for rule in &r.rules {
                             println!(
-                                "  rule [{}] {}: format={} quality={} max={}x{} filter={}",
+                                "  rule [{}] {}: format={} quality={} max_mp={} filter={}",
                                 rule.id,
                                 rule.label.as_deref().unwrap_or(""),
                                 rule.format,
                                 rule.quality,
-                                rule.max_width.map(|v| v.to_string()).unwrap_or("-".into()),
-                                rule.max_height.map(|v| v.to_string()).unwrap_or("-".into()),
+                                rule.max_megapixels
+                                    .map(|v| v.to_string())
+                                    .unwrap_or("-".into()),
                                 rule.resize_filter,
                             );
                         }
@@ -1012,20 +1013,12 @@ fn main() {
         } => {
             let mut parsed_rules = Vec::new();
             for spec in &rules {
-                // "label,format,quality,maxw,maxh,filter"
-                let parts: Vec<&str> = spec.splitn(6, ',').collect();
+                // "label,format,quality,mp,filter"
+                let parts: Vec<&str> = spec.splitn(5, ',').collect();
                 if parts.len() < 2 {
                     eprintln!("Invalid rule spec (need label,format,...): {}", spec);
                     std::process::exit(1);
                 }
-                let parse_dim = |s: &str| -> Option<i64> {
-                    let t = s.trim();
-                    if t.is_empty() {
-                        None
-                    } else {
-                        t.parse().ok()
-                    }
-                };
                 parsed_rules.push(db::dataset::DatasetRuleInput {
                     label: {
                         let l = parts[0].trim();
@@ -1040,9 +1033,15 @@ fn main() {
                         .get(2)
                         .and_then(|s| s.trim().parse().ok())
                         .unwrap_or(85),
-                    max_width: parts.get(3).and_then(|s| parse_dim(s)),
-                    max_height: parts.get(4).and_then(|s| parse_dim(s)),
-                    resize_filter: parts.get(5).map(|s| {
+                    max_megapixels: parts.get(3).and_then(|s| {
+                        let t = s.trim();
+                        if t.is_empty() {
+                            None
+                        } else {
+                            t.parse().ok()
+                        }
+                    }),
+                    resize_filter: parts.get(4).map(|s| {
                         let t = s.trim();
                         if t.is_empty() {
                             "triangle".to_string()
