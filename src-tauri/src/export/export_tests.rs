@@ -307,6 +307,51 @@ mod tests {
         assert!(err.contains("nothing to export"));
     }
 
+    /// 配方模式下无规则条目（视频、覆盖全禁）始终导出原图——即使
+    /// export_original=false，保证进度条计数的每个条目都有产物。
+    #[test]
+    fn test_recipe_mode_always_exports_ruleless_items() {
+        let env = setup_env();
+        insert_image_media(&env.db_path, "m1", 100, 80);
+        insert_video_media(&env.db_path, "m_vid");
+        create_collection_with_members(&env.db_path, "c1", &["m1", "m_vid"]);
+        save_recipe(&env.db_path, "c1", "{stem}");
+        // m1 覆盖：全禁规则
+        crate::db::dataset::dataset_item_override_set_path(
+            &env.db_path,
+            "c1",
+            "m1",
+            None,
+            Some(&[]),
+        )
+        .unwrap();
+
+        let options = ExportOptions {
+            collection_id: Some("c1".into()),
+            use_recipe: true,
+            caption_mode: "recipe".into(),
+            export_original: false, // 配方模式下无规则条目不受此开关约束
+            export_json: false,
+            output_dir: env.out_dir.to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        run_export_path(&env.db_path, &options).unwrap();
+
+        let files = list_files(&env.out_dir);
+        assert!(
+            files.contains(&"m1.jpg".to_string()),
+            "override-disabled image must still be copied"
+        );
+        assert!(
+            files.contains(&"m_vid.mp4".to_string()),
+            "video must always be copied in recipe mode"
+        );
+        assert!(
+            !files.contains(&"m1_512.jpg".to_string()),
+            "disabled rules must not produce derivatives"
+        );
+    }
+
     /// 命名模板 {index}-{stem} 生效；多条规则自动追加 {rule}。
     #[test]
     fn test_naming_template() {

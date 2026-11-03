@@ -281,8 +281,11 @@ fn export_one_item(
         return Ok(());
     }
 
-    // --- 无规则：旧路径（视频条目也走这里，原样复制） ---
-    if options.export_original {
+    // --- 无规则：复制原图 ---
+    // 配方模式（shared 存在）下，无规则条目（视频、覆盖全禁）始终导出原图：
+    // 「应用配方」的语义是"图片按规则生成"，而不是"排除其余条目"，这样
+    // 进度条计数的每个条目都必有产物。
+    if options.export_original || shared.is_some() {
         let ext = data
             .source_file
             .extension()

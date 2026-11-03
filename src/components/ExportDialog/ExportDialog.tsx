@@ -45,9 +45,14 @@ function ExportDialog({
   onClose,
 }: ExportDialogProps) {
   const saved = loadPrefs();
-  const [scope, setScope] = useState<"selected" | "current" | "all">("selected");
+  // 无选中项时「选中项」radio 不会渲染，scope 不能停在不可见的 "selected" 上。
+  const initialScope: "selected" | "current" = mediaIds.length > 0 ? "selected" : "current";
+  const [scope, setScope] = useState<"selected" | "current" | "all">(initialScope);
   const [captionMode, setCaptionMode] = useState<ExportPrefs["captionMode"] | "recipe">(saved.captionMode);
-  const [exportOriginal, setExportOriginal] = useState(hasOriginals !== false);
+  // 整个数据集/筛选结果范围默认导出原图；仅选中派生图时保持旧默认。
+  const [exportOriginal, setExportOriginal] = useState(
+    initialScope === "current" ? true : hasOriginals !== false
+  );
   const [exportJSON, setExportJSON] = useState(saved.exportJSON);
   const [useZip, setUseZip] = useState(saved.useZip);
   const [outputDir, setOutputDir] = useState(saved.lastDir);
@@ -79,6 +84,8 @@ function ExportDialog({
         setRecipe(r);
         setUseRecipe(r !== null);
         setOverrideCount(overrides.length);
+        // 数据集上下文里有配方时，caption 默认跟随配方
+        if (r) setCaptionMode("recipe");
       })
       .catch(() => {});
     return () => {
@@ -235,6 +242,9 @@ function ExportDialog({
                         {overrideCount} 个条目有单独覆盖设置
                       </p>
                     )}
+                    <p className="mt-1 pl-6 text-[11px] text-[var(--color-text-muted)]">
+                      配方生效时图片按规则生成；视频等无规则条目始终导出原图
+                    </p>
                   </>
                 ) : (
                   <p className="text-[11px] text-[var(--color-text-muted)]">
