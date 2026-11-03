@@ -73,6 +73,22 @@ mod tests {
         .unwrap();
     }
 
+    fn add_caption_at(db_path: &Path, media_id: &str, text: &str, source: &str, created_at: &str) {
+        let c = conn(db_path);
+        c.execute(
+            "INSERT INTO captions (id, media_id, text, source, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            params![
+                format!("cap_{}_{}", text, created_at),
+                media_id,
+                text,
+                source,
+                created_at
+            ],
+        )
+        .unwrap();
+    }
+
     fn add_tag(db_path: &Path, media_id: &str, tag_id: &str, tag_name: &str) {
         let c = conn(db_path);
         c.execute(
@@ -313,6 +329,48 @@ mod tests {
         };
         let err = run_export_path(&env.db_path, &options).unwrap_err();
         assert!(err.contains("nothing to export"));
+    }
+
+    /// 配方 caption 来源（latest）真正生效：只导出最新一条，而不是全部。
+    #[test]
+    fn test_recipe_caption_mode_respected() {
+        let env = setup_env();
+        insert_image_media(&env.db_path, "m1", 100, 80);
+        create_collection_with_members(&env.db_path, "c1", &["m1"]);
+        let input = DatasetRecipeInput {
+            caption_mode: "latest".into(),
+            naming_template: "{stem}".into(),
+            rules: vec![],
+        };
+        crate::db::dataset::dataset_recipe_save_path(&env.db_path, "c1", &input).unwrap();
+        add_caption_at(
+            &env.db_path,
+            "m1",
+            "old caption",
+            "manual",
+            "2026-01-01T00:00:00",
+        );
+        add_caption_at(
+            &env.db_path,
+            "m1",
+            "new caption",
+            "manual",
+            "2026-01-02T00:00:00",
+        );
+
+        let options = ExportOptions {
+            collection_id: Some("c1".into()),
+            use_recipe: true,
+            caption_mode: "recipe".into(),
+            export_original: true,
+            export_json: false,
+            output_dir: env.out_dir.to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        run_export_path(&env.db_path, &options).unwrap();
+
+        let txt = std::fs::read_to_string(env.out_dir.join("m1.txt")).unwrap();
+        assert_eq!(txt, "new caption", "recipe caption_mode=latest must filter");
     }
 
     /// 配方模式下无规则条目（视频、覆盖全禁）始终导出原图——即使

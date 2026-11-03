@@ -57,10 +57,10 @@ MEDIA_BEFORE=$(media_count)
 # ============================================================
 echo "--- 配方设置与读取 ---"
 
-cli dataset-recipe-set "$COLL" --caption-mode ai --naming-template "{stem}" \
+cli dataset-recipe-set "$COLL" --caption-mode all --naming-template "{stem}" \
     --rule "512,jpeg,85,0.05," --rule "png,png,85," > /dev/null
 RECIPE_OUT=$(cli dataset-show "$COLL")
-check "配方 caption_mode 已保存" "ai" "$(echo "$RECIPE_OUT" | grep -o 'caption_mode:.*' | awk '{print $2}')"
+check "配方 caption_mode 已保存" "all" "$(echo "$RECIPE_OUT" | grep -o 'caption_mode:.*' | awk '{print $2}')"
 check "配方命名模板已保存" "{stem}" "$(echo "$RECIPE_OUT" | grep -o 'naming_template:.*' | sed 's/naming_template: *//')"
 check "配方包含 2 条规则" "2" "$(echo "$RECIPE_OUT" | grep -c 'rule \[')"
 

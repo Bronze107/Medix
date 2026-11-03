@@ -209,6 +209,7 @@ fn export_one_item(
             let ov = s.overrides.get(&data.media.id);
             let ctx = recipe::RecipeContext {
                 recipe_rules: &s.recipe.rules,
+                recipe_caption_mode: &s.recipe.caption_mode,
                 override_caption_mode: ov.and_then(|o| o.caption_mode.as_deref()),
                 override_enabled_rules: ov
                     .and_then(|o| o.enabled_rules.as_ref().map(|v| v.as_slice())),

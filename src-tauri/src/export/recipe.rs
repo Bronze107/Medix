@@ -19,6 +19,8 @@ pub struct ItemExportPlan {
 /// 输入形态上与 `ExportOptions` 解耦，方便单测（见 recipe_tests）。
 pub struct RecipeContext<'a> {
     pub recipe_rules: &'a [DatasetRule],
+    /// 配方自身的 caption 来源（"all"|"manual"|"ai"|"latest"）。
+    pub recipe_caption_mode: &'a str,
     pub override_caption_mode: Option<&'a str>,
     pub override_enabled_rules: Option<&'a [String]>,
     /// "all" | "manual" | "ai" | "latest" | "recipe"
@@ -29,6 +31,7 @@ pub struct RecipeContext<'a> {
 
 /// 合并配方、覆盖与选项，得到单条目的生效参数。
 ///
+/// - Caption 来源：条目覆盖 > 配方（选项为 "recipe" 时）> 选项本身。
 /// - 视频（`is_video`）条目不渲染任何规则，走原样复制。
 /// - `enabled_rules = Some(list)` 只保留 id 在 list 里的规则；引用了已删除
 ///   规则 id 的覆盖按「该规则不存在」忽略。`Some(vec![])` 即全部禁用。
@@ -38,8 +41,9 @@ pub fn resolve_item_export(ctx: &RecipeContext) -> ItemExportPlan {
         .map(|s| s.to_string())
         .unwrap_or_else(|| {
             if ctx.options_caption_mode == "recipe" {
-                // 没有配方时「跟随配方」退化为全部导出。
-                "all".to_string()
+                // 「跟随配方」：用配方自己的 caption 来源。配方未设置时
+                // dataset_recipe_save 默认写 "all"，这里兜底同值。
+                ctx.recipe_caption_mode.to_string()
             } else {
                 ctx.options_caption_mode.to_string()
             }
@@ -165,6 +169,7 @@ mod recipe_tests {
     ) -> RecipeContext<'a> {
         RecipeContext {
             recipe_rules: rules,
+            recipe_caption_mode: "all",
             override_caption_mode: None,
             override_enabled_rules: None,
             options_caption_mode,
@@ -177,8 +182,16 @@ mod recipe_tests {
     fn test_caption_recipe_follows_recipe() {
         let rules = vec![];
         let mut c = ctx(&rules, "recipe", true, false);
-        // 无配方 → "recipe" 退化为 "all"
+        // 「跟随配方」且配方无 caption 设置 → 兜底 "all"
         assert_eq!(resolve_item_export(&c).caption_mode, "all");
+
+        // 配方自身设了 "latest" → 跟随配方的实际值
+        c.recipe_caption_mode = "latest";
+        assert_eq!(resolve_item_export(&c).caption_mode, "latest");
+
+        // 选项为具体值时不用配方的
+        c.options_caption_mode = "ai";
+        assert_eq!(resolve_item_export(&c).caption_mode, "ai");
 
         // 有 override 时优先级最高
         c.override_caption_mode = Some("manual");

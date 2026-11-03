@@ -38,7 +38,6 @@ function loadPrefs(): ExportPrefs {
 
 function ExportDialog({
   mediaIds,
-  hasOriginals,
   totalCount,
   collectionId,
   searchQuery,
@@ -49,10 +48,9 @@ function ExportDialog({
   const initialScope: "selected" | "current" = mediaIds.length > 0 ? "selected" : "current";
   const [scope, setScope] = useState<"selected" | "current" | "all">(initialScope);
   const [captionMode, setCaptionMode] = useState<ExportPrefs["captionMode"] | "recipe">(saved.captionMode);
-  // 整个数据集/筛选结果范围默认导出原图；仅选中派生图时保持旧默认。
-  const [exportOriginal, setExportOriginal] = useState(
-    initialScope === "current" ? true : hasOriginals !== false
-  );
+  // 原图默认不勾选：配方模式下图片按规则生成、无规则条目始终导出原图，
+  // 这个开关只影响旧路径（未应用配方的选中项/筛选结果导出）。
+  const [exportOriginal, setExportOriginal] = useState(false);
   const [exportJSON, setExportJSON] = useState(saved.exportJSON);
   const [useZip, setUseZip] = useState(saved.useZip);
   const [outputDir, setOutputDir] = useState(saved.lastDir);
