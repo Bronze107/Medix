@@ -53,6 +53,13 @@ setup_isolated_db() {
     local hint="${1:-test}"
     local seed_n="${2:-0}"
     CLI_DB_PATH="$(mktemp -t "medix_test_${hint}_XXXXXX.db" 2>/dev/null || mktemp "medix_test_${hint}.XXXXXX.db")"
+    # MSYS/Git Bash 下 mktemp 返回 /tmp/... 形式：CLI（Windows exe）会把它换算成
+    # C:/... 再输出，而测试里用 $CLI_DB_PATH 派生的断言路径仍是 /tmp/...，两边对不上。
+    # 统一归一成 Windows 混合形式（C:/...，与 dataset.sh 的 cygpath -m 同法），
+    # bash 也能直接读写这种路径；非 MSYS 环境（Linux）没有 cygpath，保持原样。
+    if command -v cygpath >/dev/null 2>&1; then
+        CLI_DB_PATH="$(cygpath -m "$CLI_DB_PATH")"
+    fi
     export CLI_DB_PATH
     echo "[test] Using isolated DB: $CLI_DB_PATH"
     cli setup-db
