@@ -1138,11 +1138,12 @@ fn import_videos_common(
 
         // ffmpeg 抽帧缩略图。同步做（图片文生图分支是另起线程，但视频抽帧有
         // ffmpeg 进程开销且生成的视频数量少），导入返回后网格立即有缩略图可显示。
-        if let Err(e) = crate::media::video_thumbnail::generate_video_thumbnail(
+        if let Err(e) = crate::media::video_thumbnail::generate_video_thumbnails(
             app,
             &id,
             &file.dest,
             file.meta.duration,
+            Some(file.meta.width.max(file.meta.height).max(0) as u32),
         ) {
             eprintln!("[image-queue] video thumbnail failed: {}", e);
         }

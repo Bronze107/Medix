@@ -210,8 +210,13 @@ pub fn import_single_video(
             "filename": source_path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
         }),
     );
-    let _thumb_result =
-        video_thumbnail::generate_video_thumbnail(app, &id, &dest_path, metadata.duration);
+    let _thumb_result = video_thumbnail::generate_video_thumbnails(
+        app,
+        &id,
+        &dest_path,
+        metadata.duration,
+        Some(metadata.width.max(metadata.height).max(0) as u32),
+    );
 
     // 8. Insert into database (LQIP = None for video, skip pHash)
     let _ = app.emit(

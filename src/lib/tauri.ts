@@ -70,8 +70,8 @@ export function browseList(
   });
 }
 
-export function mediaThumbnail(id: string): Promise<string> {
-  return invoke("media_thumbnail", { id });
+export function mediaThumbnail(id: string, size?: number): Promise<string> {
+  return invoke("media_thumbnail", { id, size });
 }
 
 export interface ThumbnailResult {
@@ -79,8 +79,8 @@ export interface ThumbnailResult {
   path: string;
 }
 
-export function mediaThumbnailBatch(ids: string[]): Promise<ThumbnailResult[]> {
-  return invoke("media_thumbnail_batch", { ids });
+export function mediaThumbnailBatch(ids: string[], size?: number): Promise<ThumbnailResult[]> {
+  return invoke("media_thumbnail_batch", { ids, size });
 }
 
 export function mediaSoftDelete(id: string): Promise<void> {

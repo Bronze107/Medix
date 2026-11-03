@@ -3,6 +3,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { BrowseItem } from "@/types/browse";
 import { LineageBadge } from "@/components/shared/LineageBadge";
+import { BASE_TIER, pickThumbnailTier } from "@/lib/thumbnailTier";
+import { cachedSizedThumbnail, fetchSizedThumbnails } from "@/hooks/useThumbnail";
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -122,6 +124,7 @@ function Gallery({
 }: GalleryProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [sizedVersion, setSizedVersion] = useState(0);
 
   useEffect(() => {
     const el = parentRef.current;
@@ -173,6 +176,32 @@ function Gallery({
   }, [scrollToKey, selectedId, rows, virtualizer]);
 
   const virtualItems = virtualizer.getVirtualItems();
+
+  // 按可见行高拉取高档位缩略图（需求像素 = 行高 × DPR，钳制到原图内）。
+  // 防抖 150ms 合并缩放/滚动期间的高频变化；基础档由 browse_list 预填的
+  // thumb_256 秒出，高档位就绪前继续显示基础档，加载完成平滑升级。
+  useEffect(() => {
+    const dpr = window.devicePixelRatio || 1;
+    const needed = new Map<string, number>();
+    for (const v of virtualItems) {
+      const row = rows[v.index];
+      if (!row || row.type !== "media") continue;
+      for (const item of row.items) {
+        const longest = Math.max(item.width ?? 0, item.height ?? 0);
+        const tier = pickThumbnailTier(row.height * dpr, longest);
+        if (tier > BASE_TIER) {
+          needed.set(item.id, Math.max(needed.get(item.id) ?? 0, tier));
+        }
+      }
+    }
+    if (needed.size === 0) return;
+    const timer = setTimeout(() => {
+      fetchSizedThumbnails([...needed].map(([id, tier]) => ({ id, tier })))
+        .then(() => setSizedVersion((v) => v + 1))
+        .catch(() => {});
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [rows, virtualItems, sizedVersion]);
 
   return (
     <div ref={parentRef} className="h-full overflow-y-auto overflow-x-hidden">
@@ -240,6 +269,7 @@ function Gallery({
                     <div key={item.id} style={{ width: `${itemWidth}px`, flexShrink: 0 }}>
                       <ThumbnailCard
                         item={item}
+                        rowHeight={rowHeight}
                         isSelected={item.id === selectedId}
                         isMultiSelected={selectedIds.includes(item.id)}
                         onClick={() => onSelect(item)}
@@ -264,6 +294,7 @@ function Gallery({
 
 function ThumbnailCard({
   item,
+  rowHeight,
   isSelected,
   isMultiSelected,
   onClick,
@@ -273,6 +304,7 @@ function ThumbnailCard({
   onOpenLineage,
 }: {
   item: BrowseItem;
+  rowHeight: number;
   isSelected: boolean;
   isMultiSelected: boolean;
   onClick: () => void;
@@ -281,11 +313,18 @@ function ThumbnailCard({
   onToggleSelect: (shiftKey: boolean) => void;
   onOpenLineage?: () => void;
 }) {
-  const thumbUrl = item.thumb_256
-    ? convertFileSrc(item.thumb_256)
-    : item.source_path && !item.source_path.startsWith("http")
-      ? convertFileSrc(item.source_path)
-      : null;
+  // 需求像素 = CSS 行高 × DPR；档位选择会钳制到原图最长边内（不放大）。
+  // 高档位未就绪时回退基础档 thumb_256，就绪后平滑升级。
+  const dpr = window.devicePixelRatio || 1;
+  const tier = pickThumbnailTier(rowHeight * dpr, Math.max(item.width ?? 0, item.height ?? 0));
+  const sizedUrl = tier > BASE_TIER ? cachedSizedThumbnail(item.id, tier) : undefined;
+  const thumbUrl =
+    sizedUrl ??
+    (item.thumb_256
+      ? convertFileSrc(item.thumb_256)
+      : item.source_path && !item.source_path.startsWith("http")
+        ? convertFileSrc(item.source_path)
+        : null);
   const [loaded, setLoaded] = useState(false);
 
   return (
