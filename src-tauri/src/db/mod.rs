@@ -1412,17 +1412,17 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                 conn.execute_batch("PRAGMA foreign_keys = ON;")?;
             }
 
-                // 0020's index is dropped by every media rebuild and never restored.
-                // Only recreated while the column still exists — 0034 retires both
-                // for good, and a database that already ran 0034 must not fail here.
-                if table_has_column(conn, "media", "display_variant_id") {
-                    conn.execute_batch(
+            // 0020's index is dropped by every media rebuild and never restored.
+            // Only recreated while the column still exists — 0034 retires both
+            // for good, and a database that already ran 0034 must not fail here.
+            if table_has_column(conn, "media", "display_variant_id") {
+                conn.execute_batch(
                         "CREATE INDEX IF NOT EXISTS idx_media_display_variant ON media(display_variant_id);",
                     )?;
-                }
+            }
 
-                // Recorded only once the rebuilds above actually succeeded.
-                conn.execute_batch(
+            // Recorded only once the rebuilds above actually succeeded.
+            conn.execute_batch(
                     "INSERT OR IGNORE INTO _migrations (name) VALUES ('0033_repair_dangling_variant_fks');",
                 )?;
         }
@@ -4003,7 +4003,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(display_variant_index, 0, "`idx_media_display_variant` must stay dropped");
+        assert_eq!(
+            display_variant_index, 0,
+            "`idx_media_display_variant` must stay dropped"
+        );
     }
 
     /// The user-visible symptom: `media_permanent_delete` runs

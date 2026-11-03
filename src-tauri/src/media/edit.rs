@@ -7,7 +7,7 @@
 use std::fs;
 use std::path::Path;
 
-use image::{DynamicImage, ImageDecoder, ImageEncoder, ImageReader};
+use image::{DynamicImage, ImageDecoder, ImageReader};
 use tauri::{AppHandle, Manager};
 
 use super::Media;
@@ -111,21 +111,9 @@ pub fn save_image_as_derivative(
     let file_path = library_dir.join(format!("{}.{}", id, ext));
 
     let (width, height) = (image.width(), image.height());
-    let mut output = Vec::new();
-    match ext {
-        "jpg" | "jpeg" => {
-            let rgb = image.to_rgb8();
-            let mut encoder =
-                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, quality);
-            encoder.encode_image(&rgb)?;
-        }
-        "png" => {
-            let rgba = image.to_rgba8();
-            let encoder = image::codecs::png::PngEncoder::new(&mut output);
-            encoder.write_image(&rgba, width, height, image::ExtendedColorType::Rgba8)?;
-        }
-        _ => return Err(format!("Unsupported format: {}", format).into()),
-    }
+    // Encoding lives in transform::encode_image_bytes so the dataset export
+    // pipeline renders derivatives with byte-identical settings.
+    let output = super::transform::encode_image_bytes(image, ext, quality)?;
 
     fs::write(&file_path, &output)?;
     let media = derivative_row(
