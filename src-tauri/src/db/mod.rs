@@ -1289,8 +1289,9 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                 || table_ddl_mentions_variants(conn, "captions");
             let embeddings_broken = table_has_column(conn, "embeddings", "variant_id")
                 || table_ddl_mentions_variants(conn, "embeddings");
-            // media deliberately keeps its display_variant_id column (it is still
-            // selected into Media::display_variant_id); only the FK goes away.
+            // media deliberately keeps its display_variant_id column here (0029's
+            // rebuild SELECTs it by name, so the chain breaks if it vanishes);
+            // 0034 drops it once, at the very end. Only the FK goes away now.
             let media_broken = table_ddl_mentions_variants(conn, "media");
 
             if media_tags_broken || captions_broken || embeddings_broken || media_broken {
@@ -1411,15 +1412,131 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), Box<dyn std::error::E
                 conn.execute_batch("PRAGMA foreign_keys = ON;")?;
             }
 
-            // 0020's index is dropped by every media rebuild and never restored.
+                // 0020's index is dropped by every media rebuild and never restored.
+                // Only recreated while the column still exists — 0034 retires both
+                // for good, and a database that already ran 0034 must not fail here.
+                if table_has_column(conn, "media", "display_variant_id") {
+                    conn.execute_batch(
+                        "CREATE INDEX IF NOT EXISTS idx_media_display_variant ON media(display_variant_id);",
+                    )?;
+                }
+
+                // Recorded only once the rebuilds above actually succeeded.
+                conn.execute_batch(
+                    "INSERT OR IGNORE INTO _migrations (name) VALUES ('0033_repair_dangling_variant_fks');",
+                )?;
+        }
+    }
+
+    // 0034_dataset_recipes
+    // Two things happen here:
+    //
+    // 1. The dataset feature gets its schema: one export recipe per collection
+    //    (caption source + naming template), ordered spec rules per recipe
+    //    (resize/format/quality), and per-item overrides (NULL fields mean
+    //    "follow the recipe").
+    //
+    // 2. media.display_variant_id is finally dropped. 0028 removed the variants
+    //    table but kept the column "for struct compatibility"; nothing has
+    //    written to it since and Media no longer has the field. The column
+    //    cannot simply be removed from the earlier migrations: 0029's media
+    //    rebuild SELECTs it by name on fresh databases (gated on
+    //    captions.variant_id, which 0013 always creates), and 0020 creates an
+    //    index on it. So the column keeps being created mid-chain and is
+    //    dropped exactly once, here, at the end.
+    {
+        let mig_applied: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = '0034_dataset_recipes'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !mig_applied {
             conn.execute_batch(
-                "CREATE INDEX IF NOT EXISTS idx_media_display_variant ON media(display_variant_id);",
+                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0034_dataset_recipes');
+                 CREATE TABLE IF NOT EXISTS dataset_export_recipes (
+                     id TEXT PRIMARY KEY,
+                     collection_id TEXT NOT NULL UNIQUE,
+                     caption_mode TEXT NOT NULL DEFAULT 'all',
+                     naming_template TEXT NOT NULL DEFAULT '{stem}',
+                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                     FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+                 );
+                 CREATE TABLE IF NOT EXISTS dataset_recipe_rules (
+                     id TEXT PRIMARY KEY,
+                     recipe_id TEXT NOT NULL,
+                     position INTEGER NOT NULL DEFAULT 0,
+                     label TEXT,
+                     format TEXT NOT NULL DEFAULT 'jpeg',
+                     quality INTEGER NOT NULL DEFAULT 85,
+                     max_width INTEGER,
+                     max_height INTEGER,
+                     resize_filter TEXT NOT NULL DEFAULT 'triangle',
+                     FOREIGN KEY (recipe_id) REFERENCES dataset_export_recipes(id) ON DELETE CASCADE
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_dataset_recipe_rules_recipe
+                     ON dataset_recipe_rules(recipe_id);
+                 CREATE TABLE IF NOT EXISTS dataset_item_overrides (
+                     collection_id TEXT NOT NULL,
+                     media_id TEXT NOT NULL,
+                     caption_mode TEXT,
+                     enabled_rules TEXT,
+                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                     PRIMARY KEY (collection_id, media_id),
+                     FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+                     FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_dataset_item_overrides_col
+                     ON dataset_item_overrides(collection_id);",
             )?;
 
-            // Recorded only once the rebuilds above actually succeeded.
-            conn.execute_batch(
-                "INSERT OR IGNORE INTO _migrations (name) VALUES ('0033_repair_dangling_variant_fks');",
-            )?;
+            // Drop media.display_variant_id (and 0020's index with it) via the
+            // same table-rebuild pattern 0033 uses. Guarded so a database that
+            // somehow lacks the column skips straight to the marker.
+            if table_has_column(conn, "media", "display_variant_id") {
+                // PRAGMA foreign_keys is a no-op inside a transaction, so it has
+                // to be toggled outside the one below.
+                conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+                {
+                    let tx = conn.transaction()?;
+                    tx.execute_batch(
+                        "DROP TABLE IF EXISTS media_new_0034;
+                         CREATE TABLE media_new_0034 (
+                             id TEXT PRIMARY KEY, source_path TEXT, phash BLOB,
+                             width INTEGER, height INTEGER, file_size INTEGER,
+                             created_at TIMESTAMP, modified_at TIMESTAMP,
+                             imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                             source_url TEXT, page_url TEXT, source TEXT,
+                             deleted_at TEXT, sha256 TEXT,
+                             lqip TEXT,
+                             media_type TEXT DEFAULT 'image',
+                             duration REAL, video_codec TEXT, video_fps REAL
+                         );
+                         INSERT INTO media_new_0034
+                             SELECT id, source_path, phash, width, height, file_size,
+                                    created_at, modified_at, imported_at,
+                                    source_url, page_url, source,
+                                    deleted_at, sha256,
+                                    lqip, media_type, duration, video_codec, video_fps
+                             FROM media;
+                         DROP TABLE media;
+                         ALTER TABLE media_new_0034 RENAME TO media;
+                         CREATE INDEX IF NOT EXISTS idx_media_imported_at ON media(imported_at);
+                         CREATE INDEX IF NOT EXISTS idx_media_created_at ON media(created_at);
+                         CREATE INDEX IF NOT EXISTS idx_media_type ON media(media_type);
+                         CREATE INDEX IF NOT EXISTS idx_media_sha256 ON media(sha256);
+                         CREATE INDEX IF NOT EXISTS idx_media_deleted_at ON media(deleted_at);
+                         CREATE INDEX IF NOT EXISTS idx_media_deleted_imported ON media(deleted_at, imported_at);",
+                    )?;
+                    tx.commit()?;
+                }
+                conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+                // idx_media_display_variant dies with the old table and is
+                // deliberately not recreated.
+            }
         }
     }
 
@@ -1652,7 +1769,7 @@ pub fn media_list_by_collection(
         "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
                 m.created_at, m.modified_at, m.imported_at,
                 m.source_url, m.page_url, m.source, m.sha256, m.deleted_at,
-                m.display_variant_id, m.lqip,
+                m.lqip,
                 m.media_type, m.duration, m.video_codec, m.video_fps
          FROM media m
          JOIN collection_items ci ON ci.media_id = m.id
@@ -1678,12 +1795,11 @@ pub fn media_list_by_collection(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
-            display_variant_id: row.get(13)?,
-            lqip: row.get(14)?,
-            media_type: row.get(15)?,
-            duration: row.get(16)?,
-            video_codec: row.get(17)?,
-            video_fps: row.get(18)?,
+            lqip: row.get(13)?,
+            media_type: row.get(14)?,
+            duration: row.get(15)?,
+            video_codec: row.get(16)?,
+            video_fps: row.get(17)?,
             thumb_256: None,
         })
     })?;
@@ -1728,7 +1844,7 @@ pub fn media_get_by_sha256(
 ) -> Result<Option<Media>, Box<dyn std::error::Error>> {
     let conn = get_conn(app)?;
     let mut stmt = conn.prepare(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip,
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, lqip,
                 media_type, duration, video_codec, video_fps
          FROM media WHERE sha256 = ?1 AND deleted_at IS NULL LIMIT 1",
     )?;
@@ -1748,12 +1864,11 @@ pub fn media_get_by_sha256(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
-            display_variant_id: row.get(13)?,
-            lqip: row.get(14)?,
-            media_type: row.get(15)?,
-            duration: row.get(16)?,
-            video_codec: row.get(17)?,
-            video_fps: row.get(18)?,
+            lqip: row.get(13)?,
+            media_type: row.get(14)?,
+            duration: row.get(15)?,
+            video_codec: row.get(16)?,
+            video_fps: row.get(17)?,
             thumb_256: None,
         })
     })?;
@@ -1830,7 +1945,7 @@ pub fn list_media_path(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip,
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, lqip,
                 media_type, duration, video_codec, video_fps
          FROM media
          WHERE deleted_at IS NULL
@@ -1856,12 +1971,11 @@ pub fn list_media_path(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
-            display_variant_id: row.get(13)?,
-            lqip: row.get(14)?,
-            media_type: row.get(15)?,
-            duration: row.get(16)?,
-            video_codec: row.get(17)?,
-            video_fps: row.get(18)?,
+            lqip: row.get(13)?,
+            media_type: row.get(14)?,
+            duration: row.get(15)?,
+            video_codec: row.get(16)?,
+            video_fps: row.get(17)?,
             thumb_256: None,
         })
     })?;
@@ -2250,7 +2364,7 @@ pub fn media_get_batch(
     let conn = get_conn(app)?;
     let placeholders: Vec<String> = (0..ids.len()).map(|i| format!("?{}", i + 1)).collect();
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip,
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, lqip,
                 media_type, duration, video_codec, video_fps
          FROM media WHERE deleted_at IS NULL AND id IN ({})",
         placeholders.join(",")
@@ -2276,12 +2390,11 @@ pub fn media_get_batch(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
-            display_variant_id: row.get(13)?,
-            lqip: row.get(14)?,
-            media_type: row.get(15)?,
-            duration: row.get(16)?,
-            video_codec: row.get(17)?,
-            video_fps: row.get(18)?,
+            lqip: row.get(13)?,
+            media_type: row.get(14)?,
+            duration: row.get(15)?,
+            video_codec: row.get(16)?,
+            video_fps: row.get(17)?,
             thumb_256: None,
         })
     })?;
@@ -2587,7 +2700,7 @@ pub fn media_search_by_tags_path(
 
     let sql = match mode {
         TagSearchMode::Intersection => format!(
-            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip,
+            "SELECT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.lqip,
                     m.media_type, m.duration, m.video_codec, m.video_fps
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
@@ -2599,7 +2712,7 @@ pub fn media_search_by_tags_path(
             name_condition, tag_names.len(), sort_column, order
         ),
         TagSearchMode::Union => format!(
-            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.display_variant_id, m.lqip,
+            "SELECT DISTINCT m.id, m.source_path, m.width, m.height, m.file_size, m.created_at, m.modified_at, m.imported_at, m.source_url, m.page_url, m.source, m.sha256, m.deleted_at, m.lqip,
                     m.media_type, m.duration, m.video_codec, m.video_fps
              FROM media m
              JOIN media_tags mt ON m.id = mt.media_id
@@ -2636,12 +2749,11 @@ pub fn media_search_by_tags_path(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
-            display_variant_id: row.get(13)?,
-            lqip: row.get(14)?,
-            media_type: row.get(15)?,
-            duration: row.get(16)?,
-            video_codec: row.get(17)?,
-            video_fps: row.get(18)?,
+            lqip: row.get(13)?,
+            media_type: row.get(14)?,
+            duration: row.get(15)?,
+            video_codec: row.get(16)?,
+            video_fps: row.get(17)?,
             thumb_256: None,
         })
     })?;
@@ -2878,7 +2990,7 @@ pub fn media_query_filtered_path(
         "SELECT m.id, m.source_path, m.width, m.height, m.file_size,
                 m.created_at, m.modified_at, m.imported_at,
                 m.source_url, m.page_url, m.source, m.sha256, m.deleted_at,
-                m.display_variant_id, m.lqip,
+                m.lqip,
                 m.media_type, m.duration, m.video_codec, m.video_fps
          FROM media m {} ORDER BY {} {}",
         where_clause, sort_column, order
@@ -2906,12 +3018,11 @@ pub fn media_query_filtered_path(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
-            display_variant_id: row.get(13)?,
-            lqip: row.get(14)?,
-            media_type: row.get(15)?,
-            duration: row.get(16)?,
-            video_codec: row.get(17)?,
-            video_fps: row.get(18)?,
+            lqip: row.get(13)?,
+            media_type: row.get(14)?,
+            duration: row.get(15)?,
+            video_codec: row.get(16)?,
+            video_fps: row.get(17)?,
             thumb_256: None,
         })
     })?;
@@ -3591,7 +3702,7 @@ pub fn media_list_trash(
     };
 
     let sql = format!(
-        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, display_variant_id, lqip,
+        "SELECT id, source_path, width, height, file_size, created_at, modified_at, imported_at, source_url, page_url, source, sha256, deleted_at, lqip,
                 media_type, duration, video_codec, video_fps
          FROM media
          WHERE deleted_at IS NOT NULL
@@ -3616,12 +3727,11 @@ pub fn media_list_trash(
             source: row.get(10)?,
             sha256: row.get(11)?,
             deleted_at: row.get(12)?,
-            display_variant_id: row.get(13)?,
-            lqip: row.get(14)?,
-            media_type: row.get(15)?,
-            duration: row.get(16)?,
-            video_codec: row.get(17)?,
-            video_fps: row.get(18)?,
+            lqip: row.get(13)?,
+            media_type: row.get(14)?,
+            duration: row.get(15)?,
+            video_codec: row.get(16)?,
+            video_fps: row.get(17)?,
             thumb_256: None,
         })
     })?;
@@ -3884,8 +3994,16 @@ mod tests {
         assert!(!table_has_column(&conn, "media_tags", "variant_id"));
         assert!(!table_has_column(&conn, "captions", "variant_id"));
         assert!(!table_has_column(&conn, "embeddings", "variant_id"));
-        // media keeps the column, only its FK is gone.
-        assert!(table_has_column(&conn, "media", "display_variant_id"));
+        // 0034 drops the dead display_variant_id column (and 0020's index) entirely.
+        assert!(!table_has_column(&conn, "media", "display_variant_id"));
+        let display_variant_index: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_media_display_variant'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(display_variant_index, 0, "`idx_media_display_variant` must stay dropped");
     }
 
     /// The user-visible symptom: `media_permanent_delete` runs
@@ -4646,6 +4764,9 @@ mod tests {
             "settings",
             "media_lineage",
             "comfyui_workflows",
+            "dataset_export_recipes",
+            "dataset_recipe_rules",
+            "dataset_item_overrides",
         ];
 
         for table in &expected {

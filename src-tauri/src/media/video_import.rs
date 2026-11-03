@@ -238,7 +238,6 @@ pub fn import_single_video(
         phash: None,
         sha256,
         deleted_at: None,
-        display_variant_id: None,
         thumb_256: None,
         lqip: None,
         media_type: Some("video".to_string()),

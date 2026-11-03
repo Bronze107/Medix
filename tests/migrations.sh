@@ -37,8 +37,8 @@ check "captions 无 variant_id" \
 check "embeddings 无 variant_id" \
   "0" \
   "$(q "SELECT COUNT(*) FROM pragma_table_info('embeddings') WHERE name='variant_id'")"
-check "media 保留 display_variant_id 列" \
-  "1" \
+check "media 已删除 display_variant_id 列 (0034)" \
+  "0" \
   "$(q "SELECT COUNT(*) FROM pragma_table_info('media') WHERE name='display_variant_id'")"
 
 # ============================================================

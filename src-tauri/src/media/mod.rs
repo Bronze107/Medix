@@ -29,7 +29,6 @@ pub struct Media {
     pub phash: Option<Vec<u8>>,
     pub sha256: Option<String>,
     pub deleted_at: Option<String>,
-    pub display_variant_id: Option<String>,
     pub thumb_256: Option<String>,
     pub lqip: Option<String>,
     pub media_type: Option<String>,

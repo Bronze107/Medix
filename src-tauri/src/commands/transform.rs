@@ -221,7 +221,6 @@ pub fn media_import_derivative(
         phash: None,
         sha256: None,
         deleted_at: None,
-        display_variant_id: None,
         thumb_256: None,
         lqip: None,
         media_type: Some("image".into()),

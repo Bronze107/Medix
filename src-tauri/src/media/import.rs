@@ -415,7 +415,6 @@ fn import_single_file(
         phash,
         sha256,
         deleted_at: None,
-        display_variant_id: None,
         thumb_256: None,
         lqip,
         media_type: None,
