@@ -11,6 +11,8 @@ interface LightboxProps {
   onNavigate: (index: number) => void;
   /** 请求裁剪某张图。由父组件渲染编辑器（本组件在关闭时会卸载）。 */
   onCrop: (mediaId: string) => void;
+  /** 以对比模式打开（网格多选「对比」入口）。仅在挂载时生效。 */
+  initialCompare?: { leftId: string; rightId: string } | null;
 }
 
 type CompareMode = "side-by-side" | "slider";
@@ -23,18 +25,24 @@ type ViewState =
 function FilmstripThumb({
   item,
   isActive,
+  slotBadge,
   onClick,
 }: {
   item: Media;
   isActive: boolean;
-  onClick: () => void;
+  slotBadge?: "A" | "B" | null;
+  onClick: (shiftKey: boolean) => void;
 }) {
   const url = useThumbnail(item.id);
   return (
     <button
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className={`flex-shrink-0 overflow-hidden rounded transition-all duration-200 ${
-        isActive
+      onClick={(e) => { e.stopPropagation(); onClick(e.shiftKey); }}
+      className={`relative flex-shrink-0 overflow-hidden rounded transition-all duration-200 ${
+        slotBadge === "A"
+          ? "ring-2 ring-[var(--color-accent)]"
+          : slotBadge === "B"
+          ? "ring-2 ring-[var(--color-success)]"
+          : isActive
           ? "ring-2 ring-[var(--color-accent)] scale-100"
           : "opacity-50 hover:opacity-100"
       }`}
@@ -43,6 +51,15 @@ function FilmstripThumb({
         <img src={url} alt="" className="h-16 w-16 object-cover" draggable={false} decoding="async" />
       ) : (
         <div className="h-16 w-16 bg-white/10" />
+      )}
+      {slotBadge && (
+        <span
+          className={`absolute left-0.5 top-0.5 rounded px-1 text-[11px] font-semibold text-white ${
+            slotBadge === "A" ? "bg-[var(--color-accent)]" : "bg-[var(--color-success)]"
+          }`}
+        >
+          {slotBadge}
+        </span>
       )}
     </button>
   );
@@ -54,41 +71,109 @@ function Filmstrip({
   comparePinned,
   onNavigate,
   onEnterCompare,
+  compare = false,
+  leftId,
+  rightId,
+  onSetSlot,
 }: {
   media: Media[];
   currentIndex: number;
   comparePinned: string | null;
   onNavigate: (index: number) => void;
   onEnterCompare: (rightId: string) => void;
+  /** 对比模式：B 槽为锚点加大窗口，点击换 B 槽、Shift 点击换 A 槽 */
+  compare?: boolean;
+  leftId?: string;
+  rightId?: string;
+  onSetSlot?: (slot: "A" | "B", id: string) => void;
 }) {
-  const start = Math.max(0, currentIndex - 3);
-  const end = Math.min(media.length, currentIndex + 4);
+  const anchorIndex = compare
+    ? Math.max(0, media.findIndex((m) => m.id === rightId))
+    : currentIndex;
+  const windowSize = compare ? 10 : 3;
+  const start = Math.max(0, anchorIndex - windowSize);
+  const end = Math.min(media.length, anchorIndex + windowSize + 1);
   const visible = media.slice(start, end);
 
   return (
-    <div className="flex items-center justify-center gap-1 px-3 py-2">
-      {visible.map((m, i) => (
-        <FilmstripThumb
-          key={m.id}
-          item={m}
-          isActive={start + i === currentIndex}
-          onClick={() => {
-            if (comparePinned && m.id !== comparePinned) {
-              onEnterCompare(m.id);
-            } else {
-              onNavigate(start + i);
-            }
-          }}
-        />
-      ))}
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className={`flex items-center gap-1 px-3 py-2 ${compare ? "justify-start overflow-x-auto" : "justify-center"}`}
+    >
+      {visible.map((m, i) => {
+        const index = start + i;
+        const slot = compare ? (m.id === leftId ? "A" as const : m.id === rightId ? "B" as const : null) : null;
+        return (
+          <FilmstripThumb
+            key={m.id}
+            item={m}
+            isActive={slot === null && index === currentIndex}
+            slotBadge={slot}
+            onClick={(shiftKey) => {
+              if (compare) {
+                if (!onSetSlot) return;
+                if (shiftKey) {
+                  if (m.id !== rightId) onSetSlot("A", m.id);
+                } else if (m.id !== leftId) {
+                  onSetSlot("B", m.id);
+                }
+              } else if (comparePinned && m.id !== comparePinned) {
+                onEnterCompare(m.id);
+              } else {
+                onNavigate(index);
+              }
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
 
-function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: LightboxProps) {
+/** 已固定图片浮卡（③）：翻页持续显示，Enter 与当前图发起对比 */
+function PinnedCard({
+  pinnedId,
+  onCancel,
+}: {
+  pinnedId: string;
+  onCancel: () => void;
+}) {
+  const url = useThumbnail(pinnedId);
+  return (
+    <div
+      className="absolute bottom-24 right-4 z-30 flex items-center gap-2 rounded-xl border border-[var(--color-accent)]/50 bg-[var(--color-bg-elevated)]/95 p-2 shadow-2xl backdrop-blur-xl animate-fade-in"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {url ? (
+        <img src={url} alt="" className="h-12 w-12 rounded-lg object-cover" draggable={false} />
+      ) : (
+        <div className="h-12 w-12 rounded-lg bg-white/10" />
+      )}
+      <div className="pr-1">
+        <p className="text-xs font-medium text-[var(--color-text-primary)]">已固定 A 槽</p>
+        <p className="text-[11px] text-[var(--color-text-muted)]">Enter 与当前图对比</p>
+      </div>
+      <button
+        onClick={onCancel}
+        className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+        title="取消固定"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop, initialCompare }: LightboxProps) {
   const item = media[currentIndex];
   const [fileUrlCache, setFileUrlCache] = useState<Record<string, string>>({});
-  const [viewState, setViewState] = useState<ViewState>({ type: "single", activeId: null });
+  const [viewState, setViewState] = useState<ViewState>(() =>
+    initialCompare
+      ? { type: "compare", leftId: initialCompare.leftId, rightId: initialCompare.rightId, mode: "side-by-side" }
+      : { type: "single", activeId: null },
+  );
   const [comparePinned, setComparePinned] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -111,14 +196,19 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id]);
 
-  // Reset view state and zoom on item change
+  // Reset zoom on item change. 导航不销毁对比状态和 pin：对比模式下 ←/→ 滑动
+  // B 槽依赖 onNavigate 更新 currentIndex，pin 则跨越翻页持续有效。
   useEffect(() => {
     setScale(1);
     setOffset({ x: 0, y: 0 });
-    setComparePinned(null);
     if (!item) return;
-    setViewState({ type: "single", activeId: item.id });
-  }, [item]);
+    setViewState((prev) =>
+      prev.type === "single" && prev.activeId !== item.id
+        ? { type: "single", activeId: item.id }
+        : prev,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id]);
 
   // Resolve any media ID to a file URL via the cache
   function getFilePath(mediaId: string | null): string | null {
@@ -150,6 +240,17 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
     });
   }, [comparePinned]);
 
+  // 对比模式底条换槽（②）
+  const handleSetSlot = useCallback((slot: "A" | "B", id: string) => {
+    setViewState((prev) =>
+      prev.type === "compare"
+        ? slot === "A"
+          ? { ...prev, leftId: id }
+          : { ...prev, rightId: id }
+        : prev,
+    );
+  }, []);
+
   // Pre-load compare image URLs when entering compare mode
   const compareIds = viewState.type === "compare"
     ? `${viewState.leftId}|${viewState.rightId}`
@@ -170,6 +271,22 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compareIds]);
+
+  // ---- compare B-slot stepping (②)：A 槽钉住，←/→ 让 B 槽沿整个列表滑动 ----
+  const stepCompareSlot = useCallback(
+    (dir: 1 | -1) => {
+      if (viewState.type !== "compare") return;
+      const rightIdx = media.findIndex((m) => m.id === viewState.rightId);
+      let idx = rightIdx;
+      do {
+        idx += dir;
+      } while (idx >= 0 && idx < media.length && media[idx].id === viewState.leftId);
+      if (idx < 0 || idx >= media.length) return;
+      onNavigate(idx);
+      setViewState({ ...viewState, rightId: media[idx].id });
+    },
+    [media, onNavigate, viewState],
+  );
 
   // Keyboard
   useEffect(() => {
@@ -193,9 +310,17 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
             onClose();
           }
           break;
+        case "Enter":
+          // pin 存活时，Enter 与当前图发起对比（③）
+          if (viewState.type === "single" && comparePinned && item?.id && comparePinned !== item.id) {
+            e.preventDefault();
+            handleEnterCompare(item.id);
+          }
+          break;
         case "ArrowLeft":
           if (viewState.type === "compare") {
-            if (currentIndex > 0) onNavigate(currentIndex - 1);
+            e.preventDefault();
+            stepCompareSlot(-1);
           } else if (getActiveMediaType(activeId) === "video" && videoRef.current) {
             e.preventDefault();
             videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
@@ -205,7 +330,8 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
           break;
         case "ArrowRight":
           if (viewState.type === "compare") {
-            if (currentIndex < media.length - 1) onNavigate(currentIndex + 1);
+            e.preventDefault();
+            stepCompareSlot(1);
           } else if (getActiveMediaType(activeId) === "video" && videoRef.current) {
             e.preventDefault();
             videoRef.current.currentTime = Math.min(
@@ -229,7 +355,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [currentIndex, media.length, onClose, onNavigate, viewState, activeId, getActiveMediaType, item]);
+  }, [currentIndex, media.length, onClose, onNavigate, viewState, activeId, getActiveMediaType, item, comparePinned, handleEnterCompare, stepCompareSlot]);
 
   // Mouse wheel zoom — cursor-relative (single view only)
   const handleWheel = useCallback(
@@ -406,7 +532,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
                     ? "bg-[var(--color-accent)] text-white"
                     : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
                 }`}
-                title={comparePinned ? "已固定当前图片，点击另一张开始对比" : "固定当前图片进行对比"}
+                title={comparePinned ? "已固定 A 槽 — Enter 与当前图对比，或点击底条选另一张" : "固定当前图片进行对比"}
               >
                 {comparePinned ? "已固定" : "对比"}
               </button>
@@ -460,7 +586,7 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
                 退出对比
               </button>
 
-              <span className="ml-1 text-[11px] text-white/30">点击空白退出对比</span>
+              <span className="ml-1 text-[11px] text-white/30">←/→ 换 B 槽 · Tab 切模式 · 点击空白退出</span>
             </div>
           )}
         </div>
@@ -565,13 +691,13 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
                   </svg>
                 </div>
               </div>
-              <div className="pointer-events-none absolute bottom-4 left-0 right-0 text-center">
+              <div className="pointer-events-none absolute bottom-24 left-0 right-0 text-center">
                 <span className="rounded bg-black/50 px-2 py-1 text-[11px] text-white/50">
                   {compareLeft?.slice(0, 8)} ← → {compareRight?.slice(0, 8)}
                 </span>
               </div>
               {item?.media_type === "video" && (
-                <p className="absolute bottom-20 left-0 right-0 pointer-events-none text-center text-[11px] text-[var(--color-text-muted)]">
+                <p className="absolute bottom-36 left-0 right-0 pointer-events-none text-center text-[11px] text-[var(--color-text-muted)]">
                   视频对比 — 叠加预览
                 </p>
               )}
@@ -601,8 +727,8 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
         )}
       </div>
 
-      {/* Filmstrip — only in single view, when not comparing */}
-      {viewState.type !== "compare" && media.length > 1 && (
+      {/* Filmstrip — 单图模式导航；对比模式换 A/B 槽（窗口更大） */}
+      {media.length > 1 && (
         <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/60 backdrop-blur-sm">
           <Filmstrip
             media={media}
@@ -610,8 +736,17 @@ function Lightbox({ media, currentIndex, onClose, onNavigate, onCrop }: Lightbox
             comparePinned={comparePinned}
             onNavigate={onNavigate}
             onEnterCompare={handleEnterCompare}
+            compare={viewState.type === "compare"}
+            leftId={compareLeft}
+            rightId={compareRight}
+            onSetSlot={handleSetSlot}
           />
         </div>
+      )}
+
+      {/* Pinned float card — pin 跨翻页持续有效（③） */}
+      {viewState.type === "single" && comparePinned && (
+        <PinnedCard pinnedId={comparePinned} onCancel={() => setComparePinned(null)} />
       )}
 
       {/* Prev/Next — only in single view */}

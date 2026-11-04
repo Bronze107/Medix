@@ -98,6 +98,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
   const [aiEditMediaIds, setAiEditMediaIds] = useState<string[] | null>(null);
   const [cropMediaId, setCropMediaId] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // 多选「对比」入口：以对比模式打开 Lightbox（media_id，挂载时生效）
+  const [initialCompare, setInitialCompare] = useState<{ leftId: string; rightId: string } | null>(null);
   const [aiRemaining, setAiRemaining] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => (sessionStorage.getItem("view_mode") as ViewMode) || "grid"
@@ -479,6 +481,31 @@ function AllMedia({ collectionId }: AllMediaProps) {
   selectedIdsRef2.current = selectedIds;
   const displayItemsRef = useRef(displayItems);
   displayItemsRef.current = displayItems;
+
+  // 多选「对比」（①）：恰好选中 2 张且都在当前显示列表内时可用，
+  // 以对比模式打开 Lightbox（A 槽为选择顺序中的第一张）
+  const compareSelectionItems = useMemo(
+    () =>
+      Array.from(selectedIds)
+        .map((id) => displayItems.find((it) => it.id === id))
+        .filter((it): it is BrowseItem => Boolean(it))
+        .slice(0, 2),
+    [selectedIds, displayItems],
+  );
+  const canCompareSelection =
+    compareSelectionItems.length === 2 &&
+    selectedIds.size === 2 &&
+    // 同一媒体的两个衍生行（media_id 相同）没有对比意义
+    compareSelectionItems[0].media_id !== compareSelectionItems[1].media_id;
+  const openCompare = useCallback(() => {
+    if (compareSelectionItems.length < 2) return;
+    setInitialCompare({
+      leftId: compareSelectionItems[0].media_id,
+      rightId: compareSelectionItems[1].media_id,
+    });
+    setLightboxIndex(displayItems.indexOf(compareSelectionItems[0]));
+  }, [compareSelectionItems, displayItems]);
+
   const selectedItemRef = useRef(selectedItem);
   selectedItemRef.current = selectedItem;
   const detailCollapsedRef = useRef(detailCollapsed);
@@ -990,6 +1017,15 @@ function AllMedia({ collectionId }: AllMediaProps) {
               title="用所选图片进行 AI 编辑（视频将被忽略）"
             >
               AI 编辑（{aiEditImageCount}）
+            </button>
+          )}
+          {canCompareSelection && (
+            <button
+              onClick={openCompare}
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
+              title="并排对比这两张图"
+            >
+              对比
             </button>
           )}
           <button
@@ -1575,6 +1611,17 @@ function AllMedia({ collectionId }: AllMediaProps) {
               >
                 取消选中
               </button>
+              {canCompareSelection && (
+                <button
+                  onClick={() => { setCtxMenu(null); openCompare(); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-hover)]"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                  </svg>
+                  对比这两张图
+                </button>
+              )}
               <button
                 onClick={() => {
                   setDeleteConfirm("batch");
@@ -1628,7 +1675,8 @@ function AllMedia({ collectionId }: AllMediaProps) {
             video_codec: it.video_codec, video_fps: it.video_fps,
           } as Media))}
           currentIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
+          initialCompare={initialCompare}
+          onClose={() => { setLightboxIndex(null); setInitialCompare(null); }}
           onNavigate={(idx) => setLightboxIndex(idx)}
           onCrop={(id) => setCropMediaId(id)}
         />
